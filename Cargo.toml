@@ -1,5 +1,7 @@
 [workspace]
 
 members = [
-    "geph4-binder"
-]
+    "geph4-binder",
+    "lib/tundevice",
+    "geph4-vpntest"
+] 

@@ -1,0 +1,16 @@
+[package]
+name = "tundevice"
+version = "0.1.0"
+authors = ["nullchinchilla <nullchinchilla@pm.me>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+blocking = "1"
+smol="1"
+bytes="0.5"
+
+
+[build-dependencies]
+cc = "1.0"

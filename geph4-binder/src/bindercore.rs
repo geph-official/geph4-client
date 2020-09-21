@@ -21,7 +21,7 @@ impl BinderCore {
                 &[&username],
             )
             .map_err(|_| BinderError::DatabaseFailed)?;
-        if rows.len() == 0 {
+        if rows.is_empty() {
             return Err(BinderError::NoUserFound);
         }
         let row = &rows[0];
