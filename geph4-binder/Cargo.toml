@@ -10,3 +10,4 @@ edition = "2018"
 postgres = "0.17.5"
 anyhow = "1.0.32"
 libsodium-sys = "0.2.6"
+binder_transport = {path="../lib/binder_transport"}

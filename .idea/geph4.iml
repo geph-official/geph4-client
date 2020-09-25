@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="JAVA_MODULE" version="4">
+  <component name="NewModuleRootManager" inherit-compiler-output="true">
+    <exclude-output />
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/lib/sosistab/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/lib/sosistab/examples" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/lib/notun/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/lib/binder_transport/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/geph4-vpntest/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/lib/tundevice/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/geph4-binder/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/lib/mizaru/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/lib/sosistab/target" />
+      <excludeFolder url="file://$MODULE_DIR$/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>

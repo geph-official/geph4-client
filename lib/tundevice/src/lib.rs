@@ -1,12 +1,10 @@
 use bytes::Bytes;
 use smol::channel::{Receiver, Sender};
 use std::io::prelude::*;
+use std::os::unix::io::AsRawFd;
 use std::{ffi::CStr, process::Command};
 use std::{fs, io, os::raw::c_int};
-use std::{
-    net::IpAddr,
-    os::{raw::c_char, unix::io::AsRawFd},
-};
+use std::{net::IpAddr, os::raw::c_char};
 
 use fs::OpenOptions;
 extern "C" {
@@ -54,7 +52,7 @@ impl TunDevice {
         let mut fd2 = fd.try_clone().unwrap();
         std::thread::spawn(move || {
             let mut buf = [0u8; 2048];
-            loop {
+            for _ in 0.. {
                 let n = fd1.read(&mut buf).ok()?;
                 smol::future::block_on(send_read.send(Bytes::copy_from_slice(&buf[..n]))).ok()?
                 // if send_read
@@ -67,7 +65,7 @@ impl TunDevice {
             Some(())
         });
         std::thread::spawn(move || {
-            loop {
+            for _ in 0.. {
                 let bts = smol::future::block_on(recv_write.recv()).ok()?;
                 fd2.write(&bts).ok()?;
                 fd2.flush().ok()?;
@@ -119,6 +117,24 @@ impl TunDevice {
             .send(Bytes::copy_from_slice(to_write))
             .await
             .ok()
+    }
+
+    /// Route all traffic through this device.
+    pub fn route_traffic(&mut self, gateway_ip: IpAddr) {
+        assert!(std::env::consts::OS == "linux");
+        Command::new("/usr/bin/env")
+            .args(&[
+                "ip",
+                "route",
+                "add",
+                "default",
+                "via",
+                &gateway_ip.to_string(),
+                "dev",
+                &self.name,
+            ])
+            .output()
+            .expect("cannot run route command");
     }
 }
 

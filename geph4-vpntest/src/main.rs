@@ -1,10 +1,10 @@
-use std::{convert::TryInto, sync::Arc, time::Instant};
+use std::{convert::TryInto, sync::Arc};
 
 use async_net::SocketAddr;
-use async_rwlock::RwLock;
 use etherparse::{SlicedPacket, TransportSlice};
 use governor::{Quota, RateLimiter};
 use nonzero_ext::nonzero;
+use smol::prelude::*;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -96,7 +96,19 @@ async fn handle_server_client(session: sosistab::Session, tun_device: Arc<tundev
 fn main_client(server_addr: SocketAddr, server_pk: String) {
     let mut tun_device = tundevice::TunDevice::new_from_os("tun-geph").unwrap();
     tun_device.assign_ip("100.64.89.11".parse().unwrap());
+    // tun_device.route_traffic("100.64.89.10".parse().unwrap());
     let tun_device = Arc::new(tun_device);
+
+    // smol::block_on(async move {
+    //     let mut stream = notun::tcp_connect("checkip.amazonaws.com:80")
+    //         .await
+    //         .unwrap();
+    //     let req = b"GET / HTTP/1.1\r\nHost: checkip.amazonaws.com\r\nConnection: close\r\n\r\n";
+    //     stream.write_all(req).await.unwrap();
+
+    //     let mut stdout = smol::Unblock::new(std::io::stdout());
+    //     smol::io::copy(stream, &mut stdout).await.unwrap();
+    // })
 
     async_global_executor::block_on(async move {
         let server_pk: [u8; 32] = hex::decode(server_pk)
@@ -105,7 +117,17 @@ fn main_client(server_addr: SocketAddr, server_pk: String) {
             .try_into()
             .unwrap();
         let server_pk = x25519_dalek::PublicKey::from(server_pk);
-        let session = sosistab::connect(server_addr, server_pk).await.unwrap();
+        println!("trying to establish session...");
+        let session = sosistab::connect_custom(server_addr, server_pk, || {
+            Ok(*notun::local_socket_addrs()
+                .unwrap()
+                .iter()
+                .find(|v| v.is_ipv4())
+                .unwrap())
+        })
+        .await
+        .unwrap();
+        println!("session established!");
         handle_server_client(session, tun_device).await;
     });
 }

@@ -1,3 +1,4 @@
+use binder_transport::BinderError;
 use postgres::{Client, NoTls};
 use std::ffi::{CStr, CString};
 
@@ -124,24 +125,13 @@ fn hash_libsodium_password(password: &str) -> String {
             output.as_mut_ptr() as *mut i8,
             password.as_ptr() as *const i8,
             password.len() as u64,
-            libsodium_sys::crypto_pwhash_OPSLIMIT_MODERATE as u64,
-            libsodium_sys::crypto_pwhash_MEMLIMIT_MODERATE as usize,
+            libsodium_sys::crypto_pwhash_OPSLIMIT_INTERACTIVE as u64,
+            libsodium_sys::crypto_pwhash_MEMLIMIT_INTERACTIVE as usize,
         )
     };
     assert_eq!(res, 0);
     let cstr = unsafe { CStr::from_ptr(output.as_ptr() as *const i8) };
     cstr.to_str().unwrap().to_owned()
-}
-
-/// Error type enumerating all that could go wrong needed: e.g. user does not exist, wrong password, etc.
-#[derive(Clone, Debug, Copy)]
-pub enum BinderError {
-    // user-related errors
-    NoUserFound,
-    UserAlreadyExists,
-    WrongPassword,
-    // database error
-    DatabaseFailed,
 }
 
 #[derive(Clone, Debug)]

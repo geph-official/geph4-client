@@ -3,5 +3,18 @@
 members = [
     "geph4-binder",
     "lib/tundevice",
+    "lib/notun",
+    "lib/mizaru",
+    "lib/binder_transport",
+    "lib/sosistab",
     "geph4-vpntest"
 ] 
+
+
+[profile.dev]
+opt-level=1
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+opt-level=3
