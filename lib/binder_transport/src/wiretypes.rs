@@ -3,9 +3,7 @@ use chacha20poly1305::{
     Nonce,
 };
 use chacha20poly1305::{ChaCha20Poly1305, Key};
-use derivative::Derivative;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
 
 /// Either a response or a binder error
 pub type BinderResult<T> = Result<T, BinderError>;

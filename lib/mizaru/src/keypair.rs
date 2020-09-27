@@ -3,27 +3,30 @@ use rsa::{RSAPrivateKey, RSAPublicKey};
 use rsa_fdh::blind;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::sync::Arc;
+use std::sync::{atomic::AtomicU64, atomic::Ordering, Arc};
 
-const KEY_COUNT: usize = 16;
+const KEY_COUNT: usize = 65536;
 const KEY_BITS: usize = 1024;
 
 /// A Mizaru private key. Consists of a vast number of RSA private keys, one for every day, for the 65536 days after the Unix epoch. This supports serde so that you can save this to disk.
 #[derive(Clone, Serialize, Deserialize)]
-pub struct PrivateKey {
+pub struct SecretKey {
     rsa_keys: Arc<Vec<RSAPrivateKey>>,
     // all the intermediate layers of the merkle tree
     merkle_tree: Arc<Vec<Vec<[u8; 32]>>>,
 }
 
-impl PrivateKey {
+impl SecretKey {
     /// Generates a Mizaru private key. May take **quite** a while!
     pub fn generate() -> Self {
+        let count = AtomicU64::new(0);
         // first we generate the massive number of rsa keys
         let rsa_keys: Vec<RSAPrivateKey> = (0..KEY_COUNT)
             .into_par_iter()
             .map(|i| {
                 let mut rng = rand::rngs::OsRng {};
+                let count = count.fetch_add(1, Ordering::SeqCst);
+                eprintln!("generated {}/{} keys", count, KEY_COUNT);
                 RSAPrivateKey::new(&mut rng, KEY_BITS).expect("can't generate RSA key")
             })
             .collect();
@@ -46,7 +49,7 @@ impl PrivateKey {
             merkle_tree.push(new)
         }
         // return the value
-        PrivateKey {
+        SecretKey {
             rsa_keys: Arc::new(rsa_keys),
             merkle_tree: Arc::new(merkle_tree),
         }
@@ -121,7 +124,7 @@ pub struct UnblindedSignature {
 }
 
 /// A Mizaru public key. This is actually just the merkle-tree-root of a huge bunch of bincoded RSA public keys!
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct PublicKey([u8; 32]);
 
 impl PublicKey {
@@ -140,7 +143,7 @@ mod tests {
     #[test]
     fn generate_key() {
         let before = Instant::now();
-        let privkey = PrivateKey::generate();
+        let privkey = SecretKey::generate();
         eprintln!("elapsed {} secs", before.elapsed().as_secs_f64());
         eprintln!(
             "signature is {} bytes",

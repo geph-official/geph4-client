@@ -1,5 +1,7 @@
 use binder_transport::{BinderError, SubscriptionInfo, UserInfo};
-use postgres::{Client, NoTls};
+use native_tls::{Certificate, TlsConnector};
+use postgres::Client;
+use postgres_native_tls::MakeTlsConnector;
 use std::{
     ffi::{CStr, CString},
     time::Duration,
@@ -8,20 +10,65 @@ use std::{
 pub struct BinderCore {
     database: String,
     captcha_service: String,
+    cert: Vec<u8>,
 }
 
 impl BinderCore {
-    pub fn new_default() -> BinderCore {
+    /// Creates a BinderCore.
+    pub fn create(database_url: &str, captcha_service_url: &str, cert: &[u8]) -> BinderCore {
         BinderCore {
-            database: "host=localhost user=postgres password=postgres".to_string(),
-            captcha_service: "https://single-verve-156821.ew.r.appspot.com".to_string(),
+            database: database_url.to_string(),
+            captcha_service: captcha_service_url.to_string(),
+            cert: cert.to_vec(),
         }
+    }
+
+    /// Obtains the Mizaru signing key.
+    pub fn get_mizaru_sk(&self) -> Result<mizaru::SecretKey, BinderError> {
+        let mut client = self.get_pg_conn()?;
+        let mut txn = client.transaction()?;
+        let row = txn
+            .query_opt(
+                "select value from secrets where key='mizaru-master-sk'",
+                &[],
+            )
+            .map_err(|_| BinderError::DatabaseFailed)?;
+        match row {
+            Some(row) => {
+                Ok(bincode::deserialize(row.get(0)).expect("must deserialize mizaru-master-sk"))
+            }
+            None => {
+                let secret_key = mizaru::SecretKey::generate();
+                txn.execute(
+                    "insert into secrets values ($1, $2)",
+                    &[
+                        &"mizaru-master-sk",
+                        &bincode::serialize(&secret_key).unwrap(),
+                    ],
+                )
+                .map_err(|_| BinderError::DatabaseFailed)?;
+                txn.commit().unwrap();
+                Ok(secret_key)
+            }
+        }
+    }
+
+    /// Obtain a connection.
+    fn get_pg_conn(&self) -> Result<postgres::Client, BinderError> {
+        let connector = TlsConnector::builder()
+            .add_root_certificate(Certificate::from_pem(&self.cert).unwrap())
+            .build()?;
+        let connector = MakeTlsConnector::new(connector);
+        let client = Client::connect(&self.database, connector);
+        if let Err(err) = &client {
+            eprintln!("{:?}", err)
+        }
+        Ok(client.map_err(|_| BinderError::DatabaseFailed)?)
     }
 
     /// Obtain the user info given the username.
     fn get_user_info(&self, username: &str) -> Result<UserInfo, BinderError> {
-        let mut client =
-            Client::connect(&self.database, NoTls).map_err(|_| BinderError::DatabaseFailed)?;
+        let mut client = self.get_pg_conn()?;
         let mut txn = client.transaction()?;
         let rows = txn
             .query(
@@ -87,8 +134,7 @@ impl BinderCore {
         if self.user_exists(username)? {
             Err(BinderError::UserAlreadyExists)
         } else {
-            let mut client =
-                Client::connect(&self.database, NoTls).map_err(|_| BinderError::DatabaseFailed)?;
+            let mut client = self.get_pg_conn()?;
             client.execute("insert into users (username, pwdhash, freebalance, createtime) values ($1, $2, $3, $4)",
             &[&username,
             &hash_libsodium_password(password),
@@ -119,8 +165,7 @@ impl BinderCore {
         if let Err(BinderError::WrongPassword) = self.verify_password(username, password) {
             Err(BinderError::WrongPassword)
         } else {
-            let mut client =
-                Client::connect(&self.database, NoTls).map_err(|_| BinderError::DatabaseFailed)?;
+            let mut client = self.get_pg_conn()?;
             client
                 .execute("delete from users where username=$1", &[&username])
                 .map_err(|_| BinderError::DatabaseFailed)?;
@@ -139,8 +184,7 @@ impl BinderCore {
             Err(BinderError::WrongPassword)
         } else {
             let new_pwdhash = hash_libsodium_password(new_password);
-            let mut client =
-                Client::connect(&self.database, NoTls).map_err(|_| BinderError::DatabaseFailed)?;
+            let mut client = self.get_pg_conn()?;
             client
                 .execute(
                     "update users set pwdhash=$1 where username =$2",
