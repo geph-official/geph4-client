@@ -6,7 +6,7 @@ use sha2::{Digest, Sha256};
 use std::sync::{atomic::AtomicU64, atomic::Ordering, Arc};
 
 const KEY_COUNT: usize = 65536;
-const KEY_BITS: usize = 1024;
+const KEY_BITS: usize = 1536;
 
 /// A Mizaru private key. Consists of a vast number of RSA private keys, one for every day, for the 65536 days after the Unix epoch. This supports serde so that you can save this to disk.
 #[derive(Clone, Serialize, Deserialize)]
