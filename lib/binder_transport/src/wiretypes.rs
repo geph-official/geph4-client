@@ -76,8 +76,27 @@ impl EncryptedBinderRequestData {
 /// Binder response
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum BinderResponse {
-    AuthenticateResp { blind_signature: Vec<u8> },
+    AuthenticateResp {
+        user_info: UserInfo,
+        blind_signature: Vec<u8>,
+    },
     DummyResp,
+}
+
+/// Information for a particular user
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+pub struct UserInfo {
+    pub userid: i32,
+    pub username: String,
+    pub pwdhash: String,
+    pub subscription: Option<SubscriptionInfo>,
+}
+
+/// Information about a user's subscription
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash, Serialize, Deserialize)]
+pub struct SubscriptionInfo {
+    pub level: String,
+    pub expires_unix: i64,
 }
 
 /// Encrypts it to the reply key
@@ -118,6 +137,7 @@ pub enum BinderError {
     NoUserFound,
     UserAlreadyExists,
     WrongPassword,
+    WrongCaptcha,
     // database error
     DatabaseFailed,
     // other failure
