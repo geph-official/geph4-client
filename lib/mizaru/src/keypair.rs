@@ -124,7 +124,7 @@ impl BlindedSignature {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct UnblindedSignature {
     pub epoch: usize,
     pub used_key: RSAPublicKey,
@@ -145,18 +145,18 @@ impl PublicKey {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Instant;
-    #[test]
-    fn generate_key() {
-        let before = Instant::now();
-        let privkey = SecretKey::generate();
-        eprintln!("elapsed {} secs", before.elapsed().as_secs_f64());
-        eprintln!(
-            "signature is {} bytes",
-            privkey.blind_sign(1, b"hello world").len()
-        )
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use std::time::Instant;
+//     #[test]
+//     fn generate_key() {
+//         let before = Instant::now();
+//         let privkey = SecretKey::generate();
+//         eprintln!("elapsed {} secs", before.elapsed().as_secs_f64());
+//         eprintln!(
+//             "signature is {} bytes",
+//             privkey.blind_sign(1, b"hello world").len()
+//         )
+//     }
+// }

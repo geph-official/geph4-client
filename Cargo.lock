@@ -433,6 +433,7 @@ dependencies = [
  "env_logger",
  "http-types",
  "log 0.4.11",
+ "mizaru",
  "rand",
  "serde",
  "smol",

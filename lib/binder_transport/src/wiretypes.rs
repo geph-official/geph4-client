@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 pub type BinderResult<T> = Result<T, BinderError>;
 
 /// Data for a binder request
-#[derive(Debug, Clone, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum BinderRequestData {
     /// Authenticate a user, obtaining a blinded signature.
     Authenticate {
@@ -23,11 +23,18 @@ pub enum BinderRequestData {
         password: String,
         blinded_digest: Vec<u8>,
     },
-    ///
+    /// Validates a blind signature token, applying rate-limiting as appropriate.
     Validate {
         unblinded_digest: Vec<u8>,
-        unblinded_signature: Vec<u8>,
+        unblinded_signature: mizaru::UnblindedSignature,
     },
+    /// Changes password
+    ChangePassword {
+        username: String,
+        old_password: String,
+        new_password: String,
+    },
+    /// A dummy request
     Dummy,
 }
 
@@ -90,6 +97,8 @@ pub enum BinderResponse {
         user_info: UserInfo,
         blind_signature: Vec<u8>,
     },
+    /// Okay to something that does not need response data.
+    Okay,
     DummyResp,
 }
 
