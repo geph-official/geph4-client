@@ -3,10 +3,19 @@ use rsa::{RSAPrivateKey, RSAPublicKey};
 use rsa_fdh::blind;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::sync::{atomic::AtomicU64, atomic::Ordering, Arc};
+use std::{
+    sync::{atomic::AtomicU64, atomic::Ordering, Arc},
+    time::SystemTime,
+};
 
 const KEY_COUNT: usize = 65536;
 const KEY_BITS: usize = 1536;
+
+/// Obtains the epoch from a SystemTime
+pub fn time_to_epoch(time: SystemTime) -> usize {
+    let unix = time.duration_since(std::time::UNIX_EPOCH).unwrap();
+    (unix.as_secs() / 86400) as usize
+}
 
 /// A Mizaru private key. Consists of a vast number of RSA private keys, one for every day, for the 65536 days after the Unix epoch. This supports serde so that you can save this to disk.
 #[derive(Clone, Serialize, Deserialize)]
