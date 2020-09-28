@@ -11,10 +11,22 @@ pub type BinderResult<T> = Result<T, BinderError>;
 /// Data for a binder request
 #[derive(Debug, Clone, Serialize, Deserialize, Ord, PartialOrd, Eq, PartialEq)]
 pub enum BinderRequestData {
+    /// Authenticate a user, obtaining a blinded signature.
     Authenticate {
         username: String,
         password: String,
-        blinded_digest: String,
+        blinded_digest: Vec<u8>,
+    },
+    /// Obtains user data, including subscription status
+    GetUserData {
+        username: String,
+        password: String,
+        blinded_digest: Vec<u8>,
+    },
+    ///
+    Validate {
+        unblinded_digest: Vec<u8>,
+        unblinded_signature: Vec<u8>,
     },
     Dummy,
 }
