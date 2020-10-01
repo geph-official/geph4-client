@@ -4,7 +4,6 @@ use async_net::SocketAddr;
 use etherparse::{SlicedPacket, TransportSlice};
 use governor::{Quota, RateLimiter};
 use nonzero_ext::nonzero;
-use smol::prelude::*;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -40,7 +39,7 @@ fn main_server(sk_seed: String) {
     let mut tun_device = tundevice::TunDevice::new_from_os("tun-geph").unwrap();
     tun_device.assign_ip("100.64.89.10".parse().unwrap());
     let tun_device = Arc::new(tun_device);
-    async_global_executor::block_on(async move {
+    smol::block_on(async move {
         let listener = sosistab::Listener::listen("0.0.0.0:23456", long_sk.clone()).await;
         println!(
             "Listening on port 23456; PK = {}",
@@ -57,7 +56,7 @@ fn main_server(sk_seed: String) {
 }
 
 async fn handle_server_client(session: sosistab::Session, tun_device: Arc<tundevice::TunDevice>) {
-    let lim = RateLimiter::keyed(Quota::per_second(nonzero!(100u32)));
+    let lim = RateLimiter::keyed(Quota::per_second(nonzero!(200u32)));
     smol::future::race(
         async {
             loop {
@@ -110,7 +109,7 @@ fn main_client(server_addr: SocketAddr, server_pk: String) {
     //     smol::io::copy(stream, &mut stdout).await.unwrap();
     // })
 
-    async_global_executor::block_on(async move {
+    smol::block_on(async move {
         let server_pk: [u8; 32] = hex::decode(server_pk)
             .unwrap()
             .as_slice()

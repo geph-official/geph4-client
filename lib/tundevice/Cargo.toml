@@ -10,6 +10,7 @@ edition = "2018"
 blocking = "1"
 smol="1"
 bytes="0.5"
+flume = "0.9.0"
 
 
 [build-dependencies]

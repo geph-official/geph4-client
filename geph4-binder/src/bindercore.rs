@@ -1,50 +1,92 @@
-use binder_transport::{BinderError, SubscriptionInfo, UserInfo};
+use binder_transport::{BinderError, ExitDescriptor, SubscriptionInfo, UserInfo};
 use native_tls::{Certificate, TlsConnector};
-use postgres::Client;
+use parking_lot::Mutex;
 use postgres_native_tls::MakeTlsConnector;
+use r2d2_postgres::PostgresConnectionManager;
 use std::{
+    collections::HashMap,
+    convert::TryFrom,
     ffi::{CStr, CString},
+    net::SocketAddr,
+    ops::DerefMut,
     time::Duration,
+    time::SystemTime,
 };
 
 pub struct BinderCore {
-    database: String,
     captcha_service: String,
-    cert: Vec<u8>,
+    mizaru_sk: Mutex<HashMap<String, mizaru::SecretKey>>,
+    conn_pool: r2d2::Pool<PostgresConnectionManager<postgres_native_tls::MakeTlsConnector>>,
 }
 
 impl BinderCore {
     /// Creates a BinderCore.
     pub fn create(database_url: &str, captcha_service_url: &str, cert: &[u8]) -> BinderCore {
+        let connector = TlsConnector::builder()
+            .add_root_certificate(Certificate::from_pem(cert).unwrap())
+            .build()
+            .unwrap();
+        let connector = MakeTlsConnector::new(connector);
+        let manager = PostgresConnectionManager::new(database_url.parse().unwrap(), connector);
         BinderCore {
-            database: database_url.to_string(),
             captcha_service: captcha_service_url.to_string(),
-            cert: cert.to_vec(),
+            mizaru_sk: Mutex::new(HashMap::new()),
+            conn_pool: r2d2::Pool::new(manager).unwrap(),
+        }
+    }
+
+    /// Obtains the master x25519 key.
+    pub fn get_master_sk(&self) -> Result<x25519_dalek::StaticSecret, BinderError> {
+        let mut client = self.get_pg_conn()?;
+        let mut txn = client
+            .transaction()
+            .map_err(|_| BinderError::DatabaseFailed)?;
+        let row = txn
+            .query_opt("select value from secrets where key='MASTER'", &[])
+            .map_err(|_| BinderError::DatabaseFailed)?;
+        if let Some(row) = row {
+            Ok(bincode::deserialize(row.get(0)).unwrap())
+        } else {
+            let sk = x25519_dalek::StaticSecret::new(rand::rngs::OsRng {});
+            txn.execute(
+                "insert into secrets values ($1, $2)",
+                &[&"MASTER", &bincode::serialize(&sk).unwrap()],
+            )
+            .map_err(|_| BinderError::DatabaseFailed)?;
+            txn.commit().map_err(|_| BinderError::DatabaseFailed)?;
+            Ok(sk)
         }
     }
 
     /// Obtains the Mizaru signing key.
-    pub fn get_mizaru_sk(&self) -> Result<mizaru::SecretKey, BinderError> {
+    pub fn get_mizaru_sk(&self, acct_level: &str) -> Result<mizaru::SecretKey, BinderError> {
+        if acct_level != "plus" && acct_level != "free" {
+            return Err(BinderError::Other("whatever".into()));
+        }
+        let mut mizaru_sk = self.mizaru_sk.lock();
+        if let Some(sk) = mizaru_sk.get(acct_level) {
+            return Ok(sk.clone());
+        }
+        let key_name = format!("mizaru-master-sk-{}", acct_level);
         let mut client = self.get_pg_conn()?;
-        let mut txn = client.transaction()?;
+        let mut txn = client
+            .transaction()
+            .map_err(|_| BinderError::DatabaseFailed)?;
         let row = txn
-            .query_opt(
-                "select value from secrets where key='mizaru-master-sk'",
-                &[],
-            )
+            .query_opt("select value from secrets where key=$1", &[&key_name])
             .map_err(|_| BinderError::DatabaseFailed)?;
         match row {
             Some(row) => {
-                Ok(bincode::deserialize(row.get(0)).expect("must deserialize mizaru-master-sk"))
+                let res: mizaru::SecretKey =
+                    bincode::deserialize(row.get(0)).expect("must deserialize mizaru-master-sk");
+                mizaru_sk.insert(acct_level.into(), res.clone());
+                Ok(res)
             }
             None => {
                 let secret_key = mizaru::SecretKey::generate();
                 txn.execute(
                     "insert into secrets values ($1, $2)",
-                    &[
-                        &"mizaru-master-sk",
-                        &bincode::serialize(&secret_key).unwrap(),
-                    ],
+                    &[&key_name, &bincode::serialize(&secret_key).unwrap()],
                 )
                 .map_err(|_| BinderError::DatabaseFailed)?;
                 txn.commit().unwrap();
@@ -54,22 +96,17 @@ impl BinderCore {
     }
 
     /// Obtain a connection.
-    fn get_pg_conn(&self) -> Result<postgres::Client, BinderError> {
-        let connector = TlsConnector::builder()
-            .add_root_certificate(Certificate::from_pem(&self.cert).unwrap())
-            .build()?;
-        let connector = MakeTlsConnector::new(connector);
-        let client = Client::connect(&self.database, connector);
-        if let Err(err) = &client {
-            eprintln!("{:?}", err)
-        }
+    fn get_pg_conn(&self) -> Result<impl DerefMut<Target = postgres::Client>, BinderError> {
+        let client = self.conn_pool.get();
         Ok(client.map_err(|_| BinderError::DatabaseFailed)?)
     }
 
     /// Obtain the user info given the username.
     fn get_user_info(&self, username: &str) -> Result<UserInfo, BinderError> {
         let mut client = self.get_pg_conn()?;
-        let mut txn = client.transaction()?;
+        let mut txn = client
+            .transaction()
+            .map_err(|_| BinderError::DatabaseFailed)?;
         let rows = txn
             .query(
                 "select id,username,pwdhash from users where username = $1",
@@ -144,20 +181,11 @@ impl BinderCore {
         }
     }
 
-    /// Obtains a captcha ID and image.
-    pub fn get_captcha_png(&self) -> Result<(String, Vec<u8>), BinderError> {
-        let id = generate_captcha(&self.captcha_service)?;
-        let captcha = render_captcha_png(&self.captcha_service, &id)?;
-        Ok((id, captcha))
-    }
-
-    /// Solves a captcha, returning whether or not it worked.
-    pub fn solve_captcha(&self, captcha_id: &str, captcha_soln: &str) -> Result<bool, BinderError> {
-        Ok(verify_captcha(
-            &self.captcha_service,
-            captcha_id,
-            &captcha_soln,
-        )?)
+    /// Obtains a captcha.
+    pub fn get_captcha(&self) -> Result<(String, Vec<u8>), BinderError> {
+        let captcha_id = generate_captcha(&self.captcha_service)?;
+        let png_data = render_captcha_png(&self.captcha_service, &captcha_id)?;
+        Ok((captcha_id, png_data))
     }
 
     /// Deletes a user, given a username and password.
@@ -193,6 +221,124 @@ impl BinderCore {
                 .map_err(|_| BinderError::DatabaseFailed)?;
             Ok(())
         }
+    }
+
+    /// Validates the username and password, and if it is valid, blind-sign the given digest and return the signature.
+    pub fn authenticate(
+        &self,
+        username: &str,
+        password: &str,
+        blinded_digest: &[u8],
+    ) -> Result<(UserInfo, mizaru::BlindedSignature), BinderError> {
+        self.verify_password(&username, &password)?;
+        let user_info = self.get_user_info(&username)?;
+
+        let key = self.get_mizaru_sk(
+            &user_info
+                .clone()
+                .subscription
+                .map(|sub| sub.level)
+                .unwrap_or_else(|| "free".to_string()),
+        )?;
+        let epoch = mizaru::time_to_epoch(SystemTime::now());
+        let sig = key.blind_sign(epoch, blinded_digest);
+        Ok((user_info, sig))
+    }
+
+    /// Validates an token
+    pub fn validate(
+        &self,
+        level: &str,
+        unblinded_digest: &[u8],
+        unblinded_signature: &mizaru::UnblindedSignature,
+    ) -> Result<bool, BinderError> {
+        // TODO rate-limit
+        let key = self.get_mizaru_sk(level)?.to_public_key();
+        Ok(key.blind_verify(unblinded_digest, unblinded_signature))
+    }
+
+    /// Adds a bridge route. We save this into the routes table, and every now and then we clear the table of really old values.
+    pub fn add_bridge_route(
+        &self,
+        sosistab_pubkey: x25519_dalek::PublicKey,
+        bridge_address: SocketAddr,
+        bridge_group: &str,
+        exit_hostname: &str,
+        update_time: u64,
+        exit_signature: ed25519_dalek::Signature,
+    ) -> Result<(), BinderError> {
+        let mut client = self.get_pg_conn()?;
+        let mut txn: postgres::Transaction = client
+            .transaction()
+            .map_err(|_| BinderError::DatabaseFailed)?;
+        // first check the exit signature
+        let signing_key = {
+            let bts: Vec<u8> = txn
+                .query_one(
+                    "select signing_key from exits where hostname=$1",
+                    &[&exit_hostname],
+                )
+                .map_err(|_| BinderError::DatabaseFailed)?
+                .get(0);
+            ed25519_dalek::PublicKey::from_bytes(&bts).unwrap()
+        };
+        let message =
+            bincode::serialize(&(sosistab_pubkey, bridge_address, bridge_group, update_time))
+                .unwrap();
+        if signing_key
+            .verify_strict(&message, &exit_signature)
+            .is_err()
+        {
+            log::warn!(
+                "invalid signature on bridge route for {}! silently ignoring!",
+                exit_hostname
+            );
+            return Ok(());
+        }
+        let update_time: std::time::SystemTime =
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs(update_time);
+        let query = "insert into routes (hostname, sosistab_pubkey, bridge_address, bridge_group, update_time) values ($1, $2, $3, $4, $5)";
+        txn.execute(
+            query,
+            &[
+                &exit_hostname,
+                &sosistab_pubkey.to_bytes().to_vec(),
+                &bridge_address.to_string(),
+                &bridge_group,
+                &exit_hostname,
+                &update_time,
+            ],
+        )
+        .map_err(|_| BinderError::DatabaseFailed)?;
+        txn.commit().map_err(|_| BinderError::DatabaseFailed)?;
+        Ok(())
+    }
+
+    /// Get all exits
+    pub fn get_exits(&self) -> Result<Vec<ExitDescriptor>, BinderError> {
+        let mut client = self.get_pg_conn()?;
+        let mut txn: postgres::Transaction = client
+            .transaction()
+            .map_err(|_| BinderError::DatabaseFailed)?;
+        let rows = txn
+            .query(
+                "select hostname,signing_key,country,city,sosistab_key from exits",
+                &[],
+            )
+            .map_err(|_| BinderError::DatabaseFailed)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| ExitDescriptor {
+                hostname: row.get(0),
+                signing_key: ed25519_dalek::PublicKey::from_bytes(&row.get::<_, Vec<u8>>(1))
+                    .unwrap(),
+                country_code: row.get(2),
+                city_code: row.get(3),
+                sosistab_key: x25519_dalek::PublicKey::from(
+                    <[u8; 32]>::try_from(row.get::<_, Vec<u8>>(4).as_slice()).unwrap(),
+                ),
+            })
+            .collect())
     }
 }
 

@@ -25,14 +25,17 @@ impl FrameEncoder {
 
     /// Encodes a slice of packets into more packets.
     pub fn encode(&mut self, measured_loss: u8, pkts: &[Bytes]) -> Vec<Bytes> {
+        // max length
+        let max_length = pkts.iter().map(|v| v.len()).max().unwrap();
         // first we precode the packets
-        let mut padded_pkts: Vec<BytesMut> = pkts.iter().map(|p| pre_encode(p, 1300)).collect();
+        let mut padded_pkts: Vec<BytesMut> =
+            pkts.iter().map(|p| pre_encode(p, max_length + 2)).collect();
         // then we get an encoder for this size
         let data_shards = pkts.len();
         let parity_shards = self.repair_len(measured_loss, pkts.len());
         // then we encode
         // prepare the space for in-place mutation
-        let mut parity_shard_space = vec![[0u8; 1300]; parity_shards];
+        let mut parity_shard_space = vec![vec![0u8; max_length + 2]; parity_shards];
         let mut padded_pkts: Vec<&mut [u8]> = padded_pkts.iter_mut().map(|v| v.as_mut()).collect();
         for r in parity_shard_space.iter_mut() {
             padded_pkts.push(r);
@@ -50,17 +53,7 @@ impl FrameEncoder {
         }
         // return
         let mut toret = Vec::with_capacity(data_shards + parity_shards);
-        toret.extend(
-            padded_pkts
-                .iter()
-                .map(|p| {
-                    let pre_len = p.len();
-                    let post = snap::raw::Encoder::new().compress_vec(&p).unwrap();
-                    log::trace!("compressing {} => {}", pre_len, post.len());
-                    post
-                })
-                .map(|vec| Bytes::copy_from_slice(&vec)),
-        );
+        toret.extend(padded_pkts.iter().map(|vec| Bytes::copy_from_slice(&vec)));
         toret
     }
 
@@ -91,7 +84,7 @@ impl FrameEncoder {
 pub struct FrameDecoder {
     data_shards: usize,
     parity_shards: usize,
-    space: Vec<([u8; 1300])>,
+    space: Vec<Vec<u8>>,
     present: Vec<bool>,
     rs_decoder: galois_8::ReedSolomon,
     done: bool,
@@ -102,7 +95,7 @@ impl FrameDecoder {
         FrameDecoder {
             data_shards,
             parity_shards,
-            space: vec![[0u8; 1300]; data_shards + parity_shards],
+            space: vec![],
             present: vec![false; data_shards + parity_shards],
             rs_decoder: galois_8::ReedSolomon::new(data_shards, parity_shards.max(1)).unwrap(),
             done: false,
@@ -128,13 +121,15 @@ impl FrameDecoder {
     }
 
     pub fn decode(&mut self, pkt: &[u8], pkt_idx: usize) -> Option<Vec<Bytes>> {
+        if self.space.is_empty() {
+            log::trace!("decode with pad len {}", pkt.len());
+            self.space = vec![vec![0u8; pkt.len()]; self.data_shards + self.parity_shards]
+        }
         if self.done || pkt_idx > self.space.len() || pkt_idx > self.present.len() {
             return None;
         }
         // decompress without allocation
-        snap::raw::Decoder::new()
-            .decompress(pkt, &mut self.space[pkt_idx])
-            .ok()?;
+        self.space[pkt_idx].copy_from_slice(pkt);
         self.present[pkt_idx] = true;
         // if I'm a data shard, just return it
         if pkt_idx < self.data_shards || self.parity_shards == 0 {

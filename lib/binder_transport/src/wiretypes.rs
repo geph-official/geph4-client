@@ -1,32 +1,37 @@
+use std::net::SocketAddr;
+
 use chacha20poly1305::{
     aead::{Aead, NewAead},
     Nonce,
 };
 use chacha20poly1305::{ChaCha20Poly1305, Key};
 use serde::{Deserialize, Serialize};
-
 /// Either a response or a binder error
 pub type BinderResult<T> = Result<T, BinderError>;
 
 /// Data for a binder request
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum BinderRequestData {
-    /// Authenticate a user, obtaining a blinded signature.
+    /// Authenticate a user, obtaining the user info and blinded signature.
     Authenticate {
-        username: String,
-        password: String,
-        blinded_digest: Vec<u8>,
-    },
-    /// Obtains user data, including subscription status
-    GetUserData {
         username: String,
         password: String,
         blinded_digest: Vec<u8>,
     },
     /// Validates a blind signature token, applying rate-limiting as appropriate.
     Validate {
+        level: String,
         unblinded_digest: Vec<u8>,
         unblinded_signature: mizaru::UnblindedSignature,
+    },
+    /// Obtain a CAPTCHA for registration
+    GetCaptcha,
+    /// Register a user
+    RegisterUser {
+        username: String,
+        password: String,
+        captcha_id: String,
+        captcha_soln: String,
     },
     /// Changes password
     ChangePassword {
@@ -34,8 +39,27 @@ pub enum BinderRequestData {
         old_password: String,
         new_password: String,
     },
-    /// A dummy request
-    Dummy,
+    /// Delete a user
+    DeleteUser { username: String, password: String },
+
+    /// Get all exits
+    GetExits,
+
+    /// Add a bridge route
+    AddBridgeRoute {
+        /// Sosistab public key
+        sosistab_pubkey: x25519_dalek::PublicKey,
+        /// Address of the intermediate bridge
+        bridge_address: SocketAddr,
+        /// Bridge group
+        bridge_group: String,
+        /// Exit hostname
+        exit_hostname: String,
+        /// Time
+        route_unixtime: u64,
+        /// Authorization from the exit. Signature over a tuple of the rest of the fields except the exit hostname.
+        exit_signature: ed25519_dalek::Signature,
+    },
 }
 
 impl BinderRequestData {
@@ -91,15 +115,35 @@ impl EncryptedBinderRequestData {
 }
 
 /// Binder response
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum BinderResponse {
-    AuthenticateResp {
-        user_info: UserInfo,
-        blind_signature: Vec<u8>,
-    },
     /// Okay to something that does not need response data.
     Okay,
-    DummyResp,
+    /// Response to authentication
+    AuthenticateResp {
+        user_info: UserInfo,
+        blind_signature: mizaru::BlindedSignature,
+    },
+    /// Response to ticket validation
+    ValidateResp(bool),
+    /// Response to CAPTCHA request
+    GetCaptchaResp {
+        captcha_id: String,
+        png_data: Vec<u8>,
+    },
+    /// Response to request for all exits
+    GetExitsResp(Vec<ExitDescriptor>),
+}
+
+/// Exit descriptor
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct ExitDescriptor {
+    pub hostname: String,
+    pub signing_key: ed25519_dalek::PublicKey,
+    pub country_code: String,
+    pub city_code: String,
+    pub sosistab_key: x25519_dalek::PublicKey,
 }
 
 /// Information for a particular user
@@ -150,21 +194,27 @@ impl EncryptedBinderResponse {
 }
 
 /// Error type enumerating all that could go wrong needed: e.g. user does not exist, wrong password, etc.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, thiserror::Error)]
 pub enum BinderError {
     // user-related errors
+    #[error("no user found")]
     NoUserFound,
+    #[error("user already exists")]
     UserAlreadyExists,
+    #[error("wrong password")]
     WrongPassword,
+    #[error("incorrect captcha")]
     WrongCaptcha,
     // database error
+    #[error("database failed")]
     DatabaseFailed,
     // other failure
+    #[error("other failure `{0}`")]
     Other(String),
 }
 
-impl<E: std::error::Error> From<E> for BinderError {
-    fn from(value: E) -> Self {
+impl From<std::io::Error> for BinderError {
+    fn from(value: std::io::Error) -> Self {
         BinderError::Other(value.to_string())
     }
 }

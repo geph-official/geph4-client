@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use smol::channel::{Receiver, Sender};
+use flume::{Receiver, Sender};
 use std::io::prelude::*;
 use std::os::unix::io::AsRawFd;
 use std::{ffi::CStr, process::Command};
@@ -47,26 +47,26 @@ impl TunDevice {
         };
         // spawn two threads
         let mut fd1 = fd.try_clone().unwrap();
-        let (send_write, recv_write) = smol::channel::bounded::<Bytes>(1);
-        let (send_read, recv_read) = smol::channel::bounded::<Bytes>(1);
+        let (send_write, recv_write) = flume::bounded::<Bytes>(100);
+        let (send_read, recv_read) = flume::bounded::<Bytes>(100);
         let mut fd2 = fd.try_clone().unwrap();
         std::thread::spawn(move || {
             let mut buf = [0u8; 2048];
             for _ in 0.. {
                 let n = fd1.read(&mut buf).ok()?;
-                smol::future::block_on(send_read.send(Bytes::copy_from_slice(&buf[..n]))).ok()?
-                // if send_read
-                //     .try_send(Bytes::copy_from_slice(&buf[..n]))
-                //     .is_err()
-                // {
-                //     eprintln!("overflowing tundevice")
-                // }
+                // send_read.try_send(Bytes::copy_from_slice(&buf[..n]))
+                if send_read
+                    .try_send(Bytes::copy_from_slice(&buf[..n]))
+                    .is_err()
+                {
+                    eprintln!("overflowing tundevice")
+                }
             }
             Some(())
         });
         std::thread::spawn(move || {
             for _ in 0.. {
-                let bts = smol::future::block_on(recv_write.recv()).ok()?;
+                let bts = recv_write.recv().ok()?;
                 fd2.write(&bts).ok()?;
                 fd2.flush().ok()?;
             }
@@ -108,13 +108,13 @@ impl TunDevice {
 
     /// Reads raw packet.
     pub async fn read_raw(&self) -> Option<Bytes> {
-        self.recv_read.recv().await.ok()
+        self.recv_read.recv_async().await.ok()
     }
 
     /// Writes a packet.
     pub async fn write_raw(&self, to_write: &[u8]) -> Option<()> {
         self.send_write
-            .send(Bytes::copy_from_slice(to_write))
+            .send_async(Bytes::copy_from_slice(to_write))
             .await
             .ok()
     }

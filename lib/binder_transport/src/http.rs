@@ -8,6 +8,7 @@ use smol::channel::{Receiver, Sender};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 /// An HTTP-based BinderClient implementation, driven by ureq.
+#[derive(Clone, Debug)]
 pub struct HttpClient {
     binder_lpk: x25519_dalek::PublicKey,
     endpoint: String,
@@ -53,7 +54,8 @@ impl BinderClient for HttpClient {
             return Err(BinderError::Other(err.to_string()));
         }
         // read response
-        let response: EncryptedBinderResponse = bincode::deserialize_from(response.into_reader())?;
+        let response: EncryptedBinderResponse = bincode::deserialize_from(response.into_reader())
+            .map_err(|v| BinderError::Other(v.to_string()))?;
         response
             .decrypt(reply_key)
             .ok_or_else(|| BinderError::Other("decryption failure".into()))?
@@ -111,6 +113,7 @@ async fn httpserver_main_loop(
             let my_lsk = my_lsk.clone();
             let breq_send = breq_send.clone();
             let peer_addr = client.peer_addr().unwrap();
+            log::trace!("new connection from {}", peer_addr);
             // start a new task
             executor
                 .spawn(async move {

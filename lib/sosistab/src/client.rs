@@ -1,7 +1,7 @@
 use crate::*;
-use async_channel::{Receiver, Sender};
 use async_dup::Arc;
 use bytes::Bytes;
+use flume::{Receiver, Sender};
 use smol::prelude::*;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
@@ -100,7 +100,7 @@ pub async fn connect_custom(
     unimplemented!()
 }
 
-const SHARDS: u8 = 4;
+const SHARDS: u8 = 6;
 const RESET_MILLIS: u128 = 1000;
 
 async fn init_session(
@@ -110,8 +110,8 @@ async fn init_session(
     remote_addr: SocketAddr,
     laddr_gen: Arc<impl Fn() -> std::io::Result<SocketAddr> + Send + Sync + 'static>,
 ) -> std::io::Result<Session> {
-    let (send_frame_out, recv_frame_out) = async_channel::bounded::<msg::DataFrame>(100);
-    let (send_frame_in, recv_frame_in) = async_channel::bounded::<msg::DataFrame>(100);
+    let (send_frame_out, recv_frame_out) = flume::bounded::<msg::DataFrame>(100);
+    let (send_frame_in, recv_frame_in) = flume::bounded::<msg::DataFrame>(100);
     let backhaul_tasks: Vec<_> = (0..SHARDS)
         .map(|i| {
             runtime::spawn(client_backhaul_once(
@@ -156,6 +156,7 @@ async fn client_backhaul_once(
     let mut buf = [0u8; 2048];
 
     let mut last_resume = Instant::now();
+    let mut updated = false;
     let mut socket = runtime::new_udp_socket_bind(laddr_gen().ok()?).await.ok()?;
     let mut old_socket_cleanup: Option<smol::Task<Option<()>>> = None;
 
@@ -181,18 +182,20 @@ async fn client_backhaul_once(
         };
         let up_crypter = up_crypter.clone();
         let up = async {
-            let df = recv_frame_out.recv().await.ok()?;
+            let df = recv_frame_out.recv_async().await.ok()?;
             let encrypted = up_crypter.pad_encrypt(df, 1000);
             Some(Evt::Outgoing(encrypted))
         };
         match smol::future::race(down, up).await {
             Some(Evt::Incoming(df)) => {
                 old_socket_cleanup.take();
-                send_frame_in.send(df).await.ok()?;
+                send_frame_in.send_async(df).await.ok()?;
             }
             Some(Evt::Outgoing(bts)) => {
                 let now = Instant::now();
-                if now.saturating_duration_since(last_resume).as_millis() > RESET_MILLIS {
+                if now.saturating_duration_since(last_resume).as_millis() > RESET_MILLIS || !updated
+                {
+                    updated = true;
                     last_resume = Instant::now();
                     let g_encrypt = crypt::StdAEAD::new(&cookie.generate_c2s().next().unwrap());
                     // also replace the UDP socket!
@@ -212,7 +215,7 @@ async fn client_backhaul_once(
                                         shard_id,
                                         n
                                     );
-                                    drop(send_frame_in.send(plain).await)
+                                    drop(send_frame_in.send_async(plain).await)
                                 }
                             }
                         }));

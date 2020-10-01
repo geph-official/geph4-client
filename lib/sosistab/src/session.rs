@@ -1,9 +1,9 @@
 use crate::fec::{FrameDecoder, FrameEncoder};
 use crate::msg::DataFrame;
 use crate::runtime;
-use async_channel::{Receiver, Sender};
 use async_lock::Lock;
 use bytes::Bytes;
+use flume::{Receiver, Sender};
 use smol::prelude::*;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
@@ -38,9 +38,9 @@ pub struct Session {
 impl Session {
     /// Creates a tuple of a Session and also a channel with which stuff is fed into the session.
     pub fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = async_channel::bounded(100);
-        let (send_input, recv_input) = async_channel::bounded(1000);
-        let (s, r) = async_channel::unbounded();
+        let (send_tosend, recv_tosend) = flume::bounded(100);
+        let (send_input, recv_input) = flume::bounded(1000);
+        let (s, r) = flume::unbounded();
         let task = runtime::spawn(session_loop(cfg, recv_tosend, send_input, r));
         Session {
             send_tosend,
@@ -61,19 +61,19 @@ impl Session {
         // if self.send_tosend.try_send(to_send).is_err() {
         //     log::warn!("overflowed send buffer at session!");
         // }
-        drop(self.send_tosend.send(to_send).await)
+        drop(self.send_tosend.send_async(to_send).await)
     }
 
     /// Waits until the next application input is decoded by the session.
     pub async fn recv_bytes(&self) -> Bytes {
-        self.recv_input.recv().await.unwrap()
+        self.recv_input.recv_async().await.unwrap()
     }
 
     /// Obtains current statistics.
     pub async fn get_stats(&self) -> SessionStats {
-        let (send, recv) = async_channel::bounded(1);
-        self.get_stats.send(send).await.unwrap();
-        recv.recv().await.unwrap()
+        let (send, recv) = flume::bounded(1);
+        self.get_stats.send_async(send).await.unwrap();
+        recv.recv_async().await.unwrap()
     }
 }
 
@@ -106,7 +106,7 @@ async fn session_loop(
                 to_send.clear();
                 // get as much tosend as possible within the timeout
                 // this lets us do it at maximum efficiency
-                to_send.push(infal(recv_tosend.recv()).await);
+                to_send.push(infal(recv_tosend.recv_async()).await);
                 let mut timeout = smol::Timer::after(cfg.latency);
                 loop {
                     let res = async {
@@ -114,7 +114,7 @@ async fn session_loop(
                         true
                     }
                     .or(async {
-                        to_send.push(infal(recv_tosend.recv()).await);
+                        to_send.push(infal(recv_tosend.recv_async()).await);
                         false
                     });
                     if res.await || to_send.len() >= 16 {
@@ -135,7 +135,7 @@ async fn session_loop(
                 }
                 drop(
                     cfg.send_frame
-                        .send(DataFrame {
+                        .send_async(DataFrame {
                             frame_no,
                             run_no,
                             run_idx: idx as u8,
@@ -159,7 +159,7 @@ async fn session_loop(
         let mut rp_filter = ReplayFilter::new(0);
         let mut loss_calc = LossCalculator::new();
         loop {
-            let new_frame = infal(cfg.recv_frame.recv()).await;
+            let new_frame = infal(cfg.recv_frame.recv_async()).await;
             if !rp_filter.add(new_frame.frame_no) {
                 log::trace!(
                     "recv_loop: replay filter dropping frame {}",
@@ -179,7 +179,7 @@ async fn session_loop(
                 &new_frame.body,
             ) {
                 for item in output {
-                    let _ = send_input.send(item).await;
+                    let _ = send_input.send_async(item).await;
                 }
             }
         }
@@ -187,7 +187,7 @@ async fn session_loop(
     // stats loop
     let stats_loop = async {
         loop {
-            let req = infal(recv_statreq.recv()).await;
+            let req = infal(recv_statreq.recv_async()).await;
             let decoder = decoder.lock().await;
             let response = SessionStats {
                 down_total: high_recv_frame_no.load(Ordering::Relaxed),
@@ -200,7 +200,7 @@ async fn session_loop(
                 down_redundant: decoder.total_parity_shards as f64
                     / decoder.total_data_shards as f64,
             };
-            infal(req.send(response)).await;
+            infal(req.send_async(response)).await;
         }
     };
     smol::future::race(send_loop, recv_loop)

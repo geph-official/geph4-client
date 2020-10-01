@@ -1,9 +1,9 @@
 use crate::*;
-use async_channel::{Receiver, Sender};
 use async_dup::Arc as DArc;
 use async_dup::Mutex as DMutex;
 use bipe::{BipeReader, BipeWriter};
 use bytes::{Bytes, BytesMut};
+use flume::{Receiver, Sender};
 // use governor::{Quota, RateLimiter};
 use mux::structs::{Message, RelKind, Reorderer, Seqno};
 use smol::prelude::*;
@@ -34,8 +34,8 @@ impl RelConn {
         dropper: impl FnOnce() + Send + 'static,
     ) -> (Self, RelConnBack) {
         let (send_write, recv_write) = bipe::bipe(65536);
-        let (send_read, recv_read) = bipe::bipe(128 * 1024);
-        let (send_wire_read, recv_wire_read) = async_channel::bounded(1000);
+        let (send_read, recv_read) = bipe::bipe(1024 * 1024);
+        let (send_wire_read, recv_wire_read) = flume::bounded(1000);
         runtime::spawn(relconn_actor(
             state,
             recv_write,
@@ -136,7 +136,7 @@ async fn relconn_actor(
     }
 
     let transmit = |msg| async {
-        drop(send_wire_write.send(msg).await);
+        drop(send_wire_write.send_async(msg).await);
     };
     let mut fragments: VecDeque<Bytes> = VecDeque::new();
     loop {
@@ -168,7 +168,7 @@ async fn relconn_actor(
                 }
                 let synack_evt = async {
                     loop {
-                        match recv_wire_read.recv().await? {
+                        match recv_wire_read.recv_async().await? {
                             Message::Rel { .. } => return Ok::<_, anyhow::Error>(true),
                             _ => continue,
                         }
@@ -207,10 +207,10 @@ async fn relconn_actor(
                 mut conn_vars,
             } => {
                 let event = {
-                    let writeable = conn_vars.inflight.inflight() <= conn_vars.cwnd as usize
+                    let writeable = conn_vars.inflight.len() <= conn_vars.cwnd as usize
                         && conn_vars.inflight.len() < 10000
                         && !conn_vars.closing;
-                    let force_ack = conn_vars.ack_seqnos.len() >= 128;
+                    let force_ack = conn_vars.ack_seqnos.len() >= 32;
 
                     let ack_timer = conn_vars.delayed_ack_timer;
                     let ack_timer = async {
@@ -256,7 +256,7 @@ async fn relconn_actor(
                         }
                     };
                     let new_pkt = async {
-                        Ok::<Evt, anyhow::Error>(Evt::NewPkt(recv_wire_read.recv().await?))
+                        Ok::<Evt, anyhow::Error>(Evt::NewPkt(recv_wire_read.recv_async().await?))
                     };
                     ack_timer.or(rto_timeout.or(new_write.or(new_pkt))).await
                 };
@@ -341,7 +341,7 @@ async fn relconn_actor(
                         } else {
                             SteadyState {
                                 stream_id,
-                                conn_vars, 
+                                conn_vars,
                             }
                         }
                     }
@@ -441,8 +441,8 @@ async fn relconn_actor(
                         true
                     },
                     async {
-                        if recv_wire_read.recv().await.is_ok() {
-                            false
+                        if let Ok(Message::Rel { kind, .. }) = recv_wire_read.recv_async().await {
+                            kind == RelKind::Rst
                         } else {
                             smol::future::pending().await
                         }
@@ -524,7 +524,7 @@ impl ConnVars {
                 self.slow_start = false;
             }
         } else {
-            let n = (0.23 * self.cwnd.powf(0.4)).max(1.0);
+            let n = (0.23 * self.cwnd.powf(0.4)).max(1.0) * 2.0;
             self.cwnd = (self.cwnd + n / self.cwnd).min(10000.0);
         }
         log::trace!("ACK CWND => {}", self.cwnd);

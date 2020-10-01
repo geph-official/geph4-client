@@ -1,0 +1,23 @@
+[package]
+name = "geph4-exit"
+version = "0.1.0"
+authors = ["nullchinchilla <nullchinchilla@pm.me>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+binder_transport = {path="../lib/binder_transport"}
+smol="1.2.2"
+env_logger = "0.7.1"
+log="0.4"
+structopt="0.3"
+ed25519-dalek={version="1", features=["serde"]}
+rand="0.7"
+bincode="1"
+anyhow="1"
+hex="0.4"
+x25519-dalek={version="1", features=["serde"]}
+sosistab={path="../lib/sosistab"}
+blake3="0.3"
+serde="1"

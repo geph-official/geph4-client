@@ -20,11 +20,31 @@ struct Opt {
 }
 
 fn main() {
+    env_logger::init();
     let opt = Opt::from_args();
     let binder_core = bindercore::BinderCore::create(
         &opt.database,
         &opt.captcha_endpoint,
         &std::fs::read(opt.database_ca_cert).unwrap(),
     );
-    dbg!(binder_core.get_mizaru_sk().unwrap().to_public_key());
+    let master_secret = binder_core.get_master_sk().unwrap();
+    let free_mizaru_sk = binder_core.get_mizaru_sk("free").unwrap();
+    let plus_mizaru_sk = binder_core.get_mizaru_sk("plus").unwrap();
+    println!("geph4-binder starting with:");
+    println!(
+        "  Master x25519 public key = {}",
+        hex::encode(x25519_dalek::PublicKey::from(&master_secret).to_bytes())
+    );
+    println!(
+        "  Mizaru public key (FREE) = {}",
+        hex::encode(free_mizaru_sk.to_public_key().0)
+    );
+    println!(
+        "  Mizaru public key (PLUS) = {}",
+        hex::encode(plus_mizaru_sk.to_public_key().0)
+    );
+    // create server
+    let http_serv = binder_transport::HttpServer::new(opt.listen_http, master_secret);
+    println!("HTTP listening on {}", opt.listen_http);
+    responder::handle_requests(http_serv, &binder_core).unwrap()
 }

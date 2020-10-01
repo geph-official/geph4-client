@@ -9,7 +9,7 @@ use std::{
 };
 
 const KEY_COUNT: usize = 65536;
-const KEY_BITS: usize = 1536;
+const KEY_BITS: usize = 2048;
 
 /// Obtains the epoch from a SystemTime
 pub fn time_to_epoch(time: SystemTime) -> usize {
@@ -32,7 +32,7 @@ impl SecretKey {
         // first we generate the massive number of rsa keys
         let rsa_keys: Vec<RSAPrivateKey> = (0..KEY_COUNT)
             .into_par_iter()
-            .map(|i| {
+            .map(|_| {
                 let mut rng = rand::rngs::OsRng {};
                 let count = count.fetch_add(1, Ordering::SeqCst);
                 eprintln!("generated {}/{} keys", count, KEY_COUNT);
@@ -103,7 +103,7 @@ impl SecretKey {
 }
 
 /// A blind signature.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub struct BlindedSignature {
     pub epoch: usize,
     pub used_key: RSAPublicKey,
@@ -134,7 +134,7 @@ pub struct UnblindedSignature {
 
 /// A Mizaru public key. This is actually just the merkle-tree-root of a huge bunch of bincoded RSA public keys!
 #[derive(Clone, Serialize, Deserialize, Debug)]
-pub struct PublicKey([u8; 32]);
+pub struct PublicKey(pub [u8; 32]);
 
 impl PublicKey {
     /// Verifies an unblinded signature.

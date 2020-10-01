@@ -1,10 +1,10 @@
 use crate::session::{Session, SessionConfig};
 use crate::*;
-use async_channel::{Receiver, Sender};
 use async_dup::Arc;
 use async_lock::Lock;
 use async_net::AsyncToSocketAddrs;
 use bytes::Bytes;
+use flume::{Receiver, Sender};
 use indexmap::IndexMap;
 use msg::HandshakeFrame::*;
 use rand::prelude::*;
@@ -16,13 +16,14 @@ use std::{collections::HashMap, net::UdpSocket};
 
 pub struct Listener {
     accepted: Receiver<Session>,
+    local_addr: SocketAddr,
     _task: smol::Task<Option<()>>,
 }
 
 impl Listener {
     /// Accepts a session. This function must be repeatedly called for the entire Listener to make any progress.
     pub async fn accept_session(&self) -> Option<Session> {
-        self.accepted.recv().await.ok()
+        self.accepted.recv_async().await.ok()
     }
     /// Creates a new listener given the parameters.
     pub async fn listen(
@@ -31,8 +32,9 @@ impl Listener {
     ) -> Self {
         // let addr = async_net::resolve(addr).await;
         let socket = runtime::new_udp_socket_bind(addr).await.unwrap();
+        let local_addr = socket.get_ref().local_addr().unwrap();
         let cookie = crypt::Cookie::new((&long_sk).into());
-        let (send, recv) = async_channel::unbounded();
+        let (send, recv) = flume::unbounded();
         let task = runtime::spawn(
             ListenerActor {
                 socket,
@@ -43,8 +45,14 @@ impl Listener {
         );
         Listener {
             accepted: recv,
+            local_addr,
             _task: task,
         }
+    }
+
+    /// Gets the local address.
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
     }
 }
 
@@ -61,7 +69,7 @@ impl ListenerActor {
         // session table
         let mut session_table = SessionTable::default();
         // channel for dropping sessions
-        let (send_dead, recv_dead) = async_channel::unbounded();
+        let (send_dead, recv_dead) = flume::unbounded();
 
         let token_key = {
             let mut buf = [0u8; 32];
@@ -82,7 +90,7 @@ impl ListenerActor {
         loop {
             let event = smol::future::race(
                 async { Some(Evt::NewRecv(socket.recv_from(&mut buffer).await.ok()?)) },
-                async { Some(Evt::DeadSess(recv_dead.recv().await.ok()?)) },
+                async { Some(Evt::DeadSess(recv_dead.recv_async().await.ok()?)) },
             );
             match event.await? {
                 Evt::DeadSess(resume_token) => {
@@ -95,7 +103,7 @@ impl ListenerActor {
                     if let Some((sess, sess_crypt)) = session_table.lookup(addr) {
                         // try feeding it into the session
                         if let Some(dframe) = sess_crypt.pad_decrypt::<msg::DataFrame>(buffer) {
-                            drop(sess.send(dframe).await);
+                            drop(sess.send_async(dframe).await);
                             continue;
                         } else {
                             log::trace!("{} NOT associated with existing session", addr);
@@ -173,10 +181,10 @@ impl ListenerActor {
                                             let dn_aead = crypt::StdAEAD::new(dn_key.as_bytes());
                                             let socket = socket.clone();
                                             let (session_input, session_input_recv) =
-                                                async_channel::bounded(100);
+                                                flume::bounded(100);
                                             // create session
                                             let (session_output_send, session_output_recv) =
-                                                async_channel::bounded::<msg::DataFrame>(100);
+                                                flume::bounded::<msg::DataFrame>(100);
                                             let mut locked_addrs = IndexMap::new();
                                             locked_addrs.insert(shard_id, addr);
                                             // send for poll
@@ -186,7 +194,8 @@ impl ListenerActor {
                                                 runtime::spawn(async move {
                                                     let mut ctr = 0u8;
                                                     loop {
-                                                        match session_output_recv.recv().await {
+                                                        match session_output_recv.recv_async().await
+                                                        {
                                                             Ok(df) => {
                                                                 let enc =
                                                                     dn_aead.pad_encrypt(&df, 1000);
@@ -243,7 +252,7 @@ impl ListenerActor {
                                             session_table
                                                 .rebind(addr, shard_id, resume_token)
                                                 .await;
-                                            drop(accepted.send(session).await);
+                                            drop(accepted.send_async(session).await);
                                         } else {
                                             log::warn!(
                                                 "ClientResume from {} can't be decrypted",

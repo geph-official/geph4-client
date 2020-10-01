@@ -430,6 +430,7 @@ dependencies = [
  "blake3",
  "chacha20poly1305",
  "derivative",
+ "ed25519-dalek",
  "env_logger",
  "http-types",
  "log 0.4.11",
@@ -437,6 +438,7 @@ dependencies = [
  "rand",
  "serde",
  "smol",
+ "thiserror",
  "ureq",
  "x25519-dalek",
 ]
@@ -594,13 +596,15 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.15"
+version = "0.4.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "942f72db697d8767c22d46a598e01f2d3b475501ea43d0db4f16d90259182d0b"
+checksum = "d021fddb7bd3e734370acfa4a83f34095571d8570c039f1420d77540f68d5772"
 dependencies = [
+ "libc",
  "num-integer",
  "num-traits",
  "time 0.1.44",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -881,14 +885,15 @@ dependencies = [
 
 [[package]]
 name = "ed25519-dalek"
-version = "1.0.0"
+version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53d2e93f837d749c16d118e7ddf7a4dfd0ac8f452cf51e46e9348824e5ef6851"
+checksum = "c762bae6dcaf24c4c84667b8579785430908723d5c889f469d76a41d59cc7a9d"
 dependencies = [
  "curve25519-dalek",
  "ed25519",
  "rand",
  "serde",
+ "serde_bytes",
  "sha2",
  "zeroize",
 ]
@@ -982,6 +987,17 @@ dependencies = [
  "num-bigint-dig",
  "secret_integers",
  "subtle",
+]
+
+[[package]]
+name = "flume"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f7d4f1d85cb8cafb73c01d872e0124a96e603f5b7633ce1eac70015f066e946"
+dependencies = [
+ "futures",
+ "rand",
+ "spinning_top",
 ]
 
 [[package]]
@@ -1157,22 +1173,90 @@ dependencies = [
  "anyhow",
  "bincode",
  "binder_transport",
+ "chrono",
  "easy-parallel",
+ "ed25519-dalek",
+ "env_logger",
+ "hex",
  "libsodium-sys",
+ "log 0.4.11",
  "mizaru",
  "native-tls",
+ "once_cell",
+ "parking_lot",
  "png",
  "postgres",
  "postgres-native-tls",
+ "r2d2",
+ "r2d2_postgres",
+ "rand",
  "structopt",
  "ureq",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "geph4-bridge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "binder_transport",
+ "ed25519-dalek",
+ "env_logger",
+ "hex",
+ "log 0.4.11",
+ "serde",
+ "smol",
+ "socksv5",
+ "sosistab",
+ "structopt",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "geph4-client"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "binder_transport",
+ "ed25519-dalek",
+ "env_logger",
+ "hex",
+ "log 0.4.11",
+ "serde",
+ "smol",
+ "socksv5",
+ "sosistab",
+ "structopt",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "geph4-exit"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "binder_transport",
+ "blake3",
+ "ed25519-dalek",
+ "env_logger",
+ "hex",
+ "log 0.4.11",
+ "rand",
+ "serde",
+ "smol",
+ "sosistab",
+ "structopt",
+ "x25519-dalek",
 ]
 
 [[package]]
 name = "geph4-vpntest"
 version = "0.1.0"
 dependencies = [
- "async-global-executor",
  "async-net",
  "async-rwlock",
  "blake3",
@@ -2200,6 +2284,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "r2d2"
+version = "0.8.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "545c5bc2b880973c9c10e4067418407a0ccaa3091781d1671d46eb35107cb26f"
+dependencies = [
+ "log 0.4.11",
+ "parking_lot",
+ "scheduled-thread-pool",
+]
+
+[[package]]
+name = "r2d2_postgres"
+version = "0.16.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "707d27f66f43bac1081141f6d9611fffcce7da2841ae97c7ac53619d098efe8f"
+dependencies = [
+ "postgres",
+ "r2d2",
+]
+
+[[package]]
 name = "rand"
 version = "0.7.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2427,6 +2532,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "scheduled-thread-pool"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dc6f74fd1204073fa02d5d5d68bec8021be4c38690b61264b2fdb48083d0e7d7"
+dependencies = [
+ "parking_lot",
+]
+
+[[package]]
 name = "scopeguard"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2493,6 +2607,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96fe57af81d28386a513cbc6858332abc6117cfdb5999647c6444b8f43a370a5"
 dependencies = [
  "serde_derive",
+]
+
+[[package]]
+name = "serde_bytes"
+version = "0.11.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "16ae07dd2f88a366f15bd0632ba725227018c69a1c8550a927324f8eb8368bb9"
+dependencies = [
+ "serde",
 ]
 
 [[package]]
@@ -2637,9 +2760,9 @@ checksum = "fbee7696b84bbf3d89a1c2eccff0850e3047ed46bfcd2e92c29a2d074d57e252"
 
 [[package]]
 name = "smol"
-version = "1.2.1"
+version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d41237ba3e3ada55ff3515d37becc8fa90e5e4af2b13a011ec3f932d9f1b2405"
+checksum = "7ca2722989073e89917a575862fb49dba3321af152f0cf4a4164d9482aabdf28"
 dependencies = [
  "async-channel",
  "async-executor",
@@ -2702,6 +2825,7 @@ dependencies = [
  "ed25519-dalek",
  "env_logger",
  "event-listener",
+ "flume",
  "hex",
  "indexmap",
  "lazy_static",
@@ -2736,6 +2860,15 @@ name = "spin"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
+
+[[package]]
+name = "spinning_top"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7e529d73e80d64b5f2631f9035113347c578a1c9c7774b83a2b880788459ab36"
+dependencies = [
+ "lock_api",
+]
 
 [[package]]
 name = "stable_deref_trait"
@@ -3135,6 +3268,7 @@ dependencies = [
  "blocking",
  "bytes",
  "cc",
+ "flume",
  "smol",
 ]
 

@@ -1,6 +1,6 @@
 use crate::*;
-use async_channel::{Receiver, Sender};
 use bytes::Bytes;
+use flume::{Receiver, Sender};
 use std::{sync::Arc, time::Duration};
 mod multiplex_actor;
 mod relconn;
@@ -25,10 +25,10 @@ fn to_ioerror<T: Into<Box<dyn std::error::Error + Send + Sync>>>(val: T) -> std:
 impl Multiplex {
     /// Creates a new multiplexed session
     pub fn new(session: Session) -> Self {
-        let (urel_send, urel_send_recv) = async_channel::bounded(100);
-        let (urel_recv_send, urel_recv) = async_channel::bounded(100);
-        let (conn_open, conn_open_recv) = async_channel::bounded(100);
-        let (conn_accept_send, conn_accept) = async_channel::bounded(100);
+        let (urel_send, urel_send_recv) = flume::bounded(100);
+        let (urel_recv_send, urel_recv) = flume::bounded(100);
+        let (conn_open, conn_open_recv) = flume::bounded(100);
+        let (conn_accept_send, conn_accept) = flume::bounded(100);
         let session = Arc::new(session);
         let sess_cloned = session.clone();
         runtime::spawn(async move {
@@ -41,7 +41,6 @@ impl Multiplex {
             )
             .await;
             log::debug!("multiplex actor returned {:?}", retval);
-            panic!("{:?}", retval);
         })
         .detach();
         Multiplex {
@@ -55,12 +54,12 @@ impl Multiplex {
 
     /// Sends an unreliable message to the other side
     pub async fn send_urel(&self, msg: Bytes) -> std::io::Result<()> {
-        self.urel_send.send(msg).await.map_err(to_ioerror)
+        self.urel_send.send_async(msg).await.map_err(to_ioerror)
     }
 
     /// Receive an unreliable message
     pub async fn recv_urel(&self) -> std::io::Result<Bytes> {
-        self.urel_recv.recv().await.map_err(to_ioerror)
+        self.urel_recv.recv_async().await.map_err(to_ioerror)
     }
 
     /// Gets a reference to the underlying Session
@@ -71,9 +70,9 @@ impl Multiplex {
     /// Open a reliable conn to the other end.
     pub async fn open_conn(&self) -> std::io::Result<RelConn> {
         loop {
-            let (send, recv) = async_channel::unbounded();
-            self.conn_open.send(send).await.map_err(to_ioerror)?;
-            if let Ok(rc) = recv.recv().await {
+            let (send, recv) = flume::unbounded();
+            self.conn_open.send_async(send).await.map_err(to_ioerror)?;
+            if let Ok(rc) = recv.recv_async().await {
                 break Ok(rc);
             }
             smol::Timer::after(Duration::from_secs(1)).await;
@@ -82,6 +81,6 @@ impl Multiplex {
 
     /// Accept a reliable conn from the other end.
     pub async fn accept_conn(&self) -> std::io::Result<RelConn> {
-        self.conn_accept.recv().await.map_err(to_ioerror)
+        self.conn_accept.recv_async().await.map_err(to_ioerror)
     }
 }
