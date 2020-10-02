@@ -17,7 +17,7 @@ pub async fn main_loop<'a>(
 ) -> anyhow::Result<()> {
     let scope = smol::LocalExecutor::new();
     // control protocol listener
-    let control_prot_listen = smol::net::TcpListener::bind("[::1]:28080").await?;
+    let control_prot_listen = smol::net::TcpListener::bind("[::0]:28080").await?;
     // future that governs the control protocol
     let control_prot_fut = async {
         loop {
@@ -41,7 +41,7 @@ pub async fn main_loop<'a>(
     };
     // future that governs the "self binder"
     let self_binder_fut = async {
-        let sosis_listener = sosistab::Listener::listen("0.0.0.0:19831", sosistab_sk).await;
+        let sosis_listener = sosistab::Listener::listen("[::0]:19831", sosistab_sk).await;
         log::info!("sosis_listener initialized");
         loop {
             let sess = sosis_listener
@@ -89,13 +89,7 @@ async fn handle_control<'a>(
     scope
         .run(async {
             loop {
-                let their_addr: SocketAddr = read_pascalish(&mut client)
-                    .or(async {
-                        smol::Timer::after(Duration::from_secs(60)).await;
-                        anyhow::bail!("timeout")
-                    })
-                    .await?;
-                let their_group: String = read_pascalish(&mut client)
+                let (their_addr, their_group): (SocketAddr, String) = read_pascalish(&mut client)
                     .or(async {
                         smol::Timer::after(Duration::from_secs(60)).await;
                         anyhow::bail!("timeout")
@@ -104,9 +98,10 @@ async fn handle_control<'a>(
                 log::info!("bridge in group {} to forward {}", their_group, their_addr);
                 // create or recall binding
                 if info.is_none() {
+                    log::info!("redoing binding because info is none");
                     let sosis_secret = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
                     let sosis_listener =
-                        sosistab::Listener::listen("[::1]:0", sosis_secret.clone()).await;
+                        sosistab::Listener::listen("[::0]:0", sosis_secret.clone()).await;
                     info = Some((
                         sosis_listener.local_addr().port(),
                         x25519_dalek::PublicKey::from(&sosis_secret),
@@ -156,7 +151,8 @@ async fn handle_control<'a>(
                         Duration::from_secs(10),
                     )
                 })
-                .await?;
+                .await
+                .context("failed to go to binder")?;
                 assert_eq!(resp, BinderResponse::Okay);
             }
         })
@@ -174,17 +170,6 @@ async fn handle_session(sess: sosistab::Session) -> anyhow::Result<()> {
             scope.spawn(handle_proxy_stream(stream)).detach();
         }
     };
-    // let handle_keepalives = async {
-    //     loop {
-    //         let boo = async { sess.recv_urel().await.is_ok() }.or(async {
-    //             smol::Timer::after(Duration::from_secs(600));
-    //             false
-    //         });
-    //         if !boo.await {
-    //             break Err(anyhow::anyhow!("keepalive timeout"));
-    //         }
-    //     }
-    // };
     scope.run(handle_streams).await
 }
 

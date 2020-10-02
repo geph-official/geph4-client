@@ -207,7 +207,7 @@ async fn relconn_actor(
                 mut conn_vars,
             } => {
                 let event = {
-                    let writeable = conn_vars.inflight.len() <= conn_vars.cwnd as usize
+                    let writeable = conn_vars.inflight.inflight() <= conn_vars.cwnd as usize
                         && conn_vars.inflight.len() < 10000
                         && !conn_vars.closing;
                     let force_ack = conn_vars.ack_seqnos.len() >= 32;

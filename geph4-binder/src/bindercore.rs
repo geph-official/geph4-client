@@ -305,9 +305,13 @@ impl BinderCore {
                 &sosistab_pubkey.to_bytes().to_vec(),
                 &bridge_address.to_string(),
                 &bridge_group,
-                &exit_hostname,
                 &update_time,
             ],
+        )
+        .map_err(|_| BinderError::DatabaseFailed)?;
+        txn.execute(
+            "delete from routes where update_time < NOW() - interval '2 minute'",
+            &[],
         )
         .map_err(|_| BinderError::DatabaseFailed)?;
         txn.commit().map_err(|_| BinderError::DatabaseFailed)?;

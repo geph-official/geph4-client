@@ -24,7 +24,7 @@ pub async fn connect_custom(
     pubkey: x25519_dalek::PublicKey,
     laddr_gen: impl Fn() -> std::io::Result<SocketAddr> + Send + Sync + 'static,
 ) -> std::io::Result<Session> {
-    let udp_socket = runtime::new_udp_socket_bind(dbg!(laddr_gen())?).await?;
+    let udp_socket = runtime::new_udp_socket_bind(laddr_gen()?).await?;
     let my_long_sk = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
     let my_eph_sk = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
     // do the handshake

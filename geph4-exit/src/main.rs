@@ -35,7 +35,7 @@ struct Opt {
 
 fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
-    env_logger::from_env(Env::default().default_filter_or("info")).init();
+    env_logger::from_env(Env::default().default_filter_or("geph4_exit=info")).init();
     smol::block_on(async move {
         log::info!("geph4-exit starting...");
         // read or generate key
