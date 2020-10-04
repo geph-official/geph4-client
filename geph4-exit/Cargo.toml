@@ -21,3 +21,4 @@ x25519-dalek={version="1", features=["serde"]}
 sosistab={path="../lib/sosistab"}
 blake3="0.3"
 serde="1"
+mizaru={path="../lib/mizaru"}

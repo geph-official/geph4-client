@@ -48,7 +48,9 @@ pub async fn main_loop<'a>(
                 .accept_session()
                 .await
                 .ok_or_else(|| anyhow::anyhow!("can't accept from sosistab"))?;
-            scope.spawn(handle_session(sess)).detach();
+            scope
+                .spawn(handle_session(binder_client.clone(), sess))
+                .detach();
         }
     };
     // race
@@ -98,6 +100,7 @@ async fn handle_control<'a>(
                 log::info!("bridge in group {} to forward {}", their_group, their_addr);
                 // create or recall binding
                 if info.is_none() {
+                    let binder_client = binder_client.clone();
                     log::info!("redoing binding because info is none");
                     let sosis_secret = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
                     let sosis_listener =
@@ -108,14 +111,18 @@ async fn handle_control<'a>(
                     ));
                     _task = Some(scope.spawn(async move {
                         let scope = smol::LocalExecutor::new();
+                        let binder_client = binder_client.clone();
                         scope
                             .run(async {
+                                let binder_client = binder_client.clone();
                                 loop {
                                     let sess =
                                         sosis_listener.accept_session().await.ok_or_else(|| {
                                             anyhow::anyhow!("can't accept from sosistab")
                                         })?;
-                                    scope.spawn(handle_session(sess)).detach();
+                                    scope
+                                        .spawn(handle_session(binder_client.clone(), sess))
+                                        .detach();
                                 }
                             })
                             .await
@@ -159,18 +166,50 @@ async fn handle_control<'a>(
         .await
 }
 
-async fn handle_session(sess: sosistab::Session) -> anyhow::Result<()> {
+async fn handle_session(
+    binder_client: Arc<dyn BinderClient>,
+    sess: sosistab::Session,
+) -> anyhow::Result<()> {
     let sess = sosistab::mux::Multiplex::new(sess);
     let scope = smol::LocalExecutor::new();
-    log::info!("handle_session entered");
     let handle_streams = async {
+        // authenticate_sess(binder_client.clone(), &sess).await?;
+        log::info!("authenticated a new session");
         loop {
             let stream = sess.accept_conn().await?;
-            log::info!("accepted stream");
             scope.spawn(handle_proxy_stream(stream)).detach();
         }
     };
     scope.run(handle_streams).await
+}
+
+async fn authenticate_sess(
+    binder_client: Arc<dyn BinderClient>,
+    sess: &sosistab::mux::Multiplex,
+) -> anyhow::Result<()> {
+    let mut stream = sess.accept_conn().await?;
+    // wait for a message containing a blinded signature
+    let (auth_tok, auth_sig, level): (Vec<u8>, mizaru::UnblindedSignature, String) =
+        read_pascalish(&mut stream).await?;
+    if (auth_sig.epoch as i32 - mizaru::time_to_epoch(SystemTime::now()) as i32).abs() > 1 {
+        anyhow::bail!("outdated authentication token")
+    }
+    // validate it through the binder
+    let res = smol::unblock(move || {
+        binder_client.request(
+            BinderRequestData::Validate {
+                level,
+                unblinded_digest: auth_tok,
+                unblinded_signature: auth_sig,
+            },
+            Duration::from_secs(10),
+        )
+    })
+    .await?;
+    if res != BinderResponse::Okay {
+        anyhow::bail!("unexpected authentication response from binder")
+    }
+    Ok(())
 }
 
 async fn handle_proxy_stream(mut client: sosistab::mux::RelConn) -> anyhow::Result<()> {

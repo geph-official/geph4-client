@@ -28,14 +28,26 @@ pub fn handle_requests(serv: impl BinderServer, core: &BinderCore) -> anyhow::Re
                         new_password,
                     } => db_retry(|| core.change_password(&username, &old_password, &new_password))
                         .map(|_| BinderResponse::Okay),
+                    // get epoch key
+                    BinderRequestData::GetEpochKey { epoch, level } => db_retry(|| {
+                        let subkey = core.get_epoch_key(level, *epoch as usize)?;
+                        Ok(BinderResponse::GetEpochKeyResp(subkey))
+                    }),
                     // authenticate
                     BinderRequestData::Authenticate {
                         username,
                         password,
+                        level,
+                        epoch,
                         blinded_digest,
                     } => db_retry(|| {
-                        let (user_info, blind_signature) =
-                            core.authenticate(&username, &password, &blinded_digest)?;
+                        let (user_info, blind_signature) = core.authenticate(
+                            &username,
+                            &password,
+                            level,
+                            *epoch as usize,
+                            &blinded_digest,
+                        )?;
                         Ok(BinderResponse::AuthenticateResp {
                             user_info,
                             blind_signature,
@@ -94,6 +106,21 @@ pub fn handle_requests(serv: impl BinderServer, core: &BinderCore) -> anyhow::Re
                     BinderRequestData::GetExits => db_retry(|| {
                         let response = core.get_exits()?;
                         Ok(BinderResponse::GetExitsResp(response))
+                    }),
+                    // get bridges
+                    BinderRequestData::GetBridges {
+                        level,
+                        unblinded_digest,
+                        unblinded_signature,
+                        exit_hostname,
+                    } => db_retry(|| {
+                        let resp = core.get_bridges(
+                            level,
+                            unblinded_digest,
+                            unblinded_signature,
+                            exit_hostname,
+                        )?;
+                        Ok(BinderResponse::GetBridgesResp(resp))
                     }),
                 };
                 req.respond(res);

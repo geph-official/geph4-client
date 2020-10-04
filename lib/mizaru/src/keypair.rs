@@ -4,6 +4,7 @@ use rsa_fdh::blind;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
+    convert::TryFrom,
     sync::{atomic::AtomicU64, atomic::Ordering, Arc},
     time::SystemTime,
 };
@@ -100,6 +101,11 @@ impl SecretKey {
     pub fn to_public_key(&self) -> PublicKey {
         PublicKey(self.merkle_tree.last().unwrap()[0])
     }
+
+    /// Gets an epoch key.
+    pub fn get_subkey(&self, epoch: usize) -> &RSAPrivateKey {
+        &self.rsa_keys[epoch]
+    }
 }
 
 /// A blind signature.
@@ -139,10 +145,43 @@ pub struct PublicKey(pub [u8; 32]);
 impl PublicKey {
     /// Verifies an unblinded signature.
     pub fn blind_verify(&self, unblinded_digest: &[u8], sig: &UnblindedSignature) -> bool {
-        // TODO!!! FIRST VERIFY MERKLE STUFF
-        // then verify the actual blind sig
-        blind::verify(&sig.used_key, unblinded_digest, &sig.unblinded_sig).is_ok()
+        self.verify_member(sig.epoch, &sig.used_key, &sig.merkle_branch)
+            && blind::verify(&sig.used_key, unblinded_digest, &sig.unblinded_sig).is_ok()
     }
+
+    /// Verifies that a certain subkey is the correct one for the epoch
+    pub fn verify_member(
+        &self,
+        epoch: usize,
+        subkey: &RSAPublicKey,
+        merkle_branch: &[[u8; 32]],
+    ) -> bool {
+        merkle_branch.len();
+        let mut accumulator: [u8; 32] =
+            Sha256::digest(&bincode::serialize(&subkey).unwrap()).into();
+        for (i, hash) in merkle_branch.iter().enumerate() {
+            if epoch >> i & 1 == 0 {
+                // the hash is on the "odd" position
+                accumulator = hash_together(&accumulator, hash)
+            } else {
+                accumulator = hash_together(hash, &accumulator)
+            }
+        }
+        accumulator == self.0
+    }
+}
+
+impl From<[u8; 32]> for PublicKey {
+    fn from(val: [u8; 32]) -> Self {
+        Self(val)
+    }
+}
+
+fn hash_together(x: &[u8], y: &[u8]) -> [u8; 32] {
+    let mut buf = Vec::with_capacity(x.len() + y.len());
+    buf.extend_from_slice(x);
+    buf.extend_from_slice(y);
+    Sha256::digest(&buf).into()
 }
 
 // #[cfg(test)]

@@ -12,10 +12,14 @@ pub type BinderResult<T> = Result<T, BinderError>;
 /// Data for a binder request
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
 pub enum BinderRequestData {
+    /// Get mizaru epoch key
+    GetEpochKey { level: String, epoch: u16 },
     /// Authenticate a user, obtaining the user info and blinded signature.
     Authenticate {
         username: String,
         password: String,
+        level: String,
+        epoch: u16,
         blinded_digest: Vec<u8>,
     },
     /// Validates a blind signature token, applying rate-limiting as appropriate.
@@ -59,6 +63,14 @@ pub enum BinderRequestData {
         route_unixtime: u64,
         /// Authorization from the exit. Signature over a tuple of the rest of the fields except the exit hostname.
         exit_signature: ed25519_dalek::Signature,
+    },
+
+    /// Get bridges
+    GetBridges {
+        level: String,
+        unblinded_digest: Vec<u8>,
+        unblinded_signature: mizaru::UnblindedSignature,
+        exit_hostname: String,
     },
 }
 
@@ -120,6 +132,8 @@ impl EncryptedBinderRequestData {
 pub enum BinderResponse {
     /// Okay to something that does not need response data.
     Okay,
+    /// Carrying an epoch key
+    GetEpochKeyResp(rsa::RSAPublicKey),
     /// Response to authentication
     AuthenticateResp {
         user_info: UserInfo,
@@ -134,6 +148,8 @@ pub enum BinderResponse {
     },
     /// Response to request for all exits
     GetExitsResp(Vec<ExitDescriptor>),
+    /// Response to request for bridges
+    GetBridgesResp(Vec<BridgeDescriptor>),
 }
 
 /// Exit descriptor
@@ -143,6 +159,13 @@ pub struct ExitDescriptor {
     pub signing_key: ed25519_dalek::PublicKey,
     pub country_code: String,
     pub city_code: String,
+    pub sosistab_key: x25519_dalek::PublicKey,
+}
+
+/// Bridge descriptor
+#[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]
+pub struct BridgeDescriptor {
+    pub endpoint: SocketAddr,
     pub sosistab_key: x25519_dalek::PublicKey,
 }
 
@@ -205,6 +228,8 @@ pub enum BinderError {
     WrongPassword,
     #[error("incorrect captcha")]
     WrongCaptcha,
+    #[error("incorrect account level")]
+    WrongLevel,
     // database error
     #[error("database failed")]
     DatabaseFailed,

@@ -210,7 +210,7 @@ async fn relconn_actor(
                     let writeable = conn_vars.inflight.inflight() <= conn_vars.cwnd as usize
                         && conn_vars.inflight.len() < 10000
                         && !conn_vars.closing;
-                    let force_ack = conn_vars.ack_seqnos.len() >= 32;
+                    let force_ack = conn_vars.ack_seqnos.len() >= 128;
 
                     let ack_timer = conn_vars.delayed_ack_timer;
                     let ack_timer = async {
@@ -524,7 +524,7 @@ impl ConnVars {
                 self.slow_start = false;
             }
         } else {
-            let n = (0.23 * self.cwnd.powf(0.4)).max(1.0) * 2.0;
+            let n = (0.23 * self.cwnd.powf(0.4)).max(1.0) * 8.0;
             self.cwnd = (self.cwnd + n / self.cwnd).min(10000.0);
         }
         log::trace!("ACK CWND => {}", self.cwnd);
@@ -540,9 +540,9 @@ impl ConnVars {
         }
         if now.saturating_duration_since(self.last_loss) > self.inflight.rto() {
             self.slow_start = false;
-            self.cwnd = self.inflight.bdp().max(self.cwnd * 0.8);
+            self.cwnd = self.inflight.bdp().max(self.cwnd * 0.5);
             self.last_loss = now;
-            log::trace!(
+            log::debug!(
                 "LOSS CWND => {} (ssthresh {}) bdp {} rto {}ms",
                 self.cwnd,
                 self.ssthresh,

@@ -10,9 +10,9 @@ use msg::HandshakeFrame::*;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use smol::Async;
-use std::net::SocketAddr;
 use std::time::Duration;
 use std::{collections::HashMap, net::UdpSocket};
+use std::{net::SocketAddr, time::Instant};
 
 pub struct Listener {
     accepted: Receiver<Session>,
@@ -56,6 +56,35 @@ impl Listener {
     }
 }
 
+// recently seen tracker
+struct RecentFilter {
+    curr_bloom: bloomfilter::Bloom<[u8]>,
+    last_bloom: bloomfilter::Bloom<[u8]>,
+    curr_time: Instant,
+}
+
+impl RecentFilter {
+    fn new() -> Self {
+        RecentFilter {
+            curr_bloom: bloomfilter::Bloom::new_for_fp_rate(100000, 0.01),
+            last_bloom: bloomfilter::Bloom::new_for_fp_rate(100000, 0.01),
+            curr_time: Instant::now(),
+        }
+    }
+
+    fn check(&mut self, val: &[u8]) -> bool {
+        if Instant::now()
+            .saturating_duration_since(self.curr_time)
+            .as_secs()
+            > 120
+        {
+            std::mem::swap(&mut self.curr_bloom, &mut self.last_bloom);
+            self.curr_bloom.clear()
+        }
+        !(self.curr_bloom.check_and_set(val) || self.last_bloom.check(val))
+    }
+}
+
 type ShardedAddrs = IndexMap<u8, SocketAddr>;
 
 struct ListenerActor {
@@ -66,6 +95,8 @@ struct ListenerActor {
 impl ListenerActor {
     #[allow(clippy::mutable_key_type)]
     async fn run(self, accepted: Sender<Session>) -> Option<()> {
+        // replay filter for globally-encrypted stuff
+        let mut curr_filter = RecentFilter::new();
         // session table
         let mut session_table = SessionTable::default();
         // channel for dropping sessions
@@ -109,8 +140,11 @@ impl ListenerActor {
                             log::trace!("{} NOT associated with existing session", addr);
                         }
                     }
+                    if !curr_filter.check(buffer) {
+                        log::warn!("discarding replay attempt with len {}", buffer.len());
+                        continue;
+                    }
                     // we know it's not part of an existing session then. we decrypt it under the current key
-                    // TODO replay protection
                     let s2c_key = self.cookie.generate_s2c().next().unwrap();
                     for possible_key in self.cookie.generate_c2s() {
                         let crypter = crypt::StdAEAD::new(&possible_key);

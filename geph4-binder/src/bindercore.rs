@@ -1,4 +1,4 @@
-use binder_transport::{BinderError, ExitDescriptor, SubscriptionInfo, UserInfo};
+use binder_transport::{BinderError, BridgeDescriptor, ExitDescriptor, SubscriptionInfo, UserInfo};
 use native_tls::{Certificate, TlsConnector};
 use parking_lot::Mutex;
 use postgres_native_tls::MakeTlsConnector;
@@ -6,6 +6,7 @@ use r2d2_postgres::PostgresConnectionManager;
 use std::{
     collections::HashMap,
     convert::TryFrom,
+    convert::TryInto,
     ffi::{CStr, CString},
     net::SocketAddr,
     ops::DerefMut,
@@ -128,7 +129,7 @@ impl BinderCore {
             .map_err(|_| BinderError::DatabaseFailed)?
             .map(|v| SubscriptionInfo {
                 level: v.get(0),
-                expires_unix: v.get(1),
+                expires_unix: v.get::<_, f64>(1) as i64,
             });
         Ok(UserInfo {
             userid,
@@ -223,26 +224,47 @@ impl BinderCore {
         }
     }
 
+    /// Gets epoch key
+    pub fn get_epoch_key(
+        &self,
+        level: &str,
+        epoch: usize,
+    ) -> Result<rsa::RSAPublicKey, BinderError> {
+        let lala = self.get_mizaru_sk(level)?;
+        let sk = lala.get_subkey(epoch);
+        Ok(sk.to_public_key())
+    }
+
     /// Validates the username and password, and if it is valid, blind-sign the given digest and return the signature.
     pub fn authenticate(
         &self,
         username: &str,
         password: &str,
+        level: &str,
+        epoch: usize,
         blinded_digest: &[u8],
     ) -> Result<(UserInfo, mizaru::BlindedSignature), BinderError> {
+        if level != "free" && level != "plus" {
+            return Err(BinderError::Other("mizaru failed".into()));
+        }
         self.verify_password(&username, &password)?;
         let user_info = self.get_user_info(&username)?;
-
-        let key = self.get_mizaru_sk(
-            &user_info
-                .clone()
-                .subscription
-                .map(|sub| sub.level)
-                .unwrap_or_else(|| "free".to_string()),
-        )?;
-        let epoch = mizaru::time_to_epoch(SystemTime::now());
-        let sig = key.blind_sign(epoch, blinded_digest);
-        Ok((user_info, sig))
+        let actual_level = user_info
+            .clone()
+            .subscription
+            .map(|s| s.level)
+            .unwrap_or_else(|| "free".to_string());
+        if actual_level != level {
+            return Err(BinderError::WrongLevel);
+        }
+        let key = self.get_mizaru_sk(level)?;
+        let real_epoch = mizaru::time_to_epoch(SystemTime::now());
+        if (real_epoch as i32 - epoch as i32).abs() <= 1 {
+            let sig = key.blind_sign(epoch, blinded_digest);
+            Ok((user_info, sig))
+        } else {
+            Err(BinderError::Other("mizaru failed".into()))
+        }
     }
 
     /// Validates an token
@@ -341,6 +363,42 @@ impl BinderCore {
                 sosistab_key: x25519_dalek::PublicKey::from(
                     <[u8; 32]>::try_from(row.get::<_, Vec<u8>>(4).as_slice()).unwrap(),
                 ),
+            })
+            .collect())
+    }
+
+    /// Get all bridges.
+    /// TODO: right now just dumps all recent routes. This is obviously wrong and will be fixed.
+    pub fn get_bridges(
+        &self,
+        level: &str,
+        unblinded_digest: &[u8],
+        unblinded_signature: &mizaru::UnblindedSignature,
+        exit_hostname: &str,
+    ) -> Result<Vec<BridgeDescriptor>, BinderError> {
+        if !self.validate(level, unblinded_digest, unblinded_signature)? {
+            return Err(BinderError::NoUserFound);
+        }
+        let mut client = self.get_pg_conn()?;
+        let mut txn: postgres::Transaction<'_> = client
+            .transaction()
+            .map_err(|_| BinderError::DatabaseFailed)?;
+        let query = "select bridge_address,sosistab_pubkey from routes where update_time > NOW() - interval '1 minute' and hostname=$1";
+        let rows = txn
+            .query(query, &[&exit_hostname])
+            .map_err(|_| BinderError::DatabaseFailed)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| {
+                let bridge_address: String = row.get(0);
+                let bridge_address: SocketAddr = bridge_address.parse().unwrap();
+                let sosistab_key: Vec<u8> = row.get(1);
+                let sosistab_key: [u8; 32] = sosistab_key.as_slice().try_into().unwrap();
+                let sosistab_key = x25519_dalek::PublicKey::from(sosistab_key);
+                BridgeDescriptor {
+                    endpoint: bridge_address,
+                    sosistab_key,
+                }
             })
             .collect())
     }

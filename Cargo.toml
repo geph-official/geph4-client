@@ -8,15 +8,15 @@ members = [
     "lib/mizaru",
     "lib/binder_transport",
     "lib/sosistab",
-    "geph4-vpntest",
     "geph4-client",
     "geph4-bridge"
 ] 
 
 
 [profile.dev]
-opt-level=1
+opt-level=0
 
 [profile.release]
 panic = "abort"
 opt-level=3
+lto="off"

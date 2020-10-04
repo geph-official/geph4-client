@@ -30,3 +30,4 @@ x25519-dalek="1"
 env_logger = "0.7.1"
 chrono = "0.4.18"
 ed25519-dalek = {version="1.0.1", features=["serde"]}
+rsa = {version="0.3.0", features=["serde"]}
