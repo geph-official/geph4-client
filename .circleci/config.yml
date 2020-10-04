@@ -4,8 +4,10 @@ version: 2.1
 # Orchestrate or schedule a set of jobs
 jobs:
   build:
+    working_directory: ~/repo/geph4-client
     docker:
       - image: cimg/rust:1.46.0
     steps:
-      - checkout
+      - checkout:
+          path: ~/repo
       - run: cargo build --release
