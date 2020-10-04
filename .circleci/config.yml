@@ -2,13 +2,10 @@
 version: 2.1
 # Use a package of configuration called an orb.
 # Orchestrate or schedule a set of jobs
-workflows:
-  # Name the workflow "welcome"
-  build-rust:
-    jobs:
-      build:
-        docker:
-          - image: cimg/rust:1.46.0
-        steps:
-          - checkout
-          - run: cargo build --release
+jobs:
+  build:
+    docker:
+      - image: cimg/rust:1.46.0
+    steps:
+      - checkout
+      - run: cargo build --release
