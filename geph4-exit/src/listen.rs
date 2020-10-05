@@ -170,10 +170,11 @@ async fn handle_session(
     binder_client: Arc<dyn BinderClient>,
     sess: sosistab::Session,
 ) -> anyhow::Result<()> {
+    log::info!("authentication started...");
     let sess = sosistab::mux::Multiplex::new(sess);
     let scope = smol::LocalExecutor::new();
     let handle_streams = async {
-        // authenticate_sess(binder_client.clone(), &sess).await?;
+        dbg!(authenticate_sess(binder_client.clone(), &sess).await)?;
         log::info!("authenticated a new session");
         loop {
             let stream = sess.accept_conn().await?;
@@ -188,6 +189,7 @@ async fn authenticate_sess(
     sess: &sosistab::mux::Multiplex,
 ) -> anyhow::Result<()> {
     let mut stream = sess.accept_conn().await?;
+    log::debug!("authenticating session...");
     // wait for a message containing a blinded signature
     let (auth_tok, auth_sig, level): (Vec<u8>, mizaru::UnblindedSignature, String) =
         read_pascalish(&mut stream).await?;
@@ -206,9 +208,11 @@ async fn authenticate_sess(
         )
     })
     .await?;
-    if res != BinderResponse::Okay {
-        anyhow::bail!("unexpected authentication response from binder")
+    if res != BinderResponse::ValidateResp(true) {
+        anyhow::bail!("unexpected authentication response from binder: {:?}", res)
     }
+    // send response
+    write_pascalish(&mut stream, &1u8).await?;
     Ok(())
 }
 

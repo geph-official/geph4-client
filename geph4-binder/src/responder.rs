@@ -17,7 +17,7 @@ fn db_retry<T>(action: impl Fn() -> Result<T, BinderError>) -> Result<T, BinderE
 /// Respond to requests coming from the given BinderServer, using the given BinderCore.
 pub fn handle_requests(serv: impl BinderServer, core: &BinderCore) -> anyhow::Result<()> {
     easy_parallel::Parallel::new()
-        .each(0..16, |_worker_id| {
+        .each(0..128, |_worker_id| {
             loop {
                 let req = serv.next_request()?;
                 let res = match &req.request_data {

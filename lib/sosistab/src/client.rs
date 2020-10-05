@@ -2,9 +2,10 @@ use crate::*;
 use async_dup::Arc;
 use bytes::Bytes;
 use flume::{Receiver, Sender};
+use governor::{Quota, RateLimiter};
 use smol::prelude::*;
-use std::net::SocketAddr;
 use std::time::{Duration, Instant};
+use std::{net::SocketAddr, num::NonZeroU32};
 
 /// Connects to a remote server.
 pub async fn connect(
@@ -101,7 +102,7 @@ pub async fn connect_custom(
 }
 
 const SHARDS: u8 = 4;
-const RESET_MILLIS: u128 = 1000;
+const RESET_MILLIS: u128 = 3000;
 
 async fn init_session(
     cookie: crypt::Cookie,
@@ -158,7 +159,7 @@ async fn client_backhaul_once(
     let mut last_resume = Instant::now();
     let mut updated = false;
     let mut socket = runtime::new_udp_socket_bind(laddr_gen().ok()?).await.ok()?;
-    let mut old_socket_cleanup: Option<smol::Task<Option<()>>> = None;
+    let mut _old_cleanup: Option<smol::Task<Option<()>>> = None;
 
     #[derive(Debug)]
     enum Evt {
@@ -188,7 +189,6 @@ async fn client_backhaul_once(
         };
         match smol::future::race(down, up).await {
             Some(Evt::Incoming(df)) => {
-                old_socket_cleanup.take();
                 send_frame_in.send_async(df).await.ok()?;
             }
             Some(Evt::Outgoing(bts)) => {
@@ -199,36 +199,33 @@ async fn client_backhaul_once(
                     last_resume = Instant::now();
                     let g_encrypt = crypt::StdAEAD::new(&cookie.generate_c2s().next().unwrap());
                     // also replace the UDP socket!
-                    if old_socket_cleanup.is_none() {
-                        let old_socket = socket.clone();
-                        let dn_crypter = dn_crypter.clone();
-                        let send_frame_in = send_frame_in.clone();
-                        // spawn a task to clean up the UDP socket
-                        old_socket_cleanup = Some(runtime::spawn(async move {
-                            loop {
-                                let (n, _) = old_socket.recv_from(&mut buf).await.ok()?;
-                                if let Some(plain) =
-                                    dn_crypter.pad_decrypt::<msg::DataFrame>(&buf[..n])
-                                {
-                                    log::trace!(
-                                        "shard {} decrypted UDP message with len {}",
-                                        shard_id,
-                                        n
-                                    );
-                                    drop(send_frame_in.send_async(plain).await)
-                                }
+                    let old_socket = socket.clone();
+                    let dn_crypter = dn_crypter.clone();
+                    let send_frame_in = send_frame_in.clone();
+                    // spawn a task to clean up the UDP socket
+                    _old_cleanup = Some(runtime::spawn(async move {
+                        loop {
+                            let (n, _) = old_socket.recv_from(&mut buf).await.ok()?;
+                            if let Some(plain) = dn_crypter.pad_decrypt::<msg::DataFrame>(&buf[..n])
+                            {
+                                log::trace!(
+                                    "shard {} decrypted UDP message with len {}",
+                                    shard_id,
+                                    n
+                                );
+                                drop(send_frame_in.send_async(plain).await)
                             }
-                        }));
-                        socket = loop {
-                            match runtime::new_udp_socket_bind(laddr_gen().ok()?).await {
-                                Ok(sock) => break sock,
-                                Err(err) => {
-                                    log::warn!("error rebinding: {}", err);
-                                    smol::Timer::after(Duration::from_secs(1)).await;
-                                }
+                        }
+                    }));
+                    socket = loop {
+                        match runtime::new_udp_socket_bind(laddr_gen().ok()?).await {
+                            Ok(sock) => break sock,
+                            Err(err) => {
+                                log::warn!("error rebinding: {}", err);
+                                smol::Timer::after(Duration::from_secs(1)).await;
                             }
-                        };
-                    }
+                        }
+                    };
                     // log::debug!(
                     //     "resending resume token {} to {} from {}...",
                     //     shard_id,

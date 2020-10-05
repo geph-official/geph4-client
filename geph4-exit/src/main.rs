@@ -9,7 +9,7 @@ mod listen;
 
 #[derive(Debug, StructOpt)]
 struct Opt {
-    #[structopt(long, default_value = "http://binder-v4.geph.io:8964")]
+    #[structopt(long, default_value = "https://binder-v4.geph.io")]
     /// HTTP address of the binder
     binder_http: String,
 
@@ -77,7 +77,7 @@ fn main() -> anyhow::Result<()> {
         let exits = {
             let binder_client = binder_client.clone();
             let resp = smol::unblock(move || {
-                binder_client.request(BinderRequestData::GetExits, Duration::from_secs(1))
+                binder_client.request(BinderRequestData::GetExits, Duration::from_secs(10))
             })
             .await?;
             match resp {

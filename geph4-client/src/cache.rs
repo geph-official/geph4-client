@@ -45,7 +45,8 @@ impl ClientCache {
         fallback: impl Future<Output = anyhow::Result<T>>,
         ttl: Duration,
     ) -> anyhow::Result<T> {
-        let existing: Option<(T, u64)> = self.database.read().get(key);
+        let key = format!("{}-{}", key, self.username);
+        let existing: Option<(T, u64)> = self.database.read().get(&key);
         if let Some((existing, timeout)) = existing {
             if SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -64,7 +65,7 @@ impl ClientCache {
         let fresh = fallback.await?;
         let mut db = self.database.write();
         // save to disk
-        db.insert(key, (fresh.clone(), deadline));
+        db.insert(&key, (fresh.clone(), deadline));
         db.commit();
         Ok(fresh)
     }
@@ -105,7 +106,7 @@ impl ClientCache {
                             unblinded_signature: tok.unblinded_signature,
                             exit_hostname,
                         },
-                        Duration::from_secs(1),
+                        Duration::from_secs(10),
                     )
                 })
                 .await?;
@@ -115,7 +116,7 @@ impl ClientCache {
                     anyhow::bail!("invalid response")
                 }
             },
-            Duration::from_secs(3600),
+            Duration::from_secs(60),
         )
         .await
     }
@@ -191,7 +192,7 @@ impl ClientCache {
     async fn get_exits_fresh(&self) -> anyhow::Result<Vec<ExitDescriptor>> {
         let binder_client = self.binder_client.clone();
         let res = smol::unblock(move || {
-            binder_client.request(BinderRequestData::GetExits, Duration::from_secs(1))
+            binder_client.request(BinderRequestData::GetExits, Duration::from_secs(30))
         })
         .await?;
         match res {

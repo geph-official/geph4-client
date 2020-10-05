@@ -75,13 +75,14 @@ impl StdAEAD {
 
     /// Pad and encrypt.
     pub fn pad_encrypt(&self, msg: impl Serialize, target_len: usize) -> Bytes {
-        let target_len = rand::thread_rng().gen_range(0, target_len + 1);
+        let mut target_len = rand::thread_rng().gen_range(0, target_len + 1);
         let mut plain = Vec::with_capacity(1500);
         bincode::serialize_into(&mut plain, &msg).unwrap();
         let plainlen = plain.len();
         if plain.len() < target_len {
-            plain.extend_from_slice(&vec![0; target_len - plain.len()]);
+            target_len = plain.len() + rand::thread_rng().gen_range(0, 5);
         }
+        plain.extend_from_slice(&vec![0; target_len - plain.len()]);
         let encrypted = self.encrypt(&plain, rand::thread_rng().gen());
         log::trace!("PAD and ENCRYPT {} => {}", plainlen, encrypted.len());
         encrypted

@@ -11,3 +11,5 @@ jobs:
       - checkout:
           path: ~/repo
       - run: cargo build --release
+      - store_artifacts:
+          path: ~/repo/

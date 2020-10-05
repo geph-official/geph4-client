@@ -14,9 +14,9 @@ members = [
 
 
 [profile.dev]
-opt-level=0
+opt-level=2 
+lto="off"
 
 [profile.release]
 panic = "abort"
 opt-level=3
-lto="off"

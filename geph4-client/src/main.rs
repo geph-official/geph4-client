@@ -36,11 +36,11 @@ fn str_to_mizaru_pk(src: &str) -> mizaru::PublicKey {
 
 #[derive(Debug, StructOpt)]
 struct Opt {
-    #[structopt(long, default_value = "http://binder-v4.geph.io:8964")]
+    #[structopt(long, default_value = "https://www.netlify.com/v4/")]
     /// HTTP(S) address of the binder, FRONTED
     binder_http_front: String,
 
-    #[structopt(long, default_value = "binder-v4.geph.io")]
+    #[structopt(long, default_value = "loving-bell-981479.netlify.app")]
     /// HTTP(S) actual host of the binder
     binder_http_host: String,
 
@@ -68,6 +68,10 @@ struct Opt {
     /// mizaru master key of the binder, for PLUS
     binder_mizaru_plus: mizaru::PublicKey,
 
+    #[structopt(long)]
+    /// whether or not to use bridges
+    use_bridges: bool,
+
     #[structopt(
         long,
         default_value = "auto",
@@ -79,6 +83,14 @@ struct Opt {
     #[structopt(long, default_value = "127.0.0.1:9909")]
     /// where to listen for SOCKS5 connections
     socks5_listen: SocketAddr,
+
+    #[structopt(long)]
+    /// username
+    username: String,
+
+    #[structopt(long)]
+    /// password
+    password: String,
 }
 
 fn main() -> anyhow::Result<()> {
@@ -99,8 +111,8 @@ async fn main_async() -> anyhow::Result<()> {
     let _ = std::fs::create_dir_all(&opt.credential_cache);
     let database = Arc::new(persist::KVDatabase::open(&opt.credential_cache)?);
     let client_cache = cache::ClientCache::new(
-        "dorbie",
-        "fc9dfc3d",
+        &opt.username,
+        &opt.password,
         opt.binder_mizaru_free.clone(),
         opt.binder_mizaru_plus.clone(),
         binder_client.clone(),
@@ -109,7 +121,7 @@ async fn main_async() -> anyhow::Result<()> {
     // create a kalive
     let keepalive = kalive::Keepalive::new(
         "sg-sgp-test-01.exits.geph.io",
-        false,
+        opt.use_bridges,
         Arc::new(client_cache),
     );
     // enter the socks5 loop
@@ -159,18 +171,6 @@ async fn handle_socks5(
     )
     .await?;
     Ok(())
-}
-
-/// Obtains a vector of exits, given a binder client.
-async fn get_exits(binder_client: Arc<dyn BinderClient>) -> anyhow::Result<Vec<ExitDescriptor>> {
-    let res = smol::unblock(move || {
-        binder_client.request(BinderRequestData::GetExits, Duration::from_secs(1))
-    })
-    .await?;
-    match res {
-        binder_transport::BinderResponse::GetExitsResp(exits) => Ok(exits),
-        other => anyhow::bail!("unexpected response {:?}", other),
-    }
 }
 
 pub async fn write_pascalish<T: Serialize>(

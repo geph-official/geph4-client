@@ -4,7 +4,6 @@ use async_dup::Mutex as DMutex;
 use bipe::{BipeReader, BipeWriter};
 use bytes::{Bytes, BytesMut};
 use flume::{Receiver, Sender};
-// use governor::{Quota, RateLimiter};
 use mux::structs::{Message, RelKind, Reorderer, Seqno};
 use smol::prelude::*;
 use std::{
@@ -524,10 +523,10 @@ impl ConnVars {
                 self.slow_start = false;
             }
         } else {
-            let n = (0.23 * self.cwnd.powf(0.4)).max(1.0) * 8.0;
+            let n = (0.23 * self.cwnd.powf(0.4)).max(1.0) * 4.0;
             self.cwnd = (self.cwnd + n / self.cwnd).min(10000.0);
+            log::trace!("ACK CWND => {} (n={})", self.cwnd, n);
         }
-        log::trace!("ACK CWND => {}", self.cwnd);
     }
 
     fn congestion_loss(&mut self) {
@@ -540,12 +539,13 @@ impl ConnVars {
         }
         if now.saturating_duration_since(self.last_loss) > self.inflight.rto() {
             self.slow_start = false;
-            self.cwnd = self.inflight.bdp().max(self.cwnd * 0.5);
+            let old_cwnd = self.cwnd;
+            self.cwnd = (self.inflight.bdp() * 1.25).max(self.cwnd * 0.5);
             self.last_loss = now;
             log::debug!(
-                "LOSS CWND => {} (ssthresh {}) bdp {} rto {}ms",
+                "LOSS CWND => {} (old_cwnd {}) bdp {} rto {}ms",
                 self.cwnd,
-                self.ssthresh,
+                old_cwnd,
                 self.inflight.bdp(),
                 self.inflight.rto().as_millis()
             );

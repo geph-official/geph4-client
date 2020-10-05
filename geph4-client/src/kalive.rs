@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Instant};
 
 use crate::{cache::ClientCache, write_pascalish};
 use anyhow::Context;
+use serde::de::DeserializeOwned;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use std::time::Duration;
@@ -78,18 +79,22 @@ async fn keepalive_actor_once(
                 .map(|desc| {
                     let send = send.clone();
                     smol::spawn(async move {
-                        log::info!("connecting through {}...", desc.endpoint);
+                        log::debug!("connecting through {}...", desc.endpoint);
                         drop(
-                            send.send(sosistab::connect(desc.endpoint, desc.sosistab_key).await)
-                                .await,
+                            send.send((
+                                desc.endpoint,
+                                sosistab::connect(desc.endpoint, desc.sosistab_key).await,
+                            ))
+                            .await,
                         )
                     })
                 })
                 .collect();
             // wait for a successful result
             loop {
-                let res = recv.recv().await.context("ran out of bridges")?;
+                let (saddr, res) = recv.recv().await.context("ran out of bridges")?;
                 if let Ok(res) = res {
+                    log::info!("{} is our fastest bridge", saddr);
                     break Ok(res);
                 }
             }
@@ -111,7 +116,7 @@ async fn keepalive_actor_once(
     };
     let session: anyhow::Result<sosistab::Session> = connected_sess_async
         .or(async {
-            smol::Timer::after(Duration::from_secs(10)).await;
+            smol::Timer::after(Duration::from_secs(30)).await;
             anyhow::bail!("initial connection timeout");
         })
         .await;
@@ -119,6 +124,8 @@ async fn keepalive_actor_once(
     let mux = sosistab::mux::Multiplex::new(session);
     let scope = smol::Executor::new();
     // now let's authenticate
+    let token = ccache.get_auth_token().await?;
+    authenticate_session(&mux, &token).await?;
     // TODO actually authenticate
     log::info!(
         "KEEPALIVE MAIN LOOP for exit_host={}, use_bridges={}",
@@ -147,4 +154,38 @@ async fn keepalive_actor_once(
             }
         })
         .await
+}
+
+/// authenticates a muxed session
+async fn authenticate_session(
+    session: &sosistab::mux::Multiplex,
+    token: &crate::cache::Token,
+) -> anyhow::Result<()> {
+    let mut auth_conn = session.open_conn().await?;
+    log::debug!("sending auth info...");
+    write_pascalish(
+        &mut auth_conn,
+        &(
+            &token.unblinded_digest,
+            &token.unblinded_signature,
+            &token.level,
+        ),
+    )
+    .await?;
+    let _: u8 = read_pascalish(&mut auth_conn).await?;
+    Ok(())
+}
+
+async fn read_pascalish<T: DeserializeOwned>(
+    reader: &mut (impl AsyncRead + Unpin),
+) -> anyhow::Result<T> {
+    // first read 2 bytes as length
+    let mut len_bts = [0u8; 2];
+    reader.read_exact(&mut len_bts).await?;
+    let len = u16::from_be_bytes(len_bts);
+    // then read len
+    let mut true_buf = vec![0u8; len as usize];
+    reader.read_exact(&mut true_buf).await?;
+    // then deserialize
+    Ok(bincode::deserialize(&true_buf)?)
 }

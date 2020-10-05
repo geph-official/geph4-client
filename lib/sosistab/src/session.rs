@@ -4,10 +4,14 @@ use crate::runtime;
 use async_lock::Lock;
 use bytes::Bytes;
 use flume::{Receiver, Sender};
+use governor::{Quota, RateLimiter};
 use smol::prelude::*;
-use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    num::NonZeroU32,
+};
 
 async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T {
     match fut.await {
@@ -38,7 +42,7 @@ pub struct Session {
 impl Session {
     /// Creates a tuple of a Session and also a channel with which stuff is fed into the session.
     pub fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = flume::bounded(100);
+        let (send_tosend, recv_tosend) = flume::bounded(1000);
         let (send_input, recv_input) = flume::bounded(1000);
         let (s, r) = flume::unbounded();
         let task = runtime::spawn(session_loop(cfg, recv_tosend, send_input, r));
@@ -58,10 +62,10 @@ impl Session {
 
     /// Takes a Bytes to be sent and stuffs it into the session.
     pub async fn send_bytes(&self, to_send: Bytes) {
-        // if self.send_tosend.try_send(to_send).is_err() {
-        //     log::warn!("overflowed send buffer at session!");
-        // }
-        drop(self.send_tosend.send_async(to_send).await)
+        if self.send_tosend.try_send(to_send).is_err() {
+            log::warn!("overflowed send buffer at session!");
+        }
+        // drop(self.send_tosend.send_async(to_send).await)
     }
 
     /// Waits until the next application input is decoded by the session.
@@ -97,6 +101,10 @@ async fn session_loop(
 
     // sending loop
     let send_loop = async {
+        let shaper = RateLimiter::direct(
+            Quota::per_second(NonZeroU32::new(10000u32).unwrap())
+                .allow_burst(NonZeroU32::new(32).unwrap()),
+        );
         let mut frame_no = 0u64;
         let mut run_no = 0u64;
         let mut to_send = Vec::new();
@@ -117,7 +125,7 @@ async fn session_loop(
                         to_send.push(infal(recv_tosend.recv_async()).await);
                         false
                     });
-                    if res.await || to_send.len() >= 16 {
+                    if res.await || to_send.len() >= 32 {
                         break &to_send;
                     }
                 }
@@ -147,6 +155,7 @@ async fn session_loop(
                         })
                         .await,
                 );
+                shaper.until_ready().await;
                 // lim.until_ready().await;
                 frame_no += 1;
             }
@@ -331,7 +340,7 @@ impl LossCalculator {
             self.last_total_seqno = total_seqno;
             let loss_sample = 1.0 - delta_total / delta_top.max(delta_total);
             self.loss_samples.push_back(loss_sample);
-            if self.loss_samples.len() > 1000 {
+            if self.loss_samples.len() > 100 {
                 self.loss_samples.pop_front();
             }
             let median = {
