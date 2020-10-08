@@ -538,7 +538,7 @@ impl ConnVars {
 
     fn congestion_loss(&mut self) {
         let now = Instant::now();
-        if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() {
+        if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() * 2 {
             let old_cwnd = self.cwnd;
             self.slow_start = false;
             self.last_loss = Instant::now();

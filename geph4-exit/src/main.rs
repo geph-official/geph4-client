@@ -37,7 +37,7 @@ static GEXEC: smol::Executor = smol::Executor::new();
 
 fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
-    sosistab::runtime::set_smol_executor(&GEXEC);
+    // sosistab::runtime::set_smol_executor(&GEXEC);
     env_logger::from_env(Env::default().default_filter_or("geph4_exit=info")).init();
     smol::block_on(GEXEC.run(async move {
         log::info!("geph4-exit starting...");
