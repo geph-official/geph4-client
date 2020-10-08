@@ -8,21 +8,21 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0.32"
-smol = "1.2.2"
+smol = "1.2.3"
 log = "0.4.11"
 env_logger = "0.7.1"
 structopt = "0.3.18"
-x25519-dalek={version="1", features=["serde"]}
-ed25519-dalek={version="1", features=["serde"]}
+x25519-dalek={ version = "1.1.0", features = ["serde"] }
+ed25519-dalek={ version = "1.0.1", features = ["serde"] }
 binder_transport = {path="../lib/binder_transport"}
 bincode = "1.3.1"
 hex = "0.4.2"
 socksv5 = "0.2.0"
 sosistab={path="../lib/sosistab"}
-serde = {version="1.0.116", features=["derive"]}
-lmdb="0.8"
+serde = { version = "1.0.116", features = ["derive"] }
+lmdb= "0.8.0"
 mizaru={path="../lib/mizaru"}
-rand="0.7"
+rand= "0.7.3"
 rsa-fdh = "0.4.1"
 sha2 = "0.9.1"
-dirs = "3"
+dirs = "3.0.1"

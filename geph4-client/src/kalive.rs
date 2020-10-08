@@ -1,6 +1,6 @@
 use std::{sync::Arc, time::Instant};
 
-use crate::{cache::ClientCache, write_pascalish};
+use crate::{cache::ClientCache, write_pascalish, GEXEC};
 use anyhow::Context;
 use serde::de::DeserializeOwned;
 use smol::channel::{Receiver, Sender};
@@ -19,7 +19,7 @@ impl Keepalive {
         let (send, recv) = smol::channel::unbounded();
         Keepalive {
             open_socks5_conn: send,
-            _task: smol::spawn(keepalive_actor(
+            _task: GEXEC.spawn(keepalive_actor(
                 exit_host.to_string(),
                 use_bridges,
                 ccache,

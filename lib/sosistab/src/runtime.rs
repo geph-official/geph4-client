@@ -1,41 +1,51 @@
-use async_net::AsyncToSocketAddrs;
-use lazy_static::lazy_static;
+use once_cell::sync::{Lazy, OnceCell};
+use smol::net::AsyncToSocketAddrs;
 use smol::prelude::*;
-use smol::Async;
 use smol::Executor;
 use socket2::{Domain, Socket, Type};
-use std::net::SocketAddr;
+use std::sync::Arc;
 use std::thread;
-use std::{net::UdpSocket, sync::Arc};
+use std::{convert::TryInto, net::SocketAddr};
 
-lazy_static! {
-    static ref EXECUTOR: Arc<Executor<'static>> = {
-        let ex = Arc::new(Executor::new());
-        for i in 1..=num_cpus::get() {
-            let builder = thread::Builder::new().name(format!("sosistab-{}", i));
-            {
-                let ex = ex.clone();
-                builder
-                    .spawn(move || {
-                        smol::block_on(ex.run(smol::future::pending::<()>()));
-                    })
-                    .unwrap();
-            }
+static FALLBACK: Lazy<Arc<Executor<'static>>> = Lazy::new(|| {
+    let ex = Arc::new(Executor::new());
+    for i in 1..=num_cpus::get() {
+        let builder = thread::Builder::new().name(format!("sosistab-fallback-{}", i));
+        {
+            let ex = ex.clone();
+            builder
+                .spawn(move || {
+                    smol::block_on(ex.run(smol::future::pending::<()>()));
+                })
+                .unwrap();
         }
-        ex
-    };
+    }
+    ex
+});
+
+static USER_EXEC: OnceCell<&'static Executor> = OnceCell::new();
+
+/// Sets the sosistab executor. If not set, a backup threadpool will be used.
+pub fn set_smol_executor(exec: &'static Executor<'static>) {
+    USER_EXEC.set(exec).expect("already initialized")
 }
 
 /// Spawns a future onto the sosistab worker.
-pub fn spawn<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static) -> smol::Task<T> {
-    EXECUTOR.spawn(future)
+pub(crate) fn spawn<T: Send + 'static>(
+    future: impl Future<Output = T> + Send + 'static,
+) -> smol::Task<T> {
+    if let Some(exec) = USER_EXEC.get() {
+        exec.spawn(future)
+    } else {
+        FALLBACK.spawn(future)
+    }
 }
 
 /// Create a new UDP socket that has a largeish buffer and isn't bound to anything.
-pub async fn new_udp_socket_bind(
+pub(crate) async fn new_udp_socket_bind(
     addr: impl AsyncToSocketAddrs,
-) -> std::io::Result<async_dup::Arc<Async<UdpSocket>>> {
-    let addr = async_net::resolve(addr).await?[0];
+) -> std::io::Result<smol::net::UdpSocket> {
+    let addr = smol::net::resolve(addr).await?[0];
     let socket = Socket::new(
         match addr {
             SocketAddr::V4(_) => Domain::ipv4(),
@@ -49,9 +59,7 @@ pub async fn new_udp_socket_bind(
     socket.bind(&addr.into())?;
     socket.set_recv_buffer_size(1000 * 1024).unwrap();
     socket.set_send_buffer_size(1000 * 1024).unwrap();
-    Ok(async_dup::Arc::new(
-        Async::new(socket.into_udp_socket()).unwrap(),
-    ))
+    Ok(socket.into_udp_socket().try_into().unwrap())
 }
 
 // fn anything_socket_addr() -> SocketAddr {

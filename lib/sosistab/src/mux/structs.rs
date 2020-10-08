@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::{collections::HashMap, num::NonZeroU32, time::Duration};
 
 /// A sequence number.
 pub type Seqno = u64;
@@ -69,3 +69,37 @@ impl<T: Clone> Reorderer<T> {
         output
     }
 }
+
+// pub struct VarRateLimit {
+//     limiter: governor::RateLimiter<
+//         governor::state::NotKeyed,
+//         governor::state::InMemoryState,
+//         governor::clock::MonotonicClock,
+//     >,
+// }
+
+// const DIVIDER: u32 = 1000000;
+// const DIVIDER_FRAC: u32 = 100;
+
+// impl VarRateLimit {
+//     pub fn new() -> Self {
+//         VarRateLimit {
+//             limiter: governor::RateLimiter::direct_with_clock(
+//                 governor::Quota::per_second(NonZeroU32::new(DIVIDER).unwrap())
+//                     .allow_burst(NonZeroU32::new(DIVIDER / DIVIDER_FRAC).unwrap()),
+//                 &governor::clock::MonotonicClock::default(),
+//             ),
+//         }
+//     }
+
+//     pub fn check(&self, speed: u32) -> bool {
+//         let divided = NonZeroU32::new((DIVIDER / speed.max(1)).max(1)).unwrap();
+//         self.limiter.check_n(divided).is_ok()
+//     }
+
+//     pub async fn wait(&self, speed: u32) {
+//         while !self.check(speed.max(DIVIDER_FRAC * 2)) {
+//             smol::Timer::after(Duration::from_millis(1)).await;
+//         }
+//     }
+// }

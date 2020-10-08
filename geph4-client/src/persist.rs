@@ -1,6 +1,6 @@
 use lmdb::Transaction;
 use serde::{de::DeserializeOwned, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// A key-value database, backed by LMDB.
 #[derive(Debug)]

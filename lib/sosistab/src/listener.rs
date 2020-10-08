@@ -1,18 +1,15 @@
 use crate::session::{Session, SessionConfig};
 use crate::*;
-use async_dup::Arc;
-use async_lock::Lock;
-use async_net::AsyncToSocketAddrs;
 use bytes::Bytes;
 use flume::{Receiver, Sender};
 use indexmap::IndexMap;
 use msg::HandshakeFrame::*;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
-use smol::Async;
-use std::time::Duration;
-use std::{collections::HashMap, net::UdpSocket};
+use smol::net::AsyncToSocketAddrs;
+use std::collections::HashMap;
 use std::{net::SocketAddr, time::Instant};
+use std::{sync::Arc, time::Duration};
 
 pub struct Listener {
     accepted: Receiver<Session>,
@@ -32,7 +29,7 @@ impl Listener {
     ) -> Self {
         // let addr = async_net::resolve(addr).await;
         let socket = runtime::new_udp_socket_bind(addr).await.unwrap();
-        let local_addr = socket.get_ref().local_addr().unwrap();
+        let local_addr = socket.local_addr().unwrap();
         let cookie = crypt::Cookie::new((&long_sk).into());
         let (send, recv) = flume::unbounded();
         let task = runtime::spawn(
@@ -88,7 +85,7 @@ impl RecentFilter {
 type ShardedAddrs = IndexMap<u8, SocketAddr>;
 
 struct ListenerActor {
-    socket: Arc<Async<UdpSocket>>,
+    socket: smol::net::UdpSocket,
     cookie: crypt::Cookie,
     long_sk: x25519_dalek::StaticSecret,
 }
@@ -108,7 +105,7 @@ impl ListenerActor {
             buf
         };
 
-        let socket = Arc::new(self.socket);
+        let socket = self.socket;
 
         let mut buffer = [0u8; 2048];
 
@@ -222,7 +219,8 @@ impl ListenerActor {
                                             let mut locked_addrs = IndexMap::new();
                                             locked_addrs.insert(shard_id, addr);
                                             // send for poll
-                                            let locked_addrs = Lock::new(locked_addrs);
+                                            let locked_addrs =
+                                                Arc::new(smol::lock::Mutex::new(locked_addrs));
                                             let output_poller = {
                                                 let locked_addrs = locked_addrs.clone();
                                                 runtime::spawn(async move {
@@ -329,9 +327,15 @@ impl TokenInfo {
     }
 }
 
+type SessEntry = (
+    Sender<msg::DataFrame>,
+    crypt::StdAEAD,
+    Arc<smol::lock::Mutex<ShardedAddrs>>,
+);
+
 #[derive(Default)]
 struct SessionTable {
-    token_to_sess: HashMap<Bytes, (Sender<msg::DataFrame>, crypt::StdAEAD, Lock<ShardedAddrs>)>,
+    token_to_sess: HashMap<Bytes, SessEntry>,
     addr_to_token: HashMap<SocketAddr, Bytes>,
 }
 
@@ -369,7 +373,7 @@ impl SessionTable {
         token: Bytes,
         sender: Sender<msg::DataFrame>,
         aead: crypt::StdAEAD,
-        locked_addrs: Lock<ShardedAddrs>,
+        locked_addrs: Arc<smol::lock::Mutex<ShardedAddrs>>,
     ) {
         self.token_to_sess
             .insert(token, (sender, aead, locked_addrs));

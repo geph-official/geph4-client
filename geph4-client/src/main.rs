@@ -1,11 +1,9 @@
 use std::{convert::TryInto, net::Ipv4Addr, net::SocketAddrV4, path::PathBuf, sync::Arc};
 
-use binder_transport::{BinderClient, BinderRequestData, BinderResponse, ExitDescriptor};
 use env_logger::Env;
 use serde::Serialize;
 use smol::prelude::*;
 use std::net::SocketAddr;
-use std::time::Duration;
 use structopt::StructOpt;
 mod cache;
 mod kalive;
@@ -93,8 +91,11 @@ struct Opt {
     password: String,
 }
 
+static GEXEC: smol::Executor = smol::Executor::new();
+
 fn main() -> anyhow::Result<()> {
-    smol::block_on(main_async())
+    sosistab::runtime::set_smol_executor(&GEXEC);
+    smol::block_on(GEXEC.run(main_async()))
 }
 
 async fn main_async() -> anyhow::Result<()> {
@@ -120,7 +121,7 @@ async fn main_async() -> anyhow::Result<()> {
     );
     // create a kalive
     let keepalive = kalive::Keepalive::new(
-        "sg-sgp-test-01.exits.geph.io",
+        "us-hio-01.exits.geph.io",
         opt.use_bridges,
         Arc::new(client_cache),
     );

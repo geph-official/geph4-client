@@ -1,6 +1,6 @@
 [package]
 name = "sosistab"
-version = "0.2.1"
+version = "0.1.0"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2018"
 
@@ -10,40 +10,33 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-smol= "1.1.0"
+smol= "1.2.3"
 socket2= "0.3.15"
-async-rwlock= "1.1.0"
-ed25519-dalek={ version = "1.0.0", features = ["serde"] }
+ed25519-dalek={ version = "1.0.1", features = ["serde"] }
 x25519-dalek={ version = "1.1.0", features = ["serde"] }
 serde={ version = "1.0.116", features = ["derive"] }
 bytes={ version = "0.5.6", features = ["serde"] }
-blake3= "0.3.6"
+blake3= "0.3.7"
 c2-chacha= "0.2.4"
 rand={ version = "0.7.3", features = ["small_rng"] }
 constant_time_eq= "0.1.5"
 bincode= "1.3.1"
-event-listener= "2.4.0"
+event-listener= "2.5.1"
 parking_lot= "0.11.0"
-governor="0.3"
-slice-deque= "0.3.0"
-async-channel= "1.4.2"
+governor= "0.3.1"
 probability= "0.17.0"
 log= "0.4.11"
-async-global-executor="1"
-async-lock= "1"
-async-mutex= "1.3.0"
 priority-queue= "1.0.0"
+async-dup="1"
 snap= "1.0.1"
-async-dup= "1.2.2"
-lazy_static = "1.4.0"
+once_cell = "1.4.1"
 num_cpus= "1.13.0"
 anyhow= "1.0.32"
 scopeguard= "1.1.0"
-async-net= "1.4.1"
 reed-solomon-erasure= "4.0.2"
 indexmap= "1.6.0"
-flume = "0.9.0"
-bloomfilter = "1"
+flume = "0.9.1"
+bloomfilter = "1.0.3"
 
 [dev-dependencies]
 env_logger= "0.7.1"

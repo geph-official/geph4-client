@@ -1,7 +1,6 @@
 use crate::fec::{FrameDecoder, FrameEncoder};
 use crate::msg::DataFrame;
 use crate::runtime;
-use async_lock::Lock;
 use bytes::Bytes;
 use flume::{Receiver, Sender};
 use governor::{Quota, RateLimiter};
@@ -101,9 +100,10 @@ async fn session_loop(
 
     // sending loop
     let send_loop = async {
-        let shaper = RateLimiter::direct(
-            Quota::per_second(NonZeroU32::new(10000u32).unwrap())
-                .allow_burst(NonZeroU32::new(32).unwrap()),
+        let shaper = RateLimiter::direct_with_clock(
+            Quota::per_second(NonZeroU32::new(20000u32).unwrap())
+                .allow_burst(NonZeroU32::new(128).unwrap()),
+            &governor::clock::MonotonicClock::default(),
         );
         let mut frame_no = 0u64;
         let mut run_no = 0u64;
@@ -155,14 +155,17 @@ async fn session_loop(
                         })
                         .await,
                 );
-                shaper.until_ready().await;
+                while let Err(e) = shaper.check() {
+                    let sleep_until = e.earliest_possible();
+                    smol::Timer::at(sleep_until).await;
+                }
                 // lim.until_ready().await;
                 frame_no += 1;
             }
             run_no += 1;
         }
     };
-    let decoder = Lock::new(RunDecoder::default());
+    let decoder = smol::lock::Mutex::new(RunDecoder::default());
     // receive loop
     let recv_loop = async {
         let mut rp_filter = ReplayFilter::new(0);
@@ -340,13 +343,13 @@ impl LossCalculator {
             self.last_total_seqno = total_seqno;
             let loss_sample = 1.0 - delta_total / delta_top.max(delta_total);
             self.loss_samples.push_back(loss_sample);
-            if self.loss_samples.len() > 100 {
+            if self.loss_samples.len() > 256 {
                 self.loss_samples.pop_front();
             }
             let median = {
                 let mut lala: Vec<f64> = self.loss_samples.iter().cloned().collect();
                 lala.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-                lala[lala.len() / 4]
+                lala[lala.len() / 2]
             };
             self.median = median
         }

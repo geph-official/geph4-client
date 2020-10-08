@@ -48,6 +48,10 @@ impl Inflight {
         self.rtt.rto()
     }
 
+    pub fn srtt(&self) -> Duration {
+        Duration::from_millis(self.rtt.srtt)
+    }
+
     pub fn mark_acked_lt(&mut self, seqno: Seqno) {
         for segseq in self.segments.iter().map(|v| v.seqno).collect::<Vec<_>>() {
             if segseq < seqno {
@@ -226,7 +230,7 @@ impl RttCalculator {
             || now
                 .saturating_duration_since(self.rtt_update_time)
                 .as_millis()
-                > 2000
+                > 10000
         {
             self.min_rtt = self.srtt;
             self.rtt_update_time = now;
@@ -234,7 +238,7 @@ impl RttCalculator {
         // create sample
         self.flight_size += 1;
         let elapsed = self.flight_start.elapsed();
-        if elapsed.as_millis() > 100 {
+        if elapsed.as_millis() > 500 {
             let rate_samp = self.flight_size as f64 / elapsed.as_secs_f64();
             if rate_samp > self.rate || self.rate_update_time.elapsed().as_secs() >= 3 {
                 self.rate = rate_samp;

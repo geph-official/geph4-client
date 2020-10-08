@@ -1,10 +1,10 @@
 use crate::*;
-use async_rwlock::RwLock;
 use bytes::Bytes;
 use flume::{Receiver, Sender};
 use mux::relconn::{RelConn, RelConnBack, RelConnState};
 use mux::structs::*;
 use rand::prelude::*;
+use smol::lock::RwLock;
 use smol::prelude::*;
 use std::{collections::HashMap, sync::Arc};
 
@@ -17,7 +17,7 @@ pub async fn multiplex(
 ) -> anyhow::Result<()> {
     let _exit = scopeguard::guard((), |_| log::warn!("multiplex context exited!"));
     let conn_tab = Arc::new(RwLock::new(ConnTable::default()));
-    let (glob_send, glob_recv) = flume::bounded(100);
+    let (glob_send, glob_recv) = flume::bounded(1000);
     let (dead_send, dead_recv) = flume::unbounded();
     loop {
         // fires on receiving messages
@@ -73,7 +73,7 @@ pub async fn multiplex(
                     } => {
                         if let Some(handle) = conn_tab.read().await.get_stream(stream_id) {
                             log::trace!("handing over {:?} to {}", kind, stream_id);
-                            handle.process(msg)
+                            handle.process(msg).await
                         } else {
                             log::trace!("discarding {:?} to nonexistent {}", kind, stream_id);
                             if kind != RelKind::Rst {

@@ -20,3 +20,4 @@ lto="off"
 [profile.release]
 panic = "abort"
 opt-level=3
+incremental=true

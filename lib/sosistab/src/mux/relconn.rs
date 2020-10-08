@@ -34,7 +34,7 @@ impl RelConn {
     ) -> (Self, RelConnBack) {
         let (send_write, recv_write) = bipe::bipe(65536);
         let (send_read, recv_read) = bipe::bipe(1024 * 1024);
-        let (send_wire_read, recv_wire_read) = flume::bounded(1000);
+        let (send_wire_read, recv_wire_read) = flume::unbounded();
         runtime::spawn(relconn_actor(
             state,
             recv_write,
@@ -206,7 +206,7 @@ async fn relconn_actor(
                 mut conn_vars,
             } => {
                 let event = {
-                    let writeable = conn_vars.inflight.inflight() <= conn_vars.cwnd as usize
+                    let writeable = conn_vars.inflight.len() <= conn_vars.cwnd as usize
                         && conn_vars.inflight.len() < 10000
                         && !conn_vars.closing;
                     let force_ack = conn_vars.ack_seqnos.len() >= 128;
@@ -352,10 +352,10 @@ async fn relconn_actor(
                     })) => {
                         log::trace!("new data pkt with seqno={}", seqno);
                         conn_vars.ack_seqnos.insert(seqno);
-                        if conn_vars.delayed_ack_timer.is_none() {
-                            conn_vars.delayed_ack_timer =
-                                Instant::now().checked_add(Duration::from_millis(3));
-                        }
+                        // if conn_vars.delayed_ack_timer.is_none() {
+                        conn_vars.delayed_ack_timer =
+                            Instant::now().checked_add(Duration::from_millis(10));
+                        // }
                         conn_vars.reorderer.insert(seqno, payload);
                         let times = conn_vars.reorderer.take();
                         conn_vars.lowest_unseen += times.len() as u64;
@@ -462,8 +462,8 @@ pub(crate) struct RelConnBack {
 }
 
 impl RelConnBack {
-    pub fn process(&self, input: Message) {
-        drop(self.send_wire_read.try_send(input))
+    pub async fn process(&self, input: Message) {
+        drop(self.send_wire_read.send_async(input).await)
     }
 }
 
@@ -483,8 +483,9 @@ pub(crate) struct ConnVars {
     cwnd: f64,
     last_loss: Instant,
 
-    loss_count: usize,
-    loss_count_start: Instant,
+    cwnd_max: f64,
+    cubic_secs: f64,
+    last_cubic: Instant,
 
     closing: bool,
 }
@@ -506,9 +507,9 @@ impl Default for ConnVars {
             ssthresh: 10000.0,
             cwnd: 16.0,
             last_loss: Instant::now(),
-
-            loss_count: 0,
-            loss_count_start: Instant::now(),
+            cwnd_max: 100.0,
+            cubic_secs: 0.0,
+            last_cubic: Instant::now(),
 
             closing: false,
         }
@@ -521,34 +522,54 @@ impl ConnVars {
             self.cwnd += 1.0;
             if self.cwnd > self.ssthresh {
                 self.slow_start = false;
+                // self.cwnd_max = self.cwnd / 0.8;
+                // let now = Instant::now();
+                // self.last_loss = now;
+                // self.cubic_secs = 0.0;
+                // self.cubic_update(now);
             }
         } else {
-            let n = (0.23 * self.cwnd.powf(0.4)).max(1.0) * 4.0;
+            let n = (0.23 * self.cwnd.powf(0.4)).max(1.0) * 8.0;
             self.cwnd = (self.cwnd + n / self.cwnd).min(10000.0);
-            log::trace!("ACK CWND => {} (n={})", self.cwnd, n);
+            // self.cubic_update(Instant::now());
+            log::trace!("ACK CWND => {}", self.cwnd);
         }
     }
 
     fn congestion_loss(&mut self) {
         let now = Instant::now();
-        if now.saturating_duration_since(self.loss_count_start) < self.inflight.rto() {
-            self.loss_count += 1;
-        } else {
-            self.loss_count = 0;
-            self.loss_count_start = Instant::now()
-        }
-        if now.saturating_duration_since(self.last_loss) > self.inflight.rto() {
-            self.slow_start = false;
+        if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() {
             let old_cwnd = self.cwnd;
-            self.cwnd = (self.inflight.bdp() * 1.25).max(self.cwnd * 0.5);
-            self.last_loss = now;
+            self.slow_start = false;
+            self.last_loss = Instant::now();
+            self.cwnd = (self.cwnd * 0.5).max(self.inflight.bdp());
+            // self.cwnd_max = (self.inflight.bdp() / 0.8).max(self.cwnd);
+            // let now = Instant::now();
+            // self.last_loss = now;
+            // self.cubic_secs = 0.0;
+            // self.cubic_update(now);
             log::debug!(
-                "LOSS CWND => {} (old_cwnd {}) bdp {} rto {}ms",
+                "LOSS CWND => {} (old_cwnd {}) bdp {} srtt {}ms",
                 self.cwnd,
                 old_cwnd,
                 self.inflight.bdp(),
-                self.inflight.rto().as_millis()
+                self.inflight.srtt().as_millis()
             );
         }
+    }
+
+    fn cubic_update(&mut self, now: Instant) {
+        let delta_t = now
+            .saturating_duration_since(self.last_cubic)
+            .as_secs_f64()
+            .min(0.1);
+        self.last_cubic = now;
+        self.cubic_secs += delta_t;
+        let t = self.cubic_secs * 3.0;
+        let k = (self.cwnd_max / 2.0).powf(0.333);
+        let wt = 0.4 * (t - k).powf(3.0) + self.cwnd_max;
+        let new_cwnd = wt.min(10000.0);
+        self.cwnd = new_cwnd;
+        // self.cwnd = 300.0;
     }
 }

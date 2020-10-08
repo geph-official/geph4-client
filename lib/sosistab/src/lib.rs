@@ -5,7 +5,7 @@ mod listener;
 pub use client::*;
 pub use listener::*;
 mod msg;
-mod runtime;
+pub mod runtime;
 mod session;
 pub use session::*;
 pub mod mux;

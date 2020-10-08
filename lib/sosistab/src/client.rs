@@ -1,11 +1,12 @@
 use crate::*;
-use async_dup::Arc;
 use bytes::Bytes;
 use flume::{Receiver, Sender};
-use governor::{Quota, RateLimiter};
 use smol::prelude::*;
-use std::time::{Duration, Instant};
-use std::{net::SocketAddr, num::NonZeroU32};
+use std::net::SocketAddr;
+use std::{
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 /// Connects to a remote server.
 pub async fn connect(
@@ -102,7 +103,7 @@ pub async fn connect_custom(
 }
 
 const SHARDS: u8 = 4;
-const RESET_MILLIS: u128 = 3000;
+const RESET_MILLIS: u128 = 1000;
 
 async fn init_session(
     cookie: crypt::Cookie,

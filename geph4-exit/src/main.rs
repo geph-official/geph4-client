@@ -33,10 +33,13 @@ struct Opt {
     exit_hostname: String,
 }
 
+static GEXEC: smol::Executor = smol::Executor::new();
+
 fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
+    sosistab::runtime::set_smol_executor(&GEXEC);
     env_logger::from_env(Env::default().default_filter_or("geph4_exit=info")).init();
-    smol::block_on(async move {
+    smol::block_on(GEXEC.run(async move {
         log::info!("geph4-exit starting...");
         // read or generate key
         let signing_sk = {
@@ -103,5 +106,5 @@ fn main() -> anyhow::Result<()> {
         )
         .await?;
         Ok(())
-    })
+    }))
 }

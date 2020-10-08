@@ -4,7 +4,6 @@ use rsa_fdh::blind;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    convert::TryFrom,
     sync::{atomic::AtomicU64, atomic::Ordering, Arc},
     time::SystemTime,
 };
