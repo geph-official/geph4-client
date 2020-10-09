@@ -8,6 +8,9 @@ use structopt::StructOpt;
 
 mod listen;
 
+#[global_allocator]
+static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 #[derive(Debug, StructOpt)]
 struct Opt {
     #[structopt(long, default_value = "https://binder-v4.geph.io")]

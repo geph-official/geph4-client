@@ -44,17 +44,19 @@ impl ExecutorPool {
 async fn run_forever(exec: Arc<smol::Executor<'static>>, is_main: bool) {
     let mut load = 0.25;
     loop {
-        for _ in 0..5 {
-            if exec.try_tick() {
-                load = 0.01 + load * 0.99
-            } else {
-                load *= 0.99
-            }
+        if exec.try_tick() {
+            load = 0.001 + load * 0.999
+        } else {
+            load *= 0.999
         }
-        if load > 0.5 {
+        if load > 0.9 {
             let exec = exec.clone();
             load = 0.25;
-            std::thread::spawn(move || smol::block_on(run_forever(exec, false)));
+            std::thread::Builder::new()
+                .name("smolscale".into())
+                .stack_size(512 * 1024)
+                .spawn(move || smol::block_on(run_forever(exec, false)))
+                .unwrap();
         }
         if is_main {
             exec.tick().await;
@@ -67,7 +69,7 @@ async fn run_forever(exec: Arc<smol::Executor<'static>>, is_main: bool) {
                 smol::Timer::after(Duration::from_secs(1)).await;
                 false
             });
-            if !fut.await {
+            if !fut.await || load < 0.05 {
                 return;
             }
         }

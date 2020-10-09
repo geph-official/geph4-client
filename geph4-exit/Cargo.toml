@@ -24,3 +24,4 @@ serde= "1.0.116"
 mizaru={path="../lib/mizaru"}
 once_cell="1"
 smolscale = {path="../lib/smolscale"}
+jemallocator = "0.3.0"
