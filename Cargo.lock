@@ -1252,11 +1252,13 @@ dependencies = [
  "lmdb",
  "log 0.4.11",
  "mizaru",
+ "once_cell",
  "rand",
  "rsa-fdh",
  "serde",
  "sha2",
  "smol",
+ "smolscale",
  "socksv5",
  "sosistab",
  "structopt",
@@ -1276,9 +1278,11 @@ dependencies = [
  "hex",
  "log 0.4.11",
  "mizaru",
+ "once_cell",
  "rand",
  "serde",
  "smol",
+ "smolscale",
  "sosistab",
  "structopt",
  "x25519-dalek",
@@ -2810,6 +2814,14 @@ dependencies = [
  "blocking",
  "futures-lite",
  "once_cell",
+]
+
+[[package]]
+name = "smolscale"
+version = "0.1.0"
+dependencies = [
+ "flume",
+ "smol",
 ]
 
 [[package]]

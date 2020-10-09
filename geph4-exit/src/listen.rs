@@ -15,7 +15,7 @@ pub async fn main_loop<'a>(
     signing_sk: ed25519_dalek::Keypair,
     sosistab_sk: x25519_dalek::StaticSecret,
 ) -> anyhow::Result<()> {
-    let scope = smol::LocalExecutor::new();
+    let scope = smol::Executor::new();
     // control protocol listener
     let control_prot_listen = smol::net::TcpListener::bind("[::0]:28080").await?;
     // future that governs the control protocol
@@ -87,7 +87,7 @@ async fn handle_control<'a>(
     // now we read their info
     let mut info: Option<(u16, x25519_dalek::PublicKey)> = None;
     let mut _task: Option<smol::Task<anyhow::Result<()>>> = None;
-    let scope = smol::LocalExecutor::new();
+    let scope = smol::Executor::new();
     scope
         .run(async {
             loop {
@@ -110,7 +110,7 @@ async fn handle_control<'a>(
                         x25519_dalek::PublicKey::from(&sosis_secret),
                     ));
                     _task = Some(scope.spawn(async move {
-                        let scope = smol::LocalExecutor::new();
+                        let scope = smol::Executor::new();
                         let binder_client = binder_client.clone();
                         scope
                             .run(async {
@@ -172,7 +172,7 @@ async fn handle_session(
 ) -> anyhow::Result<()> {
     log::info!("authentication started...");
     let sess = sosistab::mux::Multiplex::new(sess);
-    let scope = smol::LocalExecutor::new();
+    let scope = smol::Executor::new();
     let handle_streams = async {
         dbg!(authenticate_sess(binder_client.clone(), &sess).await)?;
         log::info!("authenticated a new session");

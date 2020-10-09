@@ -7,6 +7,7 @@ members = [
     "lib/notun",
     "lib/mizaru",
     "lib/binder_transport",
+    "lib/smolscale",
     "lib/sosistab",
     "geph4-client",
     "geph4-bridge"
@@ -14,7 +15,7 @@ members = [
 
 
 [profile.dev]
-opt-level=2 
+opt-level=2
 lto="off"
 
 [profile.release]

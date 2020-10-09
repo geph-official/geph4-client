@@ -70,36 +70,37 @@ impl<T: Clone> Reorderer<T> {
     }
 }
 
-// pub struct VarRateLimit {
-//     limiter: governor::RateLimiter<
-//         governor::state::NotKeyed,
-//         governor::state::InMemoryState,
-//         governor::clock::MonotonicClock,
-//     >,
-// }
+pub struct VarRateLimit {
+    limiter: governor::RateLimiter<
+        governor::state::NotKeyed,
+        governor::state::InMemoryState,
+        governor::clock::MonotonicClock,
+    >,
+}
 
-// const DIVIDER: u32 = 1000000;
-// const DIVIDER_FRAC: u32 = 100;
+const DIVIDER: u32 = 100000;
+const DIVIDER_FRAC: u32 = 10;
 
-// impl VarRateLimit {
-//     pub fn new() -> Self {
-//         VarRateLimit {
-//             limiter: governor::RateLimiter::direct_with_clock(
-//                 governor::Quota::per_second(NonZeroU32::new(DIVIDER).unwrap())
-//                     .allow_burst(NonZeroU32::new(DIVIDER / DIVIDER_FRAC).unwrap()),
-//                 &governor::clock::MonotonicClock::default(),
-//             ),
-//         }
-//     }
+impl VarRateLimit {
+    pub fn new() -> Self {
+        VarRateLimit {
+            limiter: governor::RateLimiter::direct_with_clock(
+                governor::Quota::per_second(NonZeroU32::new(DIVIDER).unwrap())
+                    .allow_burst(NonZeroU32::new(DIVIDER / DIVIDER_FRAC).unwrap()),
+                &governor::clock::MonotonicClock::default(),
+            ),
+        }
+    }
 
-//     pub fn check(&self, speed: u32) -> bool {
-//         let divided = NonZeroU32::new((DIVIDER / speed.max(1)).max(1)).unwrap();
-//         self.limiter.check_n(divided).is_ok()
-//     }
+    pub async fn wait(&self, speed: u32) {
+        let speed = speed.max(DIVIDER_FRAC * 2);
+        let divided = NonZeroU32::new((DIVIDER / speed.max(1)).max(1)).unwrap();
+        self.limiter.until_n_ready(divided).await.unwrap()
+    }
 
-//     pub async fn wait(&self, speed: u32) {
-//         while !self.check(speed.max(DIVIDER_FRAC * 2)) {
-//             smol::Timer::after(Duration::from_millis(1)).await;
-//         }
-//     }
-// }
+    // pub async fn wait(&self, speed: u32) {
+    //     while !self.check(speed.max(DIVIDER_FRAC * 2)) {
+    //         smol::Timer::after(Duration::from_millis(1)).await;
+    //     }
+    // }
+}

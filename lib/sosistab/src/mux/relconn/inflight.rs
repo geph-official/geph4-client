@@ -52,6 +52,10 @@ impl Inflight {
         Duration::from_millis(self.rtt.srtt)
     }
 
+    pub fn min_rtt(&self) -> Duration {
+        Duration::from_millis(self.rtt.min_rtt)
+    }
+
     pub fn mark_acked_lt(&mut self, seqno: Seqno) {
         for segseq in self.segments.iter().map(|v| v.seqno).collect::<Vec<_>>() {
             if segseq < seqno {

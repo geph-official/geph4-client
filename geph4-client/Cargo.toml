@@ -26,3 +26,6 @@ rand= "0.7.3"
 rsa-fdh = "0.4.1"
 sha2 = "0.9.1"
 dirs = "3.0.1"
+once_cell="1"
+
+smolscale = {path="../lib/smolscale"}

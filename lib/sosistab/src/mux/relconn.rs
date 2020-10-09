@@ -4,12 +4,15 @@ use async_dup::Mutex as DMutex;
 use bipe::{BipeReader, BipeWriter};
 use bytes::{Bytes, BytesMut};
 use flume::{Receiver, Sender};
-use mux::structs::{Message, RelKind, Reorderer, Seqno};
+use mux::structs::{Message, RelKind, Reorderer, Seqno, VarRateLimit};
 use smol::prelude::*;
 use std::{
     collections::BTreeSet,
     collections::VecDeque,
     pin::Pin,
+    sync::atomic::AtomicU32,
+    sync::atomic::Ordering,
+    sync::Arc,
     task::Context,
     task::Poll,
     time::{Duration, Instant},
@@ -133,11 +136,23 @@ async fn relconn_actor(
         NewPkt(Message),
         Closing,
     }
-
+    let (send_buf, recv_buf) = flume::bounded(10000);
     let transmit = |msg| async {
-        drop(send_wire_write.send_async(msg).await);
+        drop(send_buf.send_async(msg).await);
+        smol::future::yield_now().await;
     };
     let mut fragments: VecDeque<Bytes> = VecDeque::new();
+    let limiter = Arc::new(VarRateLimit::new());
+    let implied_rate = Arc::new(AtomicU32::new(100));
+    let irr = implied_rate.clone();
+    let lim = limiter.clone();
+    let _task: smol::Task<Option<()>> = runtime::spawn(async move {
+        loop {
+            let msg = recv_buf.recv_async().await.ok()?;
+            lim.wait(irr.load(Ordering::Relaxed)).await;
+            send_wire_write.send_async(msg).await.ok()?;
+        }
+    });
     loop {
         state = match state {
             SynReceived { stream_id } => {
@@ -206,7 +221,11 @@ async fn relconn_actor(
                 mut conn_vars,
             } => {
                 let event = {
-                    let writeable = conn_vars.inflight.len() <= conn_vars.cwnd as usize
+                    implied_rate.store(
+                        (conn_vars.cwnd / conn_vars.inflight.min_rtt().as_secs_f64()) as u32,
+                        Ordering::Relaxed,
+                    );
+                    let writeable = conn_vars.inflight.inflight() <= conn_vars.cwnd as usize
                         && conn_vars.inflight.len() < 10000
                         && !conn_vars.closing;
                     let force_ack = conn_vars.ack_seqnos.len() >= 128;
@@ -352,10 +371,10 @@ async fn relconn_actor(
                     })) => {
                         log::trace!("new data pkt with seqno={}", seqno);
                         conn_vars.ack_seqnos.insert(seqno);
-                        // if conn_vars.delayed_ack_timer.is_none() {
-                        conn_vars.delayed_ack_timer =
-                            Instant::now().checked_add(Duration::from_millis(10));
-                        // }
+                        if conn_vars.delayed_ack_timer.is_none() {
+                            conn_vars.delayed_ack_timer =
+                                Instant::now().checked_add(Duration::from_millis(10));
+                        }
                         conn_vars.reorderer.insert(seqno, payload);
                         let times = conn_vars.reorderer.take();
                         conn_vars.lowest_unseen += times.len() as u64;
