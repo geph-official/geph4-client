@@ -6,7 +6,7 @@ jobs:
   build:
     working_directory: ~/repo/
     machine:
-      image: ubuntu-1604:202007-01
+      image: ubuntu-2004:202008-01
     resource_class: xlarge
     steps:
       - checkout
