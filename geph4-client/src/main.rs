@@ -14,13 +14,15 @@ mod stats;
 
 mod main_connect;
 mod main_sync;
+mod main_binderprox;
 
 static GEXEC: smol::Executor = smol::Executor::new();
 
 #[derive(Debug, StructOpt)]
 enum Opt {
     Connect(main_connect::ConnectOpt),
-    Sync(main_sync::SyncOpt)
+    Sync(main_sync::SyncOpt),
+    BinderProx(main_binderprox::BinderProxOpt)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -33,6 +35,7 @@ fn main() -> anyhow::Result<()> {
         match opt {
             Opt::Connect(opt) => main_connect::main_connect(opt).await,
             Opt::Sync(opt) => main_sync::main_sync(opt).await,
+            Opt::BinderProx(opt) => main_binderprox::main_binderprox(opt).await
         }
     }))
 }
