@@ -8,4 +8,5 @@ edition = "2018"
 
 [dependencies]
 smol = "1.2.3"
-flume = "0.9.1"
+async-task = "4"
+crossbeam-channel = "0.4.4"

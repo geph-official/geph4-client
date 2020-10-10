@@ -13,20 +13,44 @@ pub struct InflightEntry {
     send_time: Instant,
     pub retrans: u64,
     pub payload: Message,
+
+    delivered: u64,
+    delivered_time: Instant,
 }
 
-#[derive(Default)]
 pub struct Inflight {
     segments: VecDeque<InflightEntry>,
     inflight_count: usize,
     times: priority_queue::PriorityQueue<Seqno, Reverse<Instant>>,
     fast_retrans: BTreeSet<Seqno>,
     rtt: RttCalculator,
+    rate: RateCalculator,
+
+    delivered: u64,
+    delivered_time: Instant,
 }
 
 impl Inflight {
+    pub fn new() -> Self {
+        Inflight {
+            segments: VecDeque::new(),
+            inflight_count: 0,
+            times: priority_queue::PriorityQueue::new(),
+            fast_retrans: BTreeSet::new(),
+            rtt: RttCalculator::default(),
+            rate: RateCalculator::default(),
+
+            delivered: 0,
+            delivered_time: Instant::now(),
+        }
+    }
+
+    pub fn rate(&self) -> f64 {
+        self.rate.rate
+    }
+
     pub fn bdp(&self) -> f64 {
-        self.rtt.bdp()
+        self.rate() * self.min_rtt().as_secs_f64()
     }
 
     pub fn len(&self) -> usize {
@@ -76,39 +100,26 @@ impl Inflight {
                 let offset = (seqno - first_seqno) as usize;
                 if let Some(seg) = self.segments.get_mut(offset) {
                     if !seg.acked {
+                        self.delivered += 1;
+                        self.delivered_time = now;
                         toret = true;
                         seg.acked = true;
                         self.inflight_count -= 1;
+                        if seg.retrans == 0 {
+                            // calculate rate
+                            let data_acked = self.delivered - seg.delivered;
+                            let ack_elapsed = self
+                                .delivered_time
+                                .saturating_duration_since(seg.delivered_time);
+                            let rate_sample = data_acked as f64 / ack_elapsed.as_secs_f64();
+                            self.rate.record_sample(rate_sample)
+                        }
 
                         self.rtt.record_sample(if seg.retrans == 0 {
                             Some(now.saturating_duration_since(seg.send_time))
                         } else {
                             None
                         });
-                        // time-based fast retransmit
-                        // let fast_retrans_thresh = self.rtt.srtt / 4;
-                        // let seg = seg.clone();
-                        // for cand in self.segments.iter_mut() {
-                        //     if !cand.acked
-                        //         && cand.retrans == 0
-                        //         && seg
-                        //             .send_time
-                        //             .saturating_duration_since(cand.send_time)
-                        //             .as_millis() as u64
-                        //             > fast_retrans_thresh
-                        //     {
-                        //         self.fast_retrans.insert(cand.seqno);
-                        //         cand.retrans += 1;
-                        //     }
-                        // }
-                        // packet-based fast retransmit
-                        // for cand in self.segments.iter_mut() {
-                        //     if !cand.acked && cand.retrans == 0 && seqno >= cand.seqno + 3 {
-                        //         self.fast_retrans.insert(cand.seqno);
-                        //         cand.retrans += 1;
-                        //         self.times.push(cand.seqno, Reverse(Instant::now() + rto));
-                        //     }
-                        // }
                     }
                 }
                 // shrink if possible
@@ -129,6 +140,8 @@ impl Inflight {
                 send_time: Instant::now(),
                 payload: msg,
                 retrans: 0,
+                delivered: self.delivered,
+                delivered_time: self.delivered_time,
             });
             self.inflight_count += 1;
         }
@@ -161,14 +174,6 @@ impl Inflight {
             if let Some(seg) = self.get_seqno(seqno) {
                 if !seg.acked {
                     seg.retrans += 1;
-                    // eprintln!(
-                    //     "retransmitting seqno {} {} times after {}ms",
-                    //     seg.seqno,
-                    //     seg.retrans,
-                    //     Instant::now()
-                    //         .saturating_duration_since(seg.send_time)
-                    //         .as_millis()
-                    // );
                     let rtx = seg.retrans;
                     let minrto = rto * 2u32.pow(rtx as u32);
 
@@ -181,6 +186,35 @@ impl Inflight {
     }
 }
 
+struct RateCalculator {
+    rate: f64,
+    rate_update_time: Instant,
+}
+
+impl Default for RateCalculator {
+    fn default() -> Self {
+        RateCalculator {
+            rate: 100.0,
+            rate_update_time: Instant::now(),
+        }
+    }
+}
+
+impl RateCalculator {
+    fn record_sample(&mut self, sample: f64) {
+        let now = Instant::now();
+        if now
+            .saturating_duration_since(self.rate_update_time)
+            .as_secs()
+            > 3
+            || sample > self.rate
+        {
+            self.rate = sample;
+            self.rate_update_time = now;
+        }
+    }
+}
+
 struct RttCalculator {
     // standard TCP stuff
     srtt: u64,
@@ -190,10 +224,6 @@ struct RttCalculator {
     // rate estimation
     min_rtt: u64,
     rtt_update_time: Instant,
-    flight_size: usize,
-    flight_start: Instant,
-    rate: f64,
-    rate_update_time: Instant,
 
     existing: bool,
 }
@@ -206,10 +236,6 @@ impl Default for RttCalculator {
             rto: 1000,
             min_rtt: 1000,
             rtt_update_time: Instant::now(),
-            flight_size: 0,
-            flight_start: Instant::now(),
-            rate: 100.0,
-            rate_update_time: Instant::now(),
             existing: false,
         }
     }
@@ -239,24 +265,10 @@ impl RttCalculator {
             self.min_rtt = self.srtt;
             self.rtt_update_time = now;
         }
-        // create sample
-        self.flight_size += 1;
-        let elapsed = self.flight_start.elapsed();
-        if elapsed.as_millis() > 500 {
-            let rate_samp = self.flight_size as f64 / elapsed.as_secs_f64();
-            if rate_samp > self.rate || self.rate_update_time.elapsed().as_secs() >= 3 {
-                self.rate = rate_samp;
-                self.rate_update_time = Instant::now()
-            }
-        }
     }
 
     fn rto(&self) -> Duration {
         Duration::from_millis(self.rto)
-    }
-
-    fn bdp(&self) -> f64 {
-        self.rate * (self.min_rtt as f64 / 1000.0)
     }
 }
 

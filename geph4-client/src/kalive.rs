@@ -1,9 +1,11 @@
-use crate::prelude::*;
 use crate::{cache::ClientCache, GEXEC};
+use crate::{prelude::*, stats::StatCollector};
 use anyhow::Context;
+use scopeguard::defer;
 use serde::de::DeserializeOwned;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
+use smol_timeout::TimeoutExt;
 use std::time::Duration;
 use std::{sync::Arc, time::Instant};
 
@@ -15,11 +17,17 @@ pub struct Keepalive {
 
 impl Keepalive {
     /// Creates a new keepalive.
-    pub fn new(exit_host: &str, use_bridges: bool, ccache: Arc<ClientCache>) -> Self {
+    pub fn new(
+        stats: Arc<StatCollector>,
+        exit_host: &str,
+        use_bridges: bool,
+        ccache: Arc<ClientCache>,
+    ) -> Self {
         let (send, recv) = smol::channel::unbounded();
         Keepalive {
             open_socks5_conn: send,
             _task: GEXEC.spawn(keepalive_actor(
+                stats,
                 exit_host.to_string(),
                 use_bridges,
                 ccache,
@@ -39,6 +47,7 @@ impl Keepalive {
 }
 
 async fn keepalive_actor(
+    stats: Arc<StatCollector>,
     exit_host: String,
     use_bridges: bool,
     ccache: Arc<ClientCache>,
@@ -46,6 +55,7 @@ async fn keepalive_actor(
 ) -> anyhow::Result<()> {
     loop {
         if let Err(err) = keepalive_actor_once(
+            stats.clone(),
             exit_host.clone(),
             use_bridges,
             ccache.clone(),
@@ -59,6 +69,7 @@ async fn keepalive_actor(
 }
 
 async fn keepalive_actor_once(
+    stats: Arc<StatCollector>,
     exit_host: String,
     use_bridges: bool,
     ccache: Arc<ClientCache>,
@@ -66,62 +77,91 @@ async fn keepalive_actor_once(
 ) -> anyhow::Result<()> {
     // do we use bridges?
     log::debug!("keepalive_actor_once");
+
+    // find the exit
+    let mut exits = ccache.get_exits().await.context("can't get exits")?;
+    if exits.is_empty() {
+        anyhow::bail!("no exits found")
+    }
+    dbg!(&exit_host);
+    exits.sort_by(|a, b| {
+        strsim::damerau_levenshtein(&a.hostname, &exit_host)
+            .cmp(&strsim::damerau_levenshtein(&b.hostname, &exit_host))
+    });
+    stats.set_exit_descriptor(exits[0].clone());
+    let exit_host = exits[0].hostname.clone();
+
+    let bridge_sess_async = async {
+        let bridges = ccache
+            .get_bridges(&exit_host)
+            .await
+            .context("can't get bridges")?;
+        // spawn a task for *every* bridge
+        let (send, recv) = smol::channel::unbounded();
+        let _tasks: Vec<_> = bridges
+            .into_iter()
+            .map(|desc| {
+                let send = send.clone();
+                smol::spawn(async move {
+                    log::debug!("connecting through {}...", desc.endpoint);
+                    drop(
+                        send.send((
+                            desc.endpoint,
+                            sosistab::connect(desc.endpoint, desc.sosistab_key).await,
+                        ))
+                        .await,
+                    )
+                })
+            })
+            .collect();
+        // wait for a successful result
+        loop {
+            let (saddr, res) = recv.recv().await.context("ran out of bridges")?;
+            if let Ok(res) = res {
+                log::info!("{} is our fastest bridge", saddr);
+                break Ok(res);
+            }
+        }
+    };
+
     let connected_sess_async = async {
         if use_bridges {
-            let bridges = ccache
-                .get_bridges(&exit_host)
-                .await
-                .context("can't get bridges")?;
-            // spawn a task for *every* bridge
-            let (send, recv) = smol::channel::unbounded();
-            let _tasks: Vec<_> = bridges
-                .into_iter()
-                .map(|desc| {
-                    let send = send.clone();
-                    smol::spawn(async move {
-                        log::debug!("connecting through {}...", desc.endpoint);
-                        drop(
-                            send.send((
-                                desc.endpoint,
-                                sosistab::connect(desc.endpoint, desc.sosistab_key).await,
-                            ))
-                            .await,
-                        )
-                    })
-                })
-                .collect();
-            // wait for a successful result
-            loop {
-                let (saddr, res) = recv.recv().await.context("ran out of bridges")?;
-                if let Ok(res) = res {
-                    log::info!("{} is our fastest bridge", saddr);
-                    break Ok(res);
-                }
-            }
+            bridge_sess_async.await
         } else {
-            let exits = ccache.get_exits().await.context("can't get exits")?;
-            log::debug!("getting exit_info...");
-            let exit_info = exits
-                .into_iter()
-                .find(|v| v.hostname == exit_host)
-                .ok_or_else(|| anyhow::anyhow!("no exit with this hostname"))?;
-            Ok(sosistab::connect(
-                smol::net::resolve(format!("{}:19831", exit_info.hostname))
-                    .await
-                    .context("can't resolve hostname of exit")?[0],
-                exit_info.sosistab_key,
-            )
-            .await?)
+            async {
+                let exit_info = exits
+                    .into_iter()
+                    .find(|v| v.hostname == exit_host)
+                    .ok_or_else(|| anyhow::anyhow!("no exit with this hostname"));
+                let exit_info = infal(exit_info).await;
+                Ok(infal(
+                    sosistab::connect(
+                        smol::net::resolve(format!("{}:19831", exit_info.hostname))
+                            .await
+                            .context("can't resolve hostname of exit")?[0],
+                        exit_info.sosistab_key,
+                    )
+                    .await,
+                )
+                .await)
+            }
+            .or(async {
+                smol::Timer::after(Duration::from_secs(5)).await;
+                log::warn!("turning on bridges because we couldn't get a direct connection");
+                bridge_sess_async.await
+            })
+            .await
         }
     };
     let session: anyhow::Result<sosistab::Session> = connected_sess_async
         .or(async {
             smol::Timer::after(Duration::from_secs(30)).await;
-            anyhow::bail!("initial connection timeout");
+            anyhow::bail!("initial connection timeout after 30");
         })
         .await;
     let session = session?;
     let mux = sosistab::mux::Multiplex::new(session);
+    let (send_stop, recv_stop) = smol::channel::unbounded();
     let scope = smol::Executor::new();
     // now let's authenticate
     let token = ccache.get_auth_token().await?;
@@ -133,27 +173,65 @@ async fn keepalive_actor_once(
         use_bridges
     );
     scope
-        .run(async {
+        .spawn(async {
+            defer!(send_stop.try_send(()).unwrap());
             loop {
-                let (conn_host, conn_reply) = recv_socks5_conn.recv().await?;
-                let mux = &mux;
-                scope
-                    .spawn(async move {
-                        let start = Instant::now();
-                        let mut remote = (&mux).open_conn().await.ok()?;
-                        write_pascalish(&mut remote, &conn_host).await.ok()?;
-                        log::info!(
-                            "opened connection for {} in {}ms",
-                            conn_host,
-                            start.elapsed().as_millis()
-                        );
-                        conn_reply.send(remote).await.ok()?;
-                        Some(())
-                    })
-                    .detach();
+                smol::Timer::after(Duration::from_secs(200)).await;
+                if mux
+                    .open_conn()
+                    .timeout(Duration::from_secs(5))
+                    .await
+                    .is_none()
+                {
+                    return;
+                }
             }
         })
+        .detach();
+    scope
+        .run(
+            async {
+                defer!(send_stop.try_send(()).unwrap());
+                loop {
+                    let (conn_host, conn_reply) = recv_socks5_conn.recv().await?;
+                    let mux = &mux;
+                    let send_stop = send_stop.clone();
+                    scope
+                        .spawn(async move {
+                            let start = Instant::now();
+                            let remote = (&mux).open_conn().timeout(Duration::from_secs(5)).await;
+                            if let Some(remote) = remote {
+                                let mut remote = remote.ok()?;
+                                write_pascalish(&mut remote, &conn_host).await.ok()?;
+                                log::info!(
+                                    "opened connection for {} in {}ms",
+                                    conn_host,
+                                    start.elapsed().as_millis()
+                                );
+                                conn_reply.send(remote).await.ok()?;
+                                Some(())
+                            } else {
+                                send_stop.try_send(()).unwrap();
+                                Some(())
+                            }
+                        })
+                        .detach();
+                }
+            }
+            .or(async {
+                recv_stop.recv().await.unwrap();
+                anyhow::bail!("global stop")
+            }),
+        )
         .await
+}
+
+async fn infal<T, E>(v: Result<T, E>) -> T {
+    if let Ok(v) = v {
+        v
+    } else {
+        smol::future::pending().await
+    }
 }
 
 /// authenticates a muxed session

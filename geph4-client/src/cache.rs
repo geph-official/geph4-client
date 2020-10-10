@@ -57,7 +57,7 @@ impl ClientCache {
                 return Ok(existing);
             }
         }
-        let deadline: SystemTime = SystemTime::now() + ttl;
+        let deadline: SystemTime = SystemTime::now();
         let deadline = deadline
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()

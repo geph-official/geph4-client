@@ -78,8 +78,8 @@ pub struct VarRateLimit {
     >,
 }
 
-const DIVIDER: u32 = 100000;
-const DIVIDER_FRAC: u32 = 10;
+const DIVIDER: u32 = 1000000;
+const DIVIDER_FRAC: u32 = 100;
 
 impl VarRateLimit {
     pub fn new() -> Self {

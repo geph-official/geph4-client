@@ -34,8 +34,8 @@ pub fn set_smol_executor(exec: &'static Executor<'static>) {
 pub(crate) fn spawn<T: Send + 'static>(
     future: impl Future<Output = T> + Send + 'static,
 ) -> smol::Task<T> {
-    if let Some(exec) = USER_EXEC.get() {
-        exec.spawn(future)
+    if let Some(ex) = USER_EXEC.get() {
+        ex.spawn(future)
     } else {
         FALLBACK.spawn(future)
     }
