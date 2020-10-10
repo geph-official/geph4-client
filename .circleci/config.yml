@@ -10,7 +10,8 @@ jobs:
     resource_class: xlarge
     steps:
       - checkout
-      - run: sudo apt-get install upx
+      - run: sudo apt-get update
+      - run: sudo apt-get install upx-ucl
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
       - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       - run: echo "export RUSTFLAGS='-C link-arg=-s'" >> $BASH_ENV
