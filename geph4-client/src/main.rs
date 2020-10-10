@@ -14,7 +14,7 @@ mod stats;
 
 mod main_connect;
 mod main_sync;
-mod main_binderprox;
+mod main_binderproxy;
 
 static GEXEC: smol::Executor = smol::Executor::new();
 
@@ -22,7 +22,7 @@ static GEXEC: smol::Executor = smol::Executor::new();
 enum Opt {
     Connect(main_connect::ConnectOpt),
     Sync(main_sync::SyncOpt),
-    BinderProx(main_binderprox::BinderProxOpt)
+    BinderProxy(main_binderproxy::BinderProxyOpt)
 }
 
 fn main() -> anyhow::Result<()> {
@@ -35,7 +35,7 @@ fn main() -> anyhow::Result<()> {
         match opt {
             Opt::Connect(opt) => main_connect::main_connect(opt).await,
             Opt::Sync(opt) => main_sync::main_sync(opt).await,
-            Opt::BinderProx(opt) => main_binderprox::main_binderprox(opt).await
+            Opt::BinderProxy(opt) => main_binderproxy::main_binderproxy(opt).await
         }
     }))
 }

@@ -20,6 +20,7 @@ pub struct SyncOpt {
 pub async fn main_sync(opt: SyncOpt) -> anyhow::Result<()> {
     let mut client_cache = ClientCache::from_opts(&opt.common, &opt.auth)?;
     client_cache.force_sync = opt.force;
+    log::info!("sync mode started (force = {})", opt.force);
     if let Err(err) = attempt(&client_cache).await {
         let mut haha = HashMap::new();
         haha.insert("error".to_string(), err.to_string());

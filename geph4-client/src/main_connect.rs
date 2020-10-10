@@ -33,6 +33,7 @@ pub struct ConnectOpt {
 }
 
 pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
+    log::info!("connect mode started");
     let stat_collector = Arc::new(StatCollector::default());
     // create a db directory if doesn't exist
     let client_cache = ClientCache::from_opts(&opt.common, &opt.auth)?;

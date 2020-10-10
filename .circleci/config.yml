@@ -22,7 +22,7 @@ jobs:
       - run: mkdir ~/repo/OUTPUT/
       - run: mv ~/repo/target/x86_64-unknown-linux-musl/release/geph4-client ~/repo/OUTPUT/geph4-client-linux-amd64
       - run: mv ~/repo/target/arm-unknown-linux-musleabi/release/geph4-client ~/repo/OUTPUT/geph4-client-linux-armeabi
-      - run: mv ~/repo/target/aarch64-unknown-linux-musleabi/release/geph4-client ~/repo/OUTPUT/geph4-client-linux-aarch64
+      - run: mv ~/repo/target/aarch64-unknown-linux-musl/release/geph4-client ~/repo/OUTPUT/geph4-client-linux-aarch64
       - run: upx OUTPUT/*
       - store_artifacts:
           path: ~/repo/OUTPUT
