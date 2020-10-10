@@ -21,3 +21,4 @@ lto="off"
 panic = "abort"
 opt-level=3
 incremental=true
+lto="thin"
