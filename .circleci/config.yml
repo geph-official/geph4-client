@@ -4,7 +4,6 @@ version: 2.1
 # Orchestrate or schedule a set of jobs
 jobs:
   build:
-    working_directory: /mnt/ramdisk
     machine:
       image: ubuntu-1604:202007-01
     resource_class: xlarge
