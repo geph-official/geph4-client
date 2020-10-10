@@ -64,6 +64,9 @@ impl ConnVars {
     }
 
     pub fn pacing_rate(&self) -> f64 {
+        if self.slow_start {
+            return self.inflight.rate() * 2.0;
+        }
         if self.loss_rate > 0.02 {
             return self.inflight.rate() * 0.5;
         }
@@ -83,7 +86,7 @@ impl ConnVars {
 
     pub fn congestion_ack(&mut self) {
         self.loss_rate *= 0.99;
-        self.cwnd = (self.cwnd * 0.9 + self.cwnd_target() * 0.1).min(self.cwnd + 32.0 / self.cwnd);
+        self.cwnd = (self.cwnd * 0.9 + self.cwnd_target() * 0.1).min(self.cwnd + 64.0 / self.cwnd);
         let now = Instant::now();
         if now.saturating_duration_since(self.last_flight) > self.inflight.srtt() {
             self.flights += 1;
@@ -92,12 +95,11 @@ impl ConnVars {
     }
 
     pub fn congestion_loss(&mut self) {
+        self.slow_start = false;
         self.loss_rate = self.loss_rate * 0.99 + 0.01;
         let now = Instant::now();
         if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() {
-            // if self.loss_rate > 0.02 {
             self.cwnd *= 0.8;
-            // }
             log::debug!(
                 "LOSS CWND => {}; loss rate {}, srtt {}ms",
                 self.cwnd,

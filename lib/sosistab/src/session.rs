@@ -155,7 +155,7 @@ async fn session_loop(
                         })
                         .await,
                 );
-                shaper.until_ready().await;
+                // shaper.until_ready().await;
                 frame_no += 1;
             }
             run_no += 1;

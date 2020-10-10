@@ -1,4 +1,4 @@
-use crate::persist::KVDatabase;
+use crate::{persist::KVDatabase, AuthOpt, CommonOpt};
 use binder_transport::{
     BinderClient, BinderError, BinderRequestData, BinderResponse, BridgeDescriptor, ExitDescriptor,
 };
@@ -17,6 +17,7 @@ pub struct ClientCache {
     free_pk: mizaru::PublicKey,
     plus_pk: mizaru::PublicKey,
     database: Arc<KVDatabase>,
+    pub force_sync: bool,
 }
 
 impl ClientCache {
@@ -36,7 +37,24 @@ impl ClientCache {
             free_pk,
             plus_pk,
             database,
+            force_sync: false,
         }
+    }
+
+    /// Create from options
+    pub fn from_opts(common: &CommonOpt, auth: &AuthOpt) -> anyhow::Result<Self> {
+        let binder_client = common.to_binder_client();
+        let _ = std::fs::create_dir_all(&auth.credential_cache);
+        let database = Arc::new(crate::persist::KVDatabase::open(&auth.credential_cache)?);
+        let client_cache = ClientCache::new(
+            &auth.username,
+            &auth.password,
+            common.binder_mizaru_free.clone(),
+            common.binder_mizaru_plus.clone(),
+            binder_client.clone(),
+            database,
+        );
+        Ok(client_cache)
     }
 
     async fn get_cached<T: Serialize + DeserializeOwned + Clone>(
@@ -47,14 +65,16 @@ impl ClientCache {
     ) -> anyhow::Result<T> {
         let key = format!("{}-{}", key, self.username);
         let existing: Option<(T, u64)> = self.database.read().get(&key);
-        if let Some((existing, timeout)) = existing {
-            if SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs()
-                < timeout + ttl.as_secs()
-            {
-                return Ok(existing);
+        if !self.force_sync {
+            if let Some((existing, timeout)) = existing {
+                if SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    < timeout + ttl.as_secs()
+                {
+                    return Ok(existing);
+                }
             }
         }
         let deadline: SystemTime = SystemTime::now();
@@ -96,7 +116,7 @@ impl ClientCache {
         let binder_client = self.binder_client.clone();
         let exit_hostname = exit_hostname.to_string();
         self.get_cached(
-            "cache.bridges",
+            &format!("cache.bridges.{}", exit_hostname),
             async {
                 let res = smol::unblock(move || {
                     binder_client.request(

@@ -5,7 +5,7 @@ use bipe::{BipeReader, BipeWriter};
 use bytes::{Bytes, BytesMut};
 use connvars::ConnVars;
 use flume::{Receiver, Sender};
-use mux::structs::{Message, RelKind, Reorderer, Seqno, VarRateLimit};
+use mux::structs::{Message, RelKind, Seqno, VarRateLimit};
 use smol::prelude::*;
 use std::{
     collections::BTreeSet,
