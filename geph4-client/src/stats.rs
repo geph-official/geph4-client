@@ -1,6 +1,5 @@
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 pub struct StatCollector {
