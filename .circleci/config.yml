@@ -10,6 +10,7 @@ jobs:
     steps:
       - checkout:
           path: ~/repo
+      - run: rustup target add x86_64-unknown-linux-musl
       - run: cargo build --release --target x86_64-unknown-linux-musl --manifest-path=geph4-client/Cargo.toml
       - run: cargo install cross
       - run: CROSS_DOCKER_IN_DOCKER=true cross build --release --target armv7-unknown-linux-musleabihf --manifest-path=geph4-client/Cargo.toml
