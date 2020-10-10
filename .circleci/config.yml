@@ -11,7 +11,8 @@ jobs:
       - checkout:
           path: ~/repo
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
+      - run: source $HOME/.cargo/env
       - run: cargo build --release --target x86_64-unknown-linux-musl --manifest-path=geph4-client/Cargo.toml
       - run: cross build --release --target armv7-unknown-linux-musleabihf --manifest-path=geph4-client/Cargo.toml
       - store_artifacts:
-          path: ~/repo/
+          path: ~/repo/target/
