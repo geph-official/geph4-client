@@ -4,12 +4,14 @@ version: 2.1
 # Orchestrate or schedule a set of jobs
 jobs:
   build:
-    working_directory: ~/repo/geph4-client
-    docker:
-      - image: cimg/rust:1.46.0
+    working_directory: ~/repo
+    machine:
+      - image: ubuntu-1604:202007-01
     steps:
       - checkout:
           path: ~/repo
-      - run: cargo build --release
+      - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
+      - run: cargo build --release --target x86_64-unknown-linux-musl --manifest-path=geph4-client/Cargo.toml
+      - run: cross build --release --target armv7-unknown-linux-musleabihf --manifest-path=geph4-client/Cargo.toml
       - store_artifacts:
           path: ~/repo/
