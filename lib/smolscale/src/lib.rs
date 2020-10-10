@@ -1,16 +1,13 @@
+use async_task::Runnable;
+use crossbeam_channel::{Receiver, Sender};
 use smol::prelude::*;
-use std::{ops::Deref, sync::Arc, time::Duration, time::Instant};
+use std::time::Duration;
+
+const IDLE_THREAD_MS: u64 = 1000;
+// const GROW_POOL_MS: u64 = 3;
 
 pub struct ExecutorPool {
-    exec: Arc<smol::Executor<'static>>,
-}
-
-impl Deref for ExecutorPool {
-    type Target = smol::Executor<'static>;
-
-    fn deref(&self) -> &smol::Executor<'static> {
-        &self.exec
-    }
+    send: Sender<Runnable>,
 }
 
 impl Default for ExecutorPool {
@@ -20,58 +17,56 @@ impl Default for ExecutorPool {
 }
 
 impl ExecutorPool {
-    /// Creates a new ExecutorPool.
+    /// Creates a new ExecutorPool. This implicitly starts an autoscaling thread pool in the background.
     pub fn new() -> Self {
-        ExecutorPool {
-            exec: Arc::new(smol::Executor::new()),
-        }
+        let (send, recv) = crossbeam_channel::unbounded();
+        std::thread::Builder::new()
+            .name("ss-manager".into())
+            .spawn(move || execute_thread_pool(recv))
+            .unwrap();
+        ExecutorPool { send }
     }
 
-    /// Drives the given future to completion, spawning appropriate threads.
-    pub fn block_on<F: Future<Output = T> + 'static + Send, T: Send + 'static>(&self, fut: F) -> T {
-        let main_task = self.exec.spawn(fut);
-        smol::block_on(main_task.or(async {
-            loop {
-                run_forever(self.exec.clone(), true).await;
-            }
-        }))
+    /// Runs the given future.
+    pub fn spawn<F: Future<Output = T> + 'static + Send, T: Send + 'static>(
+        &self,
+        fut: F,
+    ) -> smol::Task<T> {
+        let send = self.send.clone();
+        let schedule = move |runnable| send.send(runnable).unwrap();
+        let (runnable, task) = async_task::spawn(fut, schedule);
+        runnable.schedule();
+        task
     }
 }
 
-/// Run forever.
-///
-/// The basic idea is that if try_tick repeatedly works, then it means we have an overloaded thread, and we spawn another.
-async fn run_forever(exec: Arc<smol::Executor<'static>>, is_main: bool) {
-    let mut load = 0.25;
+fn execute_thread_pool(recv_tasks: Receiver<Runnable>) -> Option<()> {
+    let (send_runnable, recv_runnable) = crossbeam_channel::bounded(0);
     loop {
-        if exec.try_tick() {
-            load = 0.001 + load * 0.999
-        } else {
-            load *= 0.999
-        }
-        if load > 0.9 {
-            let exec = exec.clone();
-            load = 0.25;
+        let to_run = recv_tasks.recv().ok()?;
+        let returned = match send_runnable.try_send(to_run) {
+            Err(crossbeam_channel::TrySendError::Full(to_run)) => Some(to_run),
+            Err(crossbeam_channel::TrySendError::Disconnected(to_run)) => Some(to_run),
+            Ok(()) => None,
+        };
+        if let Some(to_run) = returned {
+            let recv_runnable = recv_runnable.clone();
             std::thread::Builder::new()
-                .name("smolscale".into())
-                .stack_size(512 * 1024)
-                .spawn(move || smol::block_on(run_forever(exec, false)))
+                .name("ss-worker".into())
+                .spawn(move || execute_worker(to_run, recv_runnable))
                 .unwrap();
         }
-        if is_main {
-            exec.tick().await;
+    }
+}
+
+fn execute_worker(first_runnable: Runnable, more_runnables: Receiver<Runnable>) {
+    first_runnable.run();
+    loop {
+        let runnable = more_runnables.recv_timeout(Duration::from_millis(IDLE_THREAD_MS));
+        if let Ok(runnable) = runnable {
+            runnable.run();
         } else {
-            let fut = async {
-                exec.tick().await;
-                true
-            }
-            .or(async {
-                smol::Timer::after(Duration::from_secs(1)).await;
-                false
-            });
-            if !fut.await || load < 0.05 {
-                return;
-            }
+            return;
         }
     }
 }

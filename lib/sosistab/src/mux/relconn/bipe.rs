@@ -102,9 +102,9 @@ impl AsyncRead for BipeReader {
                     let to_copy_len = queue.len().min(buf.len());
                     (&mut buf[..to_copy_len]).copy_from_slice(&queue[..to_copy_len]);
                     *queue = queue.split_off(to_copy_len);
-                    // if queue.is_empty() {
-                    //     *queue = BytesMut::new();
-                    // }
+                    if queue.is_empty() {
+                        *queue = BytesMut::new();
+                    }
                     self.signal.notify(usize::MAX);
                     return Poll::Ready(Ok(to_copy_len));
                 }

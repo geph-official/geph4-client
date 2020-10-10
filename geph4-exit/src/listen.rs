@@ -6,6 +6,7 @@ use ed25519_dalek::Signer;
 use rand::prelude::*;
 use serde::{de::DeserializeOwned, Serialize};
 use smol::prelude::*;
+use smol_timeout::TimeoutExt;
 
 /// the main listening loop
 pub async fn main_loop<'a>(
@@ -174,10 +175,17 @@ async fn handle_session(
     let sess = sosistab::mux::Multiplex::new(sess);
     let scope = smol::Executor::new();
     let handle_streams = async {
-        dbg!(authenticate_sess(binder_client.clone(), &sess).await)?;
+        authenticate_sess(binder_client.clone(), &sess)
+            .timeout(Duration::from_secs(10))
+            .await
+            .ok_or_else(|| anyhow::anyhow!("authentication timeout"))??;
         log::info!("authenticated a new session");
         loop {
-            let stream = sess.accept_conn().await?;
+            let stream = sess
+                .accept_conn()
+                .timeout(Duration::from_secs(600))
+                .await
+                .ok_or_else(|| anyhow::anyhow!("accept timeout"))??;
             scope.spawn(handle_proxy_stream(stream)).detach();
         }
     };
@@ -193,7 +201,7 @@ async fn authenticate_sess(
     // wait for a message containing a blinded signature
     let (auth_tok, auth_sig, level): (Vec<u8>, mizaru::UnblindedSignature, String) =
         read_pascalish(&mut stream).await?;
-    if (auth_sig.epoch as i32 - mizaru::time_to_epoch(SystemTime::now()) as i32).abs() > 1 {
+    if (auth_sig.epoch as i32 - mizaru::time_to_epoch(SystemTime::now()) as i32).abs() > 2 {
         anyhow::bail!("outdated authentication token")
     }
     // validate it through the binder

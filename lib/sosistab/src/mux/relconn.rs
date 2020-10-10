@@ -3,6 +3,7 @@ use async_dup::Arc as DArc;
 use async_dup::Mutex as DMutex;
 use bipe::{BipeReader, BipeWriter};
 use bytes::{Bytes, BytesMut};
+use connvars::ConnVars;
 use flume::{Receiver, Sender};
 use mux::structs::{Message, RelKind, Reorderer, Seqno, VarRateLimit};
 use smol::prelude::*;
@@ -18,6 +19,7 @@ use std::{
     time::{Duration, Instant},
 };
 mod bipe;
+mod connvars;
 mod inflight;
 
 const MSS: usize = 1100;
@@ -115,7 +117,6 @@ pub(crate) enum RelConnState {
         death: smol::Timer,
     },
 }
-use inflight::Inflight;
 use RelConnState::*;
 
 async fn relconn_actor(
@@ -136,23 +137,23 @@ async fn relconn_actor(
         NewPkt(Message),
         Closing,
     }
-    let (send_buf, recv_buf) = flume::bounded(10000);
+    // let (send_buf, recv_buf) = flume::bounded(10000);
     let transmit = |msg| async {
-        drop(send_buf.send_async(msg).await);
+        drop(send_wire_write.send_async(msg).await);
         smol::future::yield_now().await;
     };
     let mut fragments: VecDeque<Bytes> = VecDeque::new();
     let limiter = Arc::new(VarRateLimit::new());
     let implied_rate = Arc::new(AtomicU32::new(100));
-    let irr = implied_rate.clone();
-    let lim = limiter.clone();
-    let _task: smol::Task<Option<()>> = runtime::spawn(async move {
-        loop {
-            let msg = recv_buf.recv_async().await.ok()?;
-            lim.wait(irr.load(Ordering::Relaxed)).await;
-            send_wire_write.send_async(msg).await.ok()?;
-        }
-    });
+    // let irr = implied_rate.clone();
+    // let lim = limiter.clone();
+    // let _task: smol::Task<Option<()>> = runtime::spawn(async move {
+    //     loop {
+    //         let msg = recv_buf.recv_async().await.ok()?;
+    //         lim.wait(irr.load(Ordering::Relaxed)).await;
+    //         send_wire_write.send_async(msg).await.ok()?;
+    //     }
+    // });
     loop {
         state = match state {
             SynReceived { stream_id } => {
@@ -221,10 +222,6 @@ async fn relconn_actor(
                 mut conn_vars,
             } => {
                 let event = {
-                    implied_rate.store(
-                        (conn_vars.cwnd / conn_vars.inflight.min_rtt().as_secs_f64()) as u32,
-                        Ordering::Relaxed,
-                    );
                     let writeable = conn_vars.inflight.inflight() <= conn_vars.cwnd as usize
                         && conn_vars.inflight.len() < 10000
                         && !conn_vars.closing;
@@ -260,11 +257,13 @@ async fn relconn_actor(
                                 };
                                 if let Some(to_write) = to_write {
                                     fragments.push_back(to_write);
+                                    limiter.wait(implied_rate.load(Ordering::Relaxed)).await;
                                     Ok(Evt::NewWrite(fragments.pop_front().unwrap()))
                                 } else {
                                     Ok(Evt::Closing)
                                 }
                             } else {
+                                limiter.wait(implied_rate.load(Ordering::Relaxed)).await;
                                 Ok::<Evt, anyhow::Error>(Evt::NewWrite(
                                     fragments.pop_front().unwrap(),
                                 ))
@@ -351,6 +350,7 @@ async fn relconn_actor(
                             }
                         }
                         conn_vars.inflight.mark_acked_lt(seqno);
+                        implied_rate.store(conn_vars.pacing_rate() as u32, Ordering::Relaxed);
                         if conn_vars.inflight.len() == 0 && conn_vars.closing {
                             Reset {
                                 stream_id,
@@ -483,112 +483,5 @@ pub(crate) struct RelConnBack {
 impl RelConnBack {
     pub async fn process(&self, input: Message) {
         drop(self.send_wire_read.send_async(input).await)
-    }
-}
-
-pub(crate) struct ConnVars {
-    inflight: Inflight,
-    next_free_seqno: Seqno,
-    retrans_count: u64,
-
-    delayed_ack_timer: Option<Instant>,
-    ack_seqnos: BTreeSet<Seqno>,
-
-    reorderer: Reorderer<Bytes>,
-    lowest_unseen: Seqno,
-    // read_buffer: VecDeque<Bytes>,
-    slow_start: bool,
-    ssthresh: f64,
-    cwnd: f64,
-    last_loss: Instant,
-
-    cwnd_max: f64,
-    cubic_secs: f64,
-    last_cubic: Instant,
-
-    closing: bool,
-}
-
-impl Default for ConnVars {
-    fn default() -> Self {
-        ConnVars {
-            inflight: Inflight::default(),
-            next_free_seqno: 0,
-            retrans_count: 0,
-
-            delayed_ack_timer: None,
-            ack_seqnos: BTreeSet::new(),
-
-            reorderer: Reorderer::default(),
-            lowest_unseen: 0,
-
-            slow_start: true,
-            ssthresh: 10000.0,
-            cwnd: 16.0,
-            last_loss: Instant::now(),
-            cwnd_max: 100.0,
-            cubic_secs: 0.0,
-            last_cubic: Instant::now(),
-
-            closing: false,
-        }
-    }
-}
-
-impl ConnVars {
-    fn congestion_ack(&mut self) {
-        if self.slow_start {
-            self.cwnd += 1.0;
-            if self.cwnd > self.ssthresh {
-                self.slow_start = false;
-                // self.cwnd_max = self.cwnd / 0.8;
-                // let now = Instant::now();
-                // self.last_loss = now;
-                // self.cubic_secs = 0.0;
-                // self.cubic_update(now);
-            }
-        } else {
-            let n = (0.23 * self.cwnd.powf(0.4)).max(1.0) * 8.0;
-            self.cwnd = (self.cwnd + n / self.cwnd).min(10000.0);
-            // self.cubic_update(Instant::now());
-            log::trace!("ACK CWND => {}", self.cwnd);
-        }
-    }
-
-    fn congestion_loss(&mut self) {
-        let now = Instant::now();
-        if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() * 2 {
-            let old_cwnd = self.cwnd;
-            self.slow_start = false;
-            self.last_loss = Instant::now();
-            self.cwnd = (self.cwnd * 0.5).max(self.inflight.bdp());
-            // self.cwnd_max = (self.inflight.bdp() / 0.8).max(self.cwnd);
-            // let now = Instant::now();
-            // self.last_loss = now;
-            // self.cubic_secs = 0.0;
-            // self.cubic_update(now);
-            log::debug!(
-                "LOSS CWND => {} (old_cwnd {}) bdp {} srtt {}ms",
-                self.cwnd,
-                old_cwnd,
-                self.inflight.bdp(),
-                self.inflight.srtt().as_millis()
-            );
-        }
-    }
-
-    fn cubic_update(&mut self, now: Instant) {
-        let delta_t = now
-            .saturating_duration_since(self.last_cubic)
-            .as_secs_f64()
-            .min(0.1);
-        self.last_cubic = now;
-        self.cubic_secs += delta_t;
-        let t = self.cubic_secs * 3.0;
-        let k = (self.cwnd_max / 2.0).powf(0.333);
-        let wt = 0.4 * (t - k).powf(3.0) + self.cwnd_max;
-        let new_cwnd = wt.min(10000.0);
-        self.cwnd = new_cwnd;
-        // self.cwnd = 300.0;
     }
 }

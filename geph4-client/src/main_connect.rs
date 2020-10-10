@@ -1,6 +1,8 @@
-use crate::{cache::ClientCache, kalive::Keepalive, persist::KVDatabase, prelude::*};
+use crate::{GEXEC, cache::ClientCache, kalive::Keepalive, persist::KVDatabase, prelude::*, stats::StatCollector};
 use std::{net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, path::PathBuf, sync::Arc};
 use structopt::StructOpt;
+use scopeguard::defer;
+use smol::prelude::*;
 
 #[derive(Debug, StructOpt)]
 pub struct ConnectOpt {
@@ -20,7 +22,7 @@ pub struct ConnectOpt {
     /// x25519 master key of the binder
     binder_master: x25519_dalek::PublicKey,
 
-    #[structopt(
+    #[structopt( 
         long,
         default_value = "4e01116de3721cc702f4c260977f4a1809194e9d3df803e17bb90db2a425e5ee",
         parse(from_str = str_to_mizaru_pk)
@@ -52,6 +54,14 @@ pub struct ConnectOpt {
     /// where to listen for SOCKS5 connections
     socks5_listen: SocketAddr,
 
+    #[structopt(long, default_value = "127.0.0.1:9809")]
+    /// where to listen for REST-based local connections
+    stats_listen: SocketAddr,
+
+    #[structopt(long, default_value="sg-sgp-test-01.exits.geph.io")]
+    /// which exit server to connect to. If there isn't an exact match, the exit server with the most similar hostname is picked.
+    exit_server: String,
+
     #[structopt(long)]
     /// username
     username: String,
@@ -62,6 +72,7 @@ pub struct ConnectOpt {
 }
 
 pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
+    let stat_collector = Arc::new(StatCollector::default());
     let binder_client = Arc::new(binder_transport::HttpClient::new(
         opt.binder_master,
         opt.binder_http_front.to_string(),
@@ -80,29 +91,53 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     );
     // create a kalive
     let keepalive = Keepalive::new(
-        "us-hio-01.exits.geph.io",
+        stat_collector.clone(),
+        &opt.exit_server,
         opt.use_bridges,
         Arc::new(client_cache),
     );
     // enter the socks5 loop
     let socks5_listener = smol::net::TcpListener::bind(opt.socks5_listen).await?;
+    let stat_listener = smol::net::TcpListener::bind(opt.stats_listen).await?;
+    let scollect = stat_collector.clone();
     // scope
     let scope = smol::Executor::new();
+    let _stat: smol::Task<anyhow::Result<()>> = scope.spawn(async {
+        loop {
+            let (stat_client, _)  = stat_listener.accept().await?;
+            let scollect = scollect.clone();
+            GEXEC.spawn(async move {
+                drop(async_h1::accept(stat_client, |req| handle_stat(scollect.clone(), req)).await);
+            }).detach();
+        }
+    });
     scope
         .run(async {
             loop {
                 let (s5client, _) = socks5_listener.accept().await?;
-                scope.spawn(handle_socks5(s5client, &keepalive)).detach()
+                scope.spawn(handle_socks5(stat_collector.clone(), s5client, &keepalive)).detach()
             }
         })
         .await
 }
 
+/// Handle a request for stats
+async fn handle_stat(stats: Arc<StatCollector>, _req: http_types::Request) -> http_types::Result<http_types::Response> {
+    let mut res = http_types::Response::new(http_types::StatusCode::Ok);
+    let jstats = serde_json::to_string(&stats)?;
+    res.set_body(jstats);
+    res.insert_header("Content-Type", "application/json");
+    Ok(res)
+}
+
 /// Handle a socks5 client from localhost.
 async fn handle_socks5(
+    stats: Arc<StatCollector>,
     s5client: smol::net::TcpStream,
     keepalive: &Keepalive,
 ) -> anyhow::Result<()> {
+    stats.incr_open_conns();
+    defer!(stats.decr_open_conns());
     use socksv5::v5::*;
     let _handshake = read_handshake(s5client.clone()).await?;
     write_auth_method(s5client.clone(), SocksV5AuthMethod::Noauth).await?;
@@ -126,9 +161,21 @@ async fn handle_socks5(
     .await?;
     let conn = keepalive.connect(&addr).await?;
     smol::future::race(
-        smol::io::copy(conn.clone(), s5client.clone()),
-        smol::io::copy(s5client, conn),
+        copy_with_stats(conn.clone(), s5client.clone(), |n| stats.incr_total_rx(n as u64)),
+        copy_with_stats(s5client, conn, |n| stats.incr_total_tx(n as u64)),
     )
     .await?;
     Ok(())
+}
+
+async fn copy_with_stats(mut reader: impl AsyncRead + Unpin, mut writer: impl AsyncWrite + Unpin, mut on_write: impl FnMut(usize)) -> std::io::Result<()>{
+    let mut buffer = [0u8; 128*1024];
+    loop {
+        let n = reader.read(&mut buffer).await?;
+        if n == 0 {
+            return Ok(())
+        }
+        on_write(n);
+        writer.write_all(&buffer[..n]).await?;
+    }
 }

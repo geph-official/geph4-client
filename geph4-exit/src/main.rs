@@ -2,7 +2,6 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
 use env_logger::Env;
-use once_cell::sync::Lazy;
 use std::os::unix::fs::PermissionsExt;
 use structopt::StructOpt;
 
@@ -37,13 +36,13 @@ struct Opt {
     exit_hostname: String,
 }
 
-static GEXEC: Lazy<smolscale::ExecutorPool> = Lazy::new(smolscale::ExecutorPool::new);
+static GEXEC: smol::Executor = smol::Executor::new();
 
 fn main() -> anyhow::Result<()> {
-    let opt: Opt = Opt::from_args();
     sosistab::runtime::set_smol_executor(&GEXEC);
+    let opt: Opt = Opt::from_args();
     env_logger::from_env(Env::default().default_filter_or("geph4_exit=info")).init();
-    GEXEC.block_on(async move {
+    smol::block_on(GEXEC.run(async move {
         log::info!("geph4-exit starting...");
         // read or generate key
         let signing_sk = {
@@ -110,5 +109,5 @@ fn main() -> anyhow::Result<()> {
         )
         .await?;
         Ok(())
-    })
+    }))
 }
