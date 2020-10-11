@@ -237,6 +237,14 @@ async fn handle_proxy_stream(mut client: sosistab::mux::RelConn) -> anyhow::Resu
             ))
         })
         .await?;
+    // this is fine because just connecting to a local service is not a security problem
+    if &to_prox != "127.0.0.1:3128" {
+        if let Ok(peer_addr) = remote.peer_addr() {
+            if peer_addr.ip().is_loopback() || peer_addr.ip().is_multicast() {
+                anyhow::bail!("attempted a connection to a non-global IP address")
+            }
+        }
+    }
     // copy the streams
     smol::future::race(
         smol::io::copy(remote.clone(), client.clone()),

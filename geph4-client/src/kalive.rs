@@ -83,7 +83,6 @@ async fn keepalive_actor_once(
     if exits.is_empty() {
         anyhow::bail!("no exits found")
     }
-    dbg!(&exit_host);
     exits.sort_by(|a, b| {
         strsim::damerau_levenshtein(&a.hostname, &exit_host)
             .cmp(&strsim::damerau_levenshtein(&b.hostname, &exit_host))

@@ -23,6 +23,10 @@ pub struct ConnectOpt {
     /// where to listen for SOCKS5 connections
     socks5_listen: SocketAddr,
 
+    #[structopt(long, default_value = "127.0.0.1:9910")]
+    /// where to listen for HTTP proxy connections
+    http_listen: SocketAddr,
+
     #[structopt(long, default_value = "127.0.0.1:9809")]
     /// where to listen for REST-based local connections
     stats_listen: SocketAddr,
@@ -47,6 +51,7 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     // enter the socks5 loop
     let socks5_listener = smol::net::TcpListener::bind(opt.socks5_listen).await?;
     let stat_listener = smol::net::TcpListener::bind(opt.stats_listen).await?;
+    let http_listener = smol::net::TcpListener::bind(opt.http_listen).await?;
     let scollect = stat_collector.clone();
     // scope
     let scope = smol::Executor::new();
@@ -63,6 +68,19 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
                 })
                 .detach();
         }
+    });
+    let _http: smol::Task<anyhow::Result<()>> = scope.spawn(async {
+        let my_scope = smol::Executor::new();
+        my_scope
+            .run(async {
+                loop {
+                    let (http_client, _) = http_listener.accept().await?;
+                    my_scope
+                        .spawn(handle_http(stat_collector.clone(), http_client, &keepalive))
+                        .detach();
+                }
+            })
+            .await
     });
     scope
         .run(async {
@@ -123,6 +141,24 @@ async fn handle_socks5(
             stats.incr_total_rx(n as u64)
         }),
         copy_with_stats(s5client, conn, |n| stats.incr_total_tx(n as u64)),
+    )
+    .await?;
+    Ok(())
+}
+
+/// Handle a HTTP client from localhost.
+async fn handle_http(
+    stats: Arc<StatCollector>,
+    hclient: smol::net::TcpStream,
+    keepalive: &Keepalive,
+) -> anyhow::Result<()> {
+    // Rely on "squid" remotely
+    let conn = keepalive.connect("127.0.0.1:3128").await?;
+    smol::future::race(
+        copy_with_stats(conn.clone(), hclient.clone(), |n| {
+            stats.incr_total_rx(n as u64)
+        }),
+        copy_with_stats(hclient, conn, |n| stats.incr_total_tx(n as u64)),
     )
     .await?;
     Ok(())
