@@ -32,7 +32,9 @@ pub async fn main_sync(opt: SyncOpt) -> anyhow::Result<()> {
 
 async fn attempt(ccache: &ClientCache) -> anyhow::Result<()> {
     let atok = ccache.get_auth_token().await?;
-    let json = serde_json::to_string_pretty(&atok.user_info)?;
+    let exits = ccache.get_exits().await?;
+
+    let json = serde_json::to_string_pretty(&(atok.user_info, exits))?;
     println!("{}", json);
     Ok(())
 }
