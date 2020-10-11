@@ -107,14 +107,12 @@ impl FrameDecoder {
         if self.done {
             return self.data_shards;
         }
-        let res = self
-            .present
+        self.present
             .iter()
             .enumerate()
             .map(|(i, v)| if *v && i < self.data_shards { 1 } else { 0 })
             .sum::<usize>()
-            .min(self.data_shards);
-        res
+            .min(self.data_shards)
     }
 
     pub fn lost_pkts(&self) -> usize {

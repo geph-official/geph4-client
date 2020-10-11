@@ -100,10 +100,18 @@ async fn handle_stat(
     _req: http_types::Request,
 ) -> http_types::Result<http_types::Response> {
     let mut res = http_types::Response::new(http_types::StatusCode::Ok);
-    let jstats = serde_json::to_string(&stats)?;
-    res.set_body(jstats);
-    res.insert_header("Content-Type", "application/json");
-    Ok(res)
+    match _req.url().as_str() {
+        "/proxy.pac" => {
+            res.set_body("function FindProxyForURL(url, host){return 'PROXY 127.0.0.1:9809';}");
+            Ok(res)
+        }
+        _ => {
+            let jstats = serde_json::to_string(&stats)?;
+            res.set_body(jstats);
+            res.insert_header("Content-Type", "application/json");
+            Ok(res)
+        }
+    }
 }
 
 /// Handle a socks5 client from localhost.

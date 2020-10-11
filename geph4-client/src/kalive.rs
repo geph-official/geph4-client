@@ -190,6 +190,7 @@ async fn keepalive_actor_once(
                 loop {
                     let (conn_host, conn_reply) = recv_socks5_conn.recv().await?;
                     let mux = &mux;
+                    let stats = stats.clone();
                     let send_stop = send_stop.clone();
                     scope
                         .spawn(async move {
@@ -198,11 +199,7 @@ async fn keepalive_actor_once(
                             if let Some(remote) = remote {
                                 let mut remote = remote.ok()?;
                                 write_pascalish(&mut remote, &conn_host).await.ok()?;
-                                log::info!(
-                                    "opened connection for {} in {}ms",
-                                    conn_host,
-                                    start.elapsed().as_millis()
-                                );
+                                stats.set_latency(start.elapsed().as_secs_f64() * 1000.0);
                                 conn_reply.send(remote).await.ok()?;
                                 Some(())
                             } else {

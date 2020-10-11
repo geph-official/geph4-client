@@ -51,7 +51,8 @@ impl AsyncWrite for BipeWriter {
         loop {
             // if there's room in the buffer then it's fine
             {
-                let boo = &mut self.queue.lock();
+                let boo = &self.queue;
+                let mut boo = boo.lock();
                 if boo.0 {
                     return Poll::Ready(Err(broken_pipe()));
                 }
@@ -74,7 +75,7 @@ impl AsyncWrite for BipeWriter {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+    fn poll_close(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         self.queue.lock().0 = true;
         self.signal.notify(usize::MAX);
         Poll::Ready(Ok(()))
@@ -96,7 +97,8 @@ impl AsyncRead for BipeReader {
     ) -> Poll<std::io::Result<usize>> {
         loop {
             {
-                let boo = &mut self.queue.lock();
+                let boo = &self.queue;
+                let mut boo = boo.lock();
                 let queue = &mut boo.1;
                 if !queue.is_empty() {
                     let to_copy_len = queue.len().min(buf.len());

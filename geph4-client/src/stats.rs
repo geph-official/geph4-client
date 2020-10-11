@@ -7,6 +7,7 @@ pub struct StatCollector {
     total_tx: Mutex<u64>,
 
     open_conns: Mutex<u64>,
+    open_latency: Mutex<f64>,
     exit_info: Mutex<Option<binder_transport::ExitDescriptor>>,
 }
 
@@ -24,9 +25,18 @@ impl StatCollector {
     pub fn decr_open_conns(&self) {
         *self.open_conns.lock() -= 1
     }
-    // pub fn get_open_conns(&self) -> u64 {
-    //     *self.open_conns.lock()
-    // }
+
+    pub fn set_latency(&self, ms: f64) {
+        let mut old = self.open_latency.lock();
+        if *old > 0.1 {
+            *old = *old * 0.8 + ms * 0.2;
+        } else {
+            *old = ms
+        }
+    }
+    pub fn get_latency(&self) -> f64 {
+        *self.open_latency.lock()
+    }
 
     pub fn set_exit_descriptor(&self, desc: Option<binder_transport::ExitDescriptor>) {
         *self.exit_info.lock() = desc
