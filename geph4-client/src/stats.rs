@@ -28,7 +28,7 @@ impl StatCollector {
     //     *self.open_conns.lock()
     // }
 
-    pub fn set_exit_descriptor(&self, desc: binder_transport::ExitDescriptor) {
-        *self.exit_info.lock() = Some(desc)
+    pub fn set_exit_descriptor(&self, desc: Option<binder_transport::ExitDescriptor>) {
+        *self.exit_info.lock() = desc
     }
 }

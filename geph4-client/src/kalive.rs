@@ -75,6 +75,7 @@ async fn keepalive_actor_once(
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::mux::RelConn>)>,
 ) -> anyhow::Result<()> {
+    stats.set_exit_descriptor(None);
     // do we use bridges?
     log::debug!("keepalive_actor_once");
 
@@ -87,7 +88,6 @@ async fn keepalive_actor_once(
         strsim::damerau_levenshtein(&a.hostname, &exit_host)
             .cmp(&strsim::damerau_levenshtein(&b.hostname, &exit_host))
     });
-    stats.set_exit_descriptor(exits[0].clone());
     let exit_host = exits[0].hostname.clone();
 
     let bridge_sess_async = async {
@@ -122,17 +122,12 @@ async fn keepalive_actor_once(
             }
         }
     };
-
+    let exit_info = exits.iter().find(|v| v.hostname == exit_host).unwrap();
     let connected_sess_async = async {
         if use_bridges {
             bridge_sess_async.await
         } else {
             async {
-                let exit_info = exits
-                    .into_iter()
-                    .find(|v| v.hostname == exit_host)
-                    .ok_or_else(|| anyhow::anyhow!("no exit with this hostname"));
-                let exit_info = infal(exit_info).await;
                 Ok(infal(
                     sosistab::connect(
                         smol::net::resolve(format!("{}:19831", exit_info.hostname))
@@ -171,6 +166,7 @@ async fn keepalive_actor_once(
         exit_host,
         use_bridges
     );
+    stats.set_exit_descriptor(Some(exits[0].clone()));
     scope
         .spawn(async {
             defer!(send_stop.try_send(()).unwrap());
