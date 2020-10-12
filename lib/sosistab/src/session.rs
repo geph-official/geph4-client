@@ -101,7 +101,7 @@ async fn session_loop(
     // sending loop
     let send_loop = async {
         let shaper = RateLimiter::direct_with_clock(
-            Quota::per_second(NonZeroU32::new(6250u32).unwrap())
+            Quota::per_second(NonZeroU32::new(20000u32).unwrap())
                 .allow_burst(NonZeroU32::new(128).unwrap()),
             &governor::clock::MonotonicClock::default(),
         );

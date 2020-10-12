@@ -10,8 +10,6 @@ jobs:
     resource_class: xlarge
     steps:
       - checkout
-      - run: sudo apt-get update
-      - run: sudo apt-get install upx-ucl
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
       - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       - run: echo "export RUSTFLAGS='-C link-arg=-s'" >> $BASH_ENV
@@ -25,6 +23,5 @@ jobs:
       - run: mv ~/repo/target/arm-unknown-linux-musleabi/release/geph4-client ~/repo/OUTPUT/geph4-client-linux-armeabi
       - run: mv ~/repo/target/aarch64-unknown-linux-musl/release/geph4-client ~/repo/OUTPUT/geph4-client-linux-aarch64
       - run: mv ~/repo/target/x86_64-pc-windows-gnu/release/geph4-client.exe ~/repo/OUTPUT/geph4-client-windows-amd64.exe
-      - run: upx OUTPUT/*
       - store_artifacts:
           path: ~/repo/OUTPUT
