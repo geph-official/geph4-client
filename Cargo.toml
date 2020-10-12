@@ -16,8 +16,10 @@ members = [
 [profile.dev]
 opt-level=2
 lto="off"
+incremental=false
 
 [profile.release]
 panic = "abort"
 opt-level=3
-incremental=true
+incremental=false
+lto="thin"

@@ -1261,6 +1261,7 @@ dependencies = [
  "futures-lite",
  "hex",
  "http-types",
+ "jemallocator",
  "lmdb",
  "log",
  "mizaru",
