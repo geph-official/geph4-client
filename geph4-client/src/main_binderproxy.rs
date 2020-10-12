@@ -48,7 +48,7 @@ pub async fn main_binderproxy(opt: BinderProxyOpt) -> anyhow::Result<()> {
 fn handle_req(binder_client: Arc<dyn BinderClient>, req: Request) -> http_types::Result<Response> {
     match req.url().path() {
         "/register" => handle_register(binder_client, req),
-        "/get-captcha" => handle_get_captcha(binder_client, req),
+        "/captcha" => handle_get_captcha(binder_client, req),
         _ => Ok(Response::new(404)),
     }
 }
@@ -85,7 +85,7 @@ fn handle_register(
     }
 }
 
-fn handle_get_captcha(
+fn handle_captcha(
     binder_client: Arc<dyn BinderClient>,
     _req: Request,
 ) -> http_types::Result<Response> {
