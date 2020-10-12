@@ -18,9 +18,6 @@ mod main_binderproxy;
 
 static GEXEC: smol::Executor = smol::Executor::new();
 
-#[global_allocator]
-static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
-
 #[derive(Debug, StructOpt)]
 enum Opt {
     Connect(main_connect::ConnectOpt),
