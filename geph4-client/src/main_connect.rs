@@ -100,9 +100,9 @@ async fn handle_stat(
     _req: http_types::Request,
 ) -> http_types::Result<http_types::Response> {
     let mut res = http_types::Response::new(http_types::StatusCode::Ok);
-    match _req.url().as_str() {
+    match _req.url().path() {
         "/proxy.pac" => {
-            res.set_body("function FindProxyForURL(url, host){return 'PROXY 127.0.0.1:9809';}");
+            res.set_body("function FindProxyForURL(url, host){return 'PROXY 127.0.0.1:9910';}");
             Ok(res)
         }
         _ => {
