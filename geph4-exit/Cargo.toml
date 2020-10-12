@@ -8,21 +8,21 @@ edition = "2018"
 
 [dependencies]
 binder_transport = {path="../lib/binder_transport"}
-smol= "1.2.3"
+smol= "1.2.4"
 env_logger = "0.7.1"
 log= "0.4.11"
-structopt= "0.3.18"
+structopt= "0.3.19"
 ed25519-dalek={ version = "1.0.1", features = ["serde"] }
 rand= "0.7.3"
 bincode= "1.3.1"
-anyhow= "1.0.32"
+anyhow= "1.0.33"
 hex= "0.4.2"
 x25519-dalek={ version = "1.1.0", features = ["serde"] }
 sosistab={path="../lib/sosistab"}
 blake3= "0.3.7"
 serde= "1.0.116"
 mizaru={path="../lib/mizaru"}
-once_cell="1"
+once_cell= "1.4.1"
 smolscale = {path="../lib/smolscale"}
-jemallocator = "0.3.0"
+jemallocator = "0.3.2"
 smol-timeout = "0.6.0"

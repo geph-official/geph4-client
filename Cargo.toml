@@ -20,5 +20,4 @@ lto="off"
 [profile.release]
 panic = "abort"
 opt-level=3
-codegen-units = 1
-lto="thin"
+incremental=true

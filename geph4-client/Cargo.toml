@@ -8,7 +8,7 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0.33"
-smol = "1.2"
+smol = "1.2.4"
 log = "0.4.11"
 env_logger = "0.7.1"
 structopt = "0.3.19"
@@ -28,7 +28,8 @@ sha2 = "0.9.1"
 dirs = "3.0.1"
 once_cell= "1.4.1"
 async-h1= "2.1.2"
-futures-lite="=1.10.1"
+futures-lite= "1.11.1"
+polling="=1.1.0"
 
 smolscale = {path="../lib/smolscale"}
 parking_lot = { version = "0.11.0", features = ["serde"] }
