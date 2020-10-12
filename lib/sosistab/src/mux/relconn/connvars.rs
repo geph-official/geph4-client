@@ -60,7 +60,7 @@ impl Default for ConnVars {
 
 impl ConnVars {
     fn cwnd_target(&self) -> f64 {
-        (self.inflight.bdp() * 1.5).min(10000.0).max(16.0)
+        (self.inflight.bdp() * 2.0).min(10000.0).max(16.0)
     }
 
     pub fn pacing_rate(&self) -> f64 {

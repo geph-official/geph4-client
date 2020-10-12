@@ -22,7 +22,7 @@ mod bipe;
 mod connvars;
 mod inflight;
 
-const MSS: usize = 1100;
+pub const MSS: usize = 1100;
 const MAX_WAIT_SECS: u64 = 60;
 
 #[derive(Clone)]
