@@ -2,6 +2,7 @@ use crate::{persist::KVDatabase, AuthOpt, CommonOpt};
 use binder_transport::{
     BinderClient, BinderError, BinderRequestData, BinderResponse, BridgeDescriptor, ExitDescriptor,
 };
+use parking_lot::Mutex;
 use rand::prelude::*;
 use rsa_fdh::blind;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -16,7 +17,7 @@ pub struct ClientCache {
     binder_client: Arc<dyn BinderClient>,
     free_pk: mizaru::PublicKey,
     plus_pk: mizaru::PublicKey,
-    database: Arc<KVDatabase>,
+    database: Arc<Mutex<KVDatabase>>,
     pub force_sync: bool,
 }
 
@@ -28,7 +29,7 @@ impl ClientCache {
         free_pk: mizaru::PublicKey,
         plus_pk: mizaru::PublicKey,
         binder_client: Arc<dyn BinderClient>,
-        database: Arc<KVDatabase>,
+        database: Arc<Mutex<KVDatabase>>,
     ) -> Self {
         ClientCache {
             username: username.to_string(),
@@ -44,8 +45,9 @@ impl ClientCache {
     /// Create from options
     pub fn from_opts(common: &CommonOpt, auth: &AuthOpt) -> anyhow::Result<Self> {
         let binder_client = common.to_binder_client();
-        let _ = std::fs::create_dir_all(&auth.credential_cache);
-        let database = Arc::new(crate::persist::KVDatabase::open(&auth.credential_cache)?);
+        let database = Arc::new(Mutex::new(crate::persist::KVDatabase::open(
+            &auth.credential_cache,
+        )?));
         let client_cache = ClientCache::new(
             &auth.username,
             &auth.password,
@@ -64,7 +66,7 @@ impl ClientCache {
         ttl: Duration,
     ) -> anyhow::Result<T> {
         let key = format!("{}-{}", key, self.username);
-        let existing: Option<(T, u64)> = self.database.read().get(&key);
+        let existing: Option<(T, u64)> = self.database.lock().transaction().get(&key);
         if !self.force_sync {
             if let Some((existing, timeout)) = existing {
                 if SystemTime::now()
@@ -83,7 +85,8 @@ impl ClientCache {
             .unwrap()
             .as_secs();
         let fresh = fallback.await?;
-        let mut db = self.database.write();
+        let mut database = self.database.lock();
+        let mut db = database.transaction();
         // save to disk
         db.insert(&key, (fresh.clone(), deadline));
         db.commit();

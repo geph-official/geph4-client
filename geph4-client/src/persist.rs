@@ -1,88 +1,72 @@
-use lmdb::Transaction;
+use anyhow::Context;
+use rusqlite::{Connection, OptionalExtension};
 use serde::{de::DeserializeOwned, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// A key-value database, backed by LMDB.
 #[derive(Debug)]
 pub struct KVDatabase {
-    lm_env: lmdb::Environment,
-    lm_db: lmdb::Database,
+    path: PathBuf,
+    conn: Connection,
 }
 
 impl KVDatabase {
     /// Opens a database, given a path.
     pub fn open(folder_path: &Path) -> anyhow::Result<KVDatabase> {
-        let lm_env = lmdb::Environment::new().open(folder_path)?;
-        let lm_db = lm_env.open_db(None)?;
-        Ok(KVDatabase { lm_env, lm_db })
+        let conn = Connection::open(folder_path)?;
+        conn.execute::<&[u8]>(
+            "create table if not exists kvv (key blob primary key not null, value blob not null)",
+            &[],
+        )
+        .context("can't create table")?;
+        Ok(KVDatabase {
+            path: folder_path.to_owned(),
+            conn: Connection::open(folder_path)?,
+        })
     }
 
-    /// Opens a reading transaction.
-    pub fn read(&self) -> KVRead<'_> {
-        let txn = self.lm_env.begin_ro_txn().unwrap();
-        KVRead {
-            txn,
-            lm_db: self.lm_db,
-        }
-    }
-
-    /// Opens a writing transaction.
-    pub fn write(&self) -> KVWrite<'_> {
-        let txn = self.lm_env.begin_rw_txn().unwrap();
-        KVWrite {
-            txn,
-            lm_db: self.lm_db,
-        }
+    /// Opens a transaction.
+    pub fn transaction(&mut self) -> KVTransaction<'_> {
+        let txn = self.conn.transaction().unwrap();
+        KVTransaction { txn }
     }
 }
-
-/// A reading transaction.
-pub struct KVRead<'a> {
-    txn: lmdb::RoTransaction<'a>,
-    lm_db: lmdb::Database,
-}
-
-impl<'a> KVRead<'a> {
-    /// Read something
-    pub fn get<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
-        match self.txn.get(self.lm_db, &key.as_bytes()) {
-            Ok(val) => Some(bincode::deserialize(val).expect("deserialization failed?!")),
-            Err(lmdb::Error::NotFound) => None,
-            Err(e) => panic!("unexpected lmdb error: {}", e),
-        }
-    }
-}
-
 /// A writing transaction.
-pub struct KVWrite<'a> {
-    txn: lmdb::RwTransaction<'a>,
-    lm_db: lmdb::Database,
+pub struct KVTransaction<'a> {
+    txn: rusqlite::Transaction<'a>,
 }
 
-impl<'a> KVWrite<'a> {
+impl<'a> KVTransaction<'a> {
     /// Read something
     pub fn get<T: DeserializeOwned>(&self, key: &str) -> Option<T> {
-        match self.txn.get(self.lm_db, &key.as_bytes()) {
-            Ok(val) => Some(bincode::deserialize(val).expect("deserialization failed?!")),
-            Err(lmdb::Error::NotFound) => None,
-            Err(e) => panic!("unexpected lmdb error: {}", e),
+        let val: Option<Vec<u8>> = self
+            .txn
+            .query_row(
+                "select value from kvv where key = $1",
+                &[&key.as_bytes()],
+                |row| row.get(0),
+            )
+            .optional()
+            .unwrap();
+
+        match val {
+            Some(val) => Some(bincode::deserialize(&val).expect("deserialization failed?!")),
+            None => None,
         }
     }
 
     /// Write something
     pub fn insert<T: Serialize>(&mut self, key: &str, value: T) {
         self.txn
-            .put(
-                self.lm_db,
-                &key.as_bytes(),
-                &bincode::serialize(&value).unwrap(),
-                lmdb::WriteFlags::default(),
+            .execute(
+                "insert or replace into kvv values ($1, $2)",
+                &[key.as_bytes(), &bincode::serialize(&value).unwrap()],
             )
-            .expect("lmdb write failed");
+            .expect("sqlite write failed");
     }
 
     /// Commit to disk
     pub fn commit(self) {
-        self.txn.commit().expect("lmdb commit failed")
+        self.txn.commit().expect("sqlite commit failed")
     }
 }

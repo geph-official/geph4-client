@@ -20,7 +20,6 @@ hex = "0.4.2"
 socksv5 = "0.2.0"
 sosistab={path="../lib/sosistab"}
 serde = { version = "1.0.116", features = ["derive"] }
-lmdb= "0.8.0"
 mizaru={path="../lib/mizaru"}
 rand= "0.7.3"
 rsa-fdh = "0.4.1"
@@ -37,3 +36,4 @@ http-types = "2.5.0"
 serde_json = "1.0.58"
 strsim = "0.10.0"
 smol-timeout = "0.6.0"
+rusqlite={version="0.24", features = ["bundled" ]}

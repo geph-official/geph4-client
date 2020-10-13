@@ -34,9 +34,9 @@ impl StatCollector {
             *old = ms
         }
     }
-    pub fn get_latency(&self) -> f64 {
-        *self.open_latency.lock()
-    }
+    // pub fn get_latency(&self) -> f64 {
+    //     *self.open_latency.lock()
+    // }
 
     pub fn set_exit_descriptor(&self, desc: Option<binder_transport::ExitDescriptor>) {
         *self.exit_info.lock() = desc

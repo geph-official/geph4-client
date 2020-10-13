@@ -14,12 +14,13 @@ members = [
 
 
 [profile.dev]
-opt-level=2
+opt-level=0
 lto="off"
-incremental=false
+incremental=true
 
 [profile.release]
 panic = "abort"
 opt-level=3
-incremental=false
+codegen-units=256
+incremental=true
 lto="thin"

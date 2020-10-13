@@ -7,7 +7,7 @@ pub fn str_to_path(src: &str) -> PathBuf {
     // if it's auto then generate
     if src == "auto" {
         let mut config_dir = dirs::config_dir().unwrap();
-        config_dir.push("geph4-credentials");
+        config_dir.push("geph4-credentials.db");
         config_dir
     } else {
         PathBuf::from(src)

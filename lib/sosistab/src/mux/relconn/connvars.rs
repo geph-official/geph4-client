@@ -18,7 +18,6 @@ pub(crate) struct ConnVars {
     pub lowest_unseen: Seqno,
     // read_buffer: VecDeque<Bytes>,
     slow_start: bool,
-    ssthresh: f64,
     pub cwnd: f64,
     last_loss: Instant,
 
@@ -44,7 +43,6 @@ impl Default for ConnVars {
             lowest_unseen: 0,
 
             slow_start: true,
-            ssthresh: 10000.0,
             cwnd: 16.0,
             last_loss: Instant::now(),
 
