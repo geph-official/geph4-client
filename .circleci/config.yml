@@ -7,23 +7,21 @@ jobs:
     working_directory: ~/repo/
     machine:
       image: ubuntu-2004:202008-01
-    resource_class: 2xlarge
+    resource_class: xlarge
     steps:
       - checkout
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
       - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       - run: echo "export RUSTFLAGS='-C link-arg=-s'" >> $BASH_ENV
       - run: cargo install cross
+      - run: cross build --release --target x86_64-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml
       - run: cross build --release --target x86_64-unknown-linux-musl --manifest-path=geph4-client/Cargo.toml
       - run: cross build --release --target arm-unknown-linux-musleabi --manifest-path=geph4-client/Cargo.toml
-      - run: cross build --release --target aarch64-unknown-linux-musl --manifest-path=geph4-client/Cargo.toml
       - run: cross build --release --target armv7-linux-androideabi --manifest-path=geph4-client/Cargo.toml
       - run: cross build --release --target aarch64-linux-android --manifest-path=geph4-client/Cargo.toml
-      - run: cross build --release --target x86_64-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml
       - run: mkdir ~/repo/OUTPUT/
       - run: mv ~/repo/target/x86_64-unknown-linux-musl/release/geph4-client ~/repo/OUTPUT/geph4-client-linux-amd64
       - run: mv ~/repo/target/arm-unknown-linux-musleabi/release/geph4-client ~/repo/OUTPUT/geph4-client-linux-armeabi
-      - run: mv ~/repo/target/aarch64-unknown-linux-musl/release/geph4-client ~/repo/OUTPUT/geph4-client-linux-aarch64
       - run: mv ~/repo/target/armv7-linux-androideabi/release/geph4-client.exe ~/repo/OUTPUT/geph4-client-android-armv7
       - run: mv ~/repo/target/aarch64-linux-android/release/geph4-client.exe ~/repo/OUTPUT/geph4-client-android-aarch64
       - run: mv ~/repo/target/x86_64-pc-windows-gnu/release/geph4-client.exe ~/repo/OUTPUT/geph4-client-windows-amd64.exe

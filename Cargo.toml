@@ -21,6 +21,6 @@ incremental=true
 [profile.release]
 panic = "abort"
 opt-level=3
-codegen-units=256
-incremental=true
-lto="thin"
+codegen-units=1
+incremental=false
+lto="off"
