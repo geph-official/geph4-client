@@ -29,6 +29,7 @@ const MAX_WAIT_SECS: u64 = 60;
 pub struct RelConn {
     send_write: DArc<DMutex<BipeWriter>>,
     recv_read: DArc<DMutex<BipeReader>>,
+    additional_info: Option<String>,
 }
 
 impl RelConn {
@@ -36,6 +37,7 @@ impl RelConn {
         state: RelConnState,
         output: Sender<Message>,
         dropper: impl FnOnce() + Send + 'static,
+        additional_info: Option<String>,
     ) -> (Self, RelConnBack) {
         let (send_write, recv_write) = bipe::bipe(65536);
         let (send_read, recv_read) = bipe::bipe(1024 * 1024);
@@ -53,9 +55,14 @@ impl RelConn {
             RelConn {
                 send_write: DArc::new(DMutex::new(send_write)),
                 recv_read: DArc::new(DMutex::new(recv_read)),
+                additional_info,
             },
             RelConnBack { send_wire_read },
         )
+    }
+
+    pub fn additional_info(&self) -> Option<&str> {
+        self.additional_info.as_deref()
     }
 
     pub async fn shutdown(&mut self) {

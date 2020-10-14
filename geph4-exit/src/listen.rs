@@ -226,7 +226,10 @@ async fn authenticate_sess(
 
 async fn handle_proxy_stream(mut client: sosistab::mux::RelConn) -> anyhow::Result<()> {
     // read proxy request
-    let to_prox: String = read_pascalish(&mut client).await?;
+    let to_prox: String = match client.additional_info() {
+        Some(s) => s.to_string(),
+        None => read_pascalish(&mut client).await?,
+    };
     log::info!("proxying {}", to_prox);
     let remote = smol::net::TcpStream::connect(&to_prox)
         .or(async {

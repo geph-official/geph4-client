@@ -173,7 +173,7 @@ async fn keepalive_actor_once(
             loop {
                 smol::Timer::after(Duration::from_secs(200)).await;
                 if mux
-                    .open_conn()
+                    .open_conn(None)
                     .timeout(Duration::from_secs(30))
                     .await
                     .is_none()
@@ -195,10 +195,12 @@ async fn keepalive_actor_once(
                     scope
                         .spawn(async move {
                             let start = Instant::now();
-                            let remote = (&mux).open_conn().timeout(Duration::from_secs(5)).await;
+                            let remote = (&mux)
+                                .open_conn(Some(conn_host))
+                                .timeout(Duration::from_secs(5))
+                                .await;
                             if let Some(remote) = remote {
-                                let mut remote = remote.ok()?;
-                                write_pascalish(&mut remote, &conn_host).await.ok()?;
+                                let remote = remote.ok()?;
                                 stats.set_latency(start.elapsed().as_secs_f64() * 1000.0);
                                 conn_reply.send(remote).await.ok()?;
                                 Some(())
@@ -231,7 +233,7 @@ async fn authenticate_session(
     session: &sosistab::mux::Multiplex,
     token: &crate::cache::Token,
 ) -> anyhow::Result<()> {
-    let mut auth_conn = session.open_conn().await?;
+    let mut auth_conn = session.open_conn(None).await?;
     log::debug!("sending auth info...");
     write_pascalish(
         &mut auth_conn,

@@ -12,7 +12,7 @@ pub async fn multiplex(
     session: Arc<Session>,
     urel_send_recv: Receiver<Bytes>,
     urel_recv_send: Sender<Bytes>,
-    conn_open_recv: Receiver<Sender<RelConn>>,
+    conn_open_recv: Receiver<(Option<String>, Sender<RelConn>)>,
     conn_accept_send: Sender<RelConn>,
 ) -> anyhow::Result<()> {
     let _exit = scopeguard::guard((), |_| log::warn!("multiplex context exited!"));
@@ -35,6 +35,7 @@ pub async fn multiplex(
                     Message::Rel {
                         kind: RelKind::Syn,
                         stream_id,
+                        payload,
                         ..
                     } => {
                         let mut conn_tab = conn_tab.write().await;
@@ -55,12 +56,15 @@ pub async fn multiplex(
                         } else {
                             let dead_send = dead_send.clone();
                             log::trace!("syn recv {} ACCEPT", stream_id);
+                            let lala = String::from_utf8_lossy(&payload).to_string();
+                            let additional_info = if &lala == "" { None } else { Some(lala) };
                             let (new_conn, new_conn_back) = RelConn::new(
                                 RelConnState::SynReceived { stream_id },
                                 glob_send.clone(),
                                 move || {
                                     let _ = dead_send.try_send(stream_id);
                                 },
+                                additional_info,
                             );
                             // the RelConn itself is responsible for sending the SynAck. Here we just store the connection into the table, accept it, and be done with it.
                             conn_tab.set_stream(stream_id, new_conn_back);
@@ -113,7 +117,7 @@ pub async fn multiplex(
         };
         // fires on a new stream open request
         let conn_open_evt = async {
-            let result_chan = conn_open_recv.recv_async().await?;
+            let (additional_data, result_chan) = conn_open_recv.recv_async().await?;
             let conn_tab = conn_tab.clone();
             let glob_send = glob_send.clone();
             let dead_send = dead_send.clone();
@@ -133,6 +137,7 @@ pub async fn multiplex(
                             move || {
                                 let _ = dead_send.try_send(stream_id);
                             },
+                            additional_data.clone(),
                         );
                         runtime::spawn(async move {
                             let _ = recv_sig.recv_async().await;
@@ -152,7 +157,9 @@ pub async fn multiplex(
                             kind: RelKind::Syn,
                             stream_id,
                             seqno: 0,
-                            payload: Bytes::new(),
+                            payload: Bytes::copy_from_slice(
+                                additional_data.unwrap_or_default().as_bytes(),
+                            ),
                         })
                         .await,
                 );

@@ -4,9 +4,9 @@ use crate::{
 };
 use scopeguard::defer;
 use smol::prelude::*;
-use std::{net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, sync::Arc};
+use smol_timeout::TimeoutExt;
+use std::{net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, sync::Arc, time::Duration};
 use structopt::StructOpt;
-
 #[derive(Debug, StructOpt)]
 pub struct ConnectOpt {
     #[structopt(flatten)]
@@ -30,6 +30,10 @@ pub struct ConnectOpt {
     #[structopt(long, default_value = "127.0.0.1:9809")]
     /// where to listen for REST-based local connections
     stats_listen: SocketAddr,
+
+    #[structopt(long)]
+    /// where to listen for proxied DNS requests. Optional.
+    dns_listen: Option<SocketAddr>,
 
     #[structopt(long, default_value = "sg-sgp-test-01.exits.geph.io")]
     /// which exit server to connect to. If there isn't an exact match, the exit server with the most similar hostname is picked.
@@ -55,6 +59,9 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     let scollect = stat_collector.clone();
     // scope
     let scope = smol::Executor::new();
+    if let Some(dns_listen) = opt.dns_listen {
+        scope.spawn(dns_loop(dns_listen, &keepalive)).detach();
+    }
     let _stat: smol::Task<anyhow::Result<()>> = scope.spawn(async {
         loop {
             let (stat_client, _) = stat_listener.accept().await?;
@@ -62,7 +69,7 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
             GEXEC
                 .spawn(async move {
                     drop(
-                        async_h1::accept(stat_client, |req| handle_stat(scollect.clone(), req))
+                        async_h1::accept(stat_client, |req| handle_stats(scollect.clone(), req))
                             .await,
                     );
                 })
@@ -95,7 +102,7 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
 }
 
 /// Handle a request for stats
-async fn handle_stat(
+async fn handle_stats(
     stats: Arc<StatCollector>,
     _req: http_types::Request,
 ) -> http_types::Result<http_types::Response> {
@@ -105,6 +112,7 @@ async fn handle_stat(
             res.set_body("function FindProxyForURL(url, host){return 'PROXY 127.0.0.1:9910';}");
             Ok(res)
         }
+        "/kill" => std::process::exit(0),
         _ => {
             let jstats = serde_json::to_string(&stats)?;
             res.set_body(jstats);
@@ -112,6 +120,69 @@ async fn handle_stat(
             Ok(res)
         }
     }
+}
+
+/// Handle DNS requests from localhost
+async fn dns_loop(addr: SocketAddr, keepalive: &Keepalive) -> anyhow::Result<()> {
+    let socket = smol::net::UdpSocket::bind(addr).await?;
+    let mut buf = [0; 2048];
+    let (send_conn, recv_conn) = flume::unbounded();
+    let scope = smol::Executor::new();
+    let dns_timeout = Duration::from_secs(1);
+    scope
+        .run(async {
+            loop {
+                let (n, c_addr) = socket.recv_from(&mut buf).await?;
+                let buff = buf[..n].to_vec();
+                let socket = &socket;
+                let recv_conn = &recv_conn;
+                let send_conn = &send_conn;
+                scope
+                    .spawn(async move {
+                        let fut = || async {
+                            let mut conn = {
+                                let lala = recv_conn.try_recv();
+                                match lala {
+                                    Ok(v) => v,
+                                    _ => keepalive
+                                        .connect("ordns.he.net:53")
+                                        .timeout(dns_timeout)
+                                        .await?
+                                        .ok()?,
+                                }
+                            };
+                            conn.write_all(&(buff.len() as u16).to_be_bytes())
+                                .timeout(dns_timeout)
+                                .await?
+                                .ok()?;
+                            conn.write_all(&buff).timeout(dns_timeout).await?.ok()?;
+                            conn.flush().timeout(dns_timeout).await?.ok()?;
+                            let mut n_buf = [0; 2];
+                            conn.read_exact(&mut n_buf)
+                                .timeout(dns_timeout)
+                                .await?
+                                .ok()?;
+                            let mut true_buf = vec![0u8; u16::from_be_bytes(n_buf) as usize];
+                            conn.read_exact(&mut true_buf)
+                                .timeout(dns_timeout)
+                                .await?
+                                .ok()?;
+                            // TODO THIS IS WRONG BUT IT USUALLY WORKS
+                            socket.send_to(&true_buf, c_addr).await.ok()?;
+                            send_conn.send(conn).ok()?;
+                            Some(())
+                        };
+                        for i in 0u32..5 {
+                            if fut().await.is_some() {
+                                log::debug!("DNS request succeeded on try {}", i);
+                                return;
+                            }
+                        }
+                    })
+                    .detach();
+            }
+        })
+        .await
 }
 
 /// Handle a socks5 client from localhost.

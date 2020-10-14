@@ -12,7 +12,7 @@ pub use relconn::RelConn;
 pub struct Multiplex {
     urel_send: Sender<Bytes>,
     urel_recv: Receiver<Bytes>,
-    conn_open: Sender<Sender<RelConn>>,
+    conn_open: Sender<(Option<String>, Sender<RelConn>)>,
     conn_accept: Receiver<RelConn>,
     sess_ref: Arc<Session>,
 }
@@ -67,10 +67,13 @@ impl Multiplex {
     }
 
     /// Open a reliable conn to the other end.
-    pub async fn open_conn(&self) -> std::io::Result<RelConn> {
+    pub async fn open_conn(&self, additional: Option<String>) -> std::io::Result<RelConn> {
         loop {
             let (send, recv) = flume::unbounded();
-            self.conn_open.send_async(send).await.map_err(to_ioerror)?;
+            self.conn_open
+                .send_async((additional.clone(), send))
+                .await
+                .map_err(to_ioerror)?;
             if let Ok(rc) = recv.recv_async().await {
                 break Ok(rc);
             }
