@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, num::NonZeroU32, time::Duration};
+use std::{collections::HashMap, num::NonZeroU32};
 
 /// A sequence number.
 pub type Seqno = u64;
@@ -95,7 +95,12 @@ impl VarRateLimit {
     pub async fn wait(&self, speed: u32) {
         let speed = speed.max(DIVIDER_FRAC * 2);
         let divided = NonZeroU32::new((DIVIDER / speed.max(1)).max(1)).unwrap();
-        self.limiter.until_n_ready(divided).await.unwrap()
+        // self.limiter.until_n_ready(divided).await.unwrap()
+        while let Err(governor::NegativeMultiDecision::BatchNonConforming(_, until)) =
+            self.limiter.check_n(divided)
+        {
+            smol::Timer::at(until.earliest_possible()).await;
+        }
     }
 
     // pub async fn wait(&self, speed: u32) {

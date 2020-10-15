@@ -3,14 +3,10 @@ use crate::msg::DataFrame;
 use crate::runtime;
 use bytes::Bytes;
 use flume::{Receiver, Sender};
-use governor::{Quota, RateLimiter};
 use smol::prelude::*;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::time::Duration;
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    num::NonZeroU32,
-};
 
 async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T {
     match fut.await {
@@ -100,11 +96,11 @@ async fn session_loop(
 
     // sending loop
     let send_loop = async {
-        let shaper = RateLimiter::direct_with_clock(
-            Quota::per_second(NonZeroU32::new(20000u32).unwrap())
-                .allow_burst(NonZeroU32::new(128).unwrap()),
-            &governor::clock::MonotonicClock::default(),
-        );
+        // let shaper = RateLimiter::direct_with_clock(
+        //     Quota::per_second(NonZeroU32::new(20000u32).unwrap())
+        //         .allow_burst(NonZeroU32::new(128).unwrap()),
+        //     &governor::clock::MonotonicClock::default(),
+        // );
         let mut frame_no = 0u64;
         let mut run_no = 0u64;
         let mut to_send = Vec::new();
@@ -155,7 +151,7 @@ async fn session_loop(
                         })
                         .await,
                 );
-                shaper.until_ready().await;
+                // shaper.until_ready().await;
                 frame_no += 1;
             }
             run_no += 1;

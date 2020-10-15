@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
 use env_logger::Env;
@@ -15,6 +15,10 @@ struct Opt {
     #[structopt(long, default_value = "https://binder-v4.geph.io")]
     /// HTTP address of the binder
     binder_http: String,
+
+    #[structopt(long, default_value = "172.105.28.221:8125")]
+    /// UDP address of the statsd daemon
+    statsd_addr: SocketAddr,
 
     #[structopt(
         long,
@@ -39,8 +43,10 @@ struct Opt {
 static GEXEC: smol::Executor = smol::Executor::new();
 
 fn main() -> anyhow::Result<()> {
-    sosistab::runtime::set_smol_executor(&GEXEC);
+    // sosistab::runtime::set_smol_executor(&GEXEC);
+
     let opt: Opt = Opt::from_args();
+    let stat_client = statsd::Client::new(opt.statsd_addr, "geph4")?;
     env_logger::from_env(Env::default().default_filter_or("geph4_exit=info")).init();
     smol::block_on(GEXEC.run(async move {
         log::info!("geph4-exit starting...");
@@ -101,6 +107,7 @@ fn main() -> anyhow::Result<()> {
         }
         // listen
         listen::main_loop(
+            stat_client,
             &opt.exit_hostname,
             binder_client,
             &opt.bridge_secret,

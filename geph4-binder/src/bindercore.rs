@@ -167,6 +167,7 @@ impl BinderCore {
         captcha_soln: &str,
     ) -> Result<(), BinderError> {
         if !verify_captcha(&self.captcha_service, captcha_id, captcha_soln)? {
+            log::warn!("{} is not soln to {}", captcha_soln, captcha_id);
             return Err(BinderError::WrongCaptcha);
         }
         if self.user_exists(username)? {
@@ -177,7 +178,10 @@ impl BinderCore {
             &[&username,
             &hash_libsodium_password(password),
             &1000,
-            &std::time::SystemTime::now()]).map_err(|_| BinderError::DatabaseFailed)?;
+            &std::time::SystemTime::now()]).map_err(|e| {
+                log::warn!("database failed {}", e);
+                BinderError::DatabaseFailed
+            })?;
             Ok(())
         }
     }
@@ -425,6 +429,12 @@ fn verify_captcha(
     captcha_id: &str,
     solution: &str,
 ) -> Result<bool, BinderError> {
+    log::warn!(
+        "verify_captcha({}, {}, {})",
+        captcha_service,
+        captcha_id,
+        solution
+    );
     // call out to the microservice
     let resp = ureq::get(&format!(
         "{}/solve?id={}&soln={}",

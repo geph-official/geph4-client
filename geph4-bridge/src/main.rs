@@ -34,13 +34,13 @@ fn main() -> anyhow::Result<()> {
         let opt: Opt = Opt::from_args();
         env_logger::from_env(Env::default().default_filter_or("geph4_bridge=info")).init();
         run_command("iptables -t nat -F");
-        run_command("iptables -t nat -A POSTROUTING -j MASQUERADE");
+        run_command("iptables -t nat -A POSTROUTING -j MASQUERADE --random");
         let binder_client = Arc::new(binder_transport::HttpClient::new(
             bincode::deserialize(&hex::decode(opt.binder_master_pk)?)?,
             opt.binder_http,
             &[],
         ));
-        bridge_loop(binder_client, &opt.bridge_secret, &opt.bridge_group).await?;
+        bridge_loop(binder_client, &opt.bridge_secret, &opt.bridge_group).await;
         Ok(())
     })
 }
@@ -52,27 +52,28 @@ async fn bridge_loop<'a>(
     binder_client: Arc<dyn BinderClient>,
     bridge_secret: &'a str,
     bridge_group: &'a str,
-) -> anyhow::Result<()> {
+) {
     let mut current_exits: HashMap<String, smol::Task<anyhow::Result<()>>> = HashMap::new();
     loop {
         let binder_client = binder_client.clone();
         let exits = smol::unblock(move || {
             binder_client.request(BinderRequestData::GetExits, Duration::from_secs(10))
         })
-        .await?;
-
-        if let BinderResponse::GetExitsResp(exits) = exits {
-            log::info!("got {} exits!", exits.len());
-            // insert all exits that aren't in current exit
-            for exit in exits {
-                if current_exits.get(&exit.hostname).is_none() {
-                    log::info!("{} is a new exit, spawning a manager!", exit.hostname);
-                    let task = smol::spawn(manage_exit(
-                        exit.clone(),
-                        bridge_secret.to_string(),
-                        bridge_group.to_string(),
-                    ));
-                    current_exits.insert(exit.hostname, task);
+        .await;
+        if let Ok(exits) = exits {
+            if let BinderResponse::GetExitsResp(exits) = exits {
+                log::info!("got {} exits!", exits.len());
+                // insert all exits that aren't in current exit
+                for exit in exits {
+                    if current_exits.get(&exit.hostname).is_none() {
+                        log::info!("{} is a new exit, spawning a manager!", exit.hostname);
+                        let task = smol::spawn(manage_exit(
+                            exit.clone(),
+                            bridge_secret.to_string(),
+                            bridge_group.to_string(),
+                        ));
+                        current_exits.insert(exit.hostname, task);
+                    }
                 }
             }
         }

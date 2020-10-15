@@ -10,6 +10,7 @@ use smol_timeout::TimeoutExt;
 
 /// the main listening loop
 pub async fn main_loop<'a>(
+    stat_client: statsd::Client,
     exit_hostname: &'a str,
     binder_client: Arc<dyn BinderClient>,
     bridge_secret: &'a str,
@@ -26,6 +27,7 @@ pub async fn main_loop<'a>(
             scope
                 .spawn(async {
                     let res = handle_control(
+                        &stat_client,
                         exit_hostname,
                         binder_client.clone(),
                         client,
@@ -50,7 +52,12 @@ pub async fn main_loop<'a>(
                 .await
                 .ok_or_else(|| anyhow::anyhow!("can't accept from sosistab"))?;
             scope
-                .spawn(handle_session(binder_client.clone(), sess))
+                .spawn(handle_session(
+                    &stat_client,
+                    exit_hostname,
+                    binder_client.clone(),
+                    sess,
+                ))
                 .detach();
         }
     };
@@ -61,6 +68,7 @@ pub async fn main_loop<'a>(
 }
 
 async fn handle_control<'a>(
+    stat_client: &'a statsd::Client,
     exit_hostname: &'a str,
     binder_client: Arc<dyn BinderClient>,
     mut client: smol::net::TcpStream,
@@ -122,7 +130,12 @@ async fn handle_control<'a>(
                                             anyhow::anyhow!("can't accept from sosistab")
                                         })?;
                                     scope
-                                        .spawn(handle_session(binder_client.clone(), sess))
+                                        .spawn(handle_session(
+                                            &stat_client,
+                                            exit_hostname,
+                                            binder_client.clone(),
+                                            sess,
+                                        ))
                                         .detach();
                                 }
                             })
@@ -167,7 +180,9 @@ async fn handle_control<'a>(
         .await
 }
 
-async fn handle_session(
+async fn handle_session<'a>(
+    stat_client: &'a statsd::Client,
+    exit_hostname: &'a str,
     binder_client: Arc<dyn BinderClient>,
     sess: sosistab::Session,
 ) -> anyhow::Result<()> {
@@ -186,7 +201,9 @@ async fn handle_session(
                 .timeout(Duration::from_secs(600))
                 .await
                 .ok_or_else(|| anyhow::anyhow!("accept timeout"))??;
-            scope.spawn(handle_proxy_stream(stream)).detach();
+            scope
+                .spawn(handle_proxy_stream(stat_client, exit_hostname, stream))
+                .detach();
         }
     };
     scope.run(handle_streams).await
@@ -224,7 +241,11 @@ async fn authenticate_sess(
     Ok(())
 }
 
-async fn handle_proxy_stream(mut client: sosistab::mux::RelConn) -> anyhow::Result<()> {
+async fn handle_proxy_stream<'a>(
+    stat_client: &'a statsd::Client,
+    exit_hostname: &'a str,
+    mut client: sosistab::mux::RelConn,
+) -> anyhow::Result<()> {
     // read proxy request
     let to_prox: String = match client.additional_info() {
         Some(s) => s.to_string(),
@@ -248,10 +269,15 @@ async fn handle_proxy_stream(mut client: sosistab::mux::RelConn) -> anyhow::Resu
             }
         }
     }
+    let key = format!("exit_usage.{}", exit_hostname.replace(".", "-"));
     // copy the streams
     smol::future::race(
-        smol::io::copy(remote.clone(), client.clone()),
-        smol::io::copy(client, remote),
+        copy_with_stats(remote.clone(), client.clone(), |n| {
+            stat_client.sampled_count(&key, n as f64, 0.1);
+        }),
+        copy_with_stats(client, remote, |n| {
+            stat_client.sampled_count(&key, n as f64, 0.1);
+        }),
     )
     .await?;
     Ok(())
@@ -283,4 +309,20 @@ async fn write_pascalish<T: Serialize>(
         .await?;
     writer.write_all(&serialized).await?;
     Ok(())
+}
+
+async fn copy_with_stats(
+    mut reader: impl AsyncRead + Unpin,
+    mut writer: impl AsyncWrite + Unpin,
+    mut on_write: impl FnMut(usize),
+) -> std::io::Result<()> {
+    let mut buffer = [0u8; 128 * 1024];
+    loop {
+        let n = reader.read(&mut buffer).await?;
+        if n == 0 {
+            return Ok(());
+        }
+        on_write(n);
+        writer.write_all(&buffer[..n]).await?;
+    }
 }

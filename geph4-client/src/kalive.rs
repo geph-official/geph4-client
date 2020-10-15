@@ -1,7 +1,6 @@
 use crate::{cache::ClientCache, GEXEC};
 use crate::{prelude::*, stats::StatCollector};
 use anyhow::Context;
-use scopeguard::defer;
 use serde::de::DeserializeOwned;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
@@ -169,7 +168,6 @@ async fn keepalive_actor_once(
     stats.set_exit_descriptor(Some(exits[0].clone()));
     scope
         .spawn(async {
-            defer!(send_stop.try_send(()).unwrap());
             loop {
                 smol::Timer::after(Duration::from_secs(200)).await;
                 if mux
@@ -178,6 +176,7 @@ async fn keepalive_actor_once(
                     .await
                     .is_none()
                 {
+                    let _ = send_stop.send(anyhow::anyhow!("watchdog timed out")).await;
                     return;
                 }
             }
@@ -186,9 +185,11 @@ async fn keepalive_actor_once(
     scope
         .run(
             async {
-                defer!(send_stop.try_send(()).unwrap());
                 loop {
-                    let (conn_host, conn_reply) = recv_socks5_conn.recv().await?;
+                    let (conn_host, conn_reply) = recv_socks5_conn
+                        .recv()
+                        .await
+                        .context("cannot get socks5 connect request")?;
                     let mux = &mux;
                     let stats = stats.clone();
                     let send_stop = send_stop.clone();
@@ -197,7 +198,7 @@ async fn keepalive_actor_once(
                             let start = Instant::now();
                             let remote = (&mux)
                                 .open_conn(Some(conn_host))
-                                .timeout(Duration::from_secs(5))
+                                .timeout(Duration::from_secs(15))
                                 .await;
                             if let Some(remote) = remote {
                                 let remote = remote.ok()?;
@@ -205,17 +206,16 @@ async fn keepalive_actor_once(
                                 conn_reply.send(remote).await.ok()?;
                                 Some(())
                             } else {
-                                send_stop.try_send(()).unwrap();
+                                send_stop
+                                    .try_send(anyhow::anyhow!("normal connection timed out"))
+                                    .unwrap();
                                 Some(())
                             }
                         })
                         .detach();
                 }
             }
-            .or(async {
-                recv_stop.recv().await.unwrap();
-                anyhow::bail!("global stop")
-            }),
+            .or(async { Err(recv_stop.recv().await?) }),
         )
         .await
 }

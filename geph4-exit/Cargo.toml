@@ -26,3 +26,4 @@ once_cell= "1.4.1"
 smolscale = {path="../lib/smolscale"}
 jemallocator = "0.3.2"
 smol-timeout = "0.6.0"
+statsd = "0.14.0"

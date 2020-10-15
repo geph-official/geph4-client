@@ -102,8 +102,8 @@ pub async fn connect_custom(
     unimplemented!()
 }
 
-const SHARDS: u8 = 4;
-const RESET_MILLIS: u128 = 1000;
+const SHARDS: u8 = 3;
+const RESET_MILLIS: u128 = 500;
 
 async fn init_session(
     cookie: crypt::Cookie,
@@ -191,6 +191,7 @@ async fn client_backhaul_once(
         match smol::future::race(down, up).await {
             Some(Evt::Incoming(df)) => {
                 send_frame_in.send_async(df).await.ok()?;
+                _old_cleanup = None;
             }
             Some(Evt::Outgoing(bts)) => {
                 let now = Instant::now();
@@ -204,20 +205,23 @@ async fn client_backhaul_once(
                     let dn_crypter = dn_crypter.clone();
                     let send_frame_in = send_frame_in.clone();
                     // spawn a task to clean up the UDP socket
-                    _old_cleanup = Some(runtime::spawn(async move {
-                        loop {
-                            let (n, _) = old_socket.recv_from(&mut buf).await.ok()?;
-                            if let Some(plain) = dn_crypter.pad_decrypt::<msg::DataFrame>(&buf[..n])
-                            {
-                                log::trace!(
-                                    "shard {} decrypted UDP message with len {}",
-                                    shard_id,
-                                    n
-                                );
-                                drop(send_frame_in.send_async(plain).await)
+                    if _old_cleanup.is_none() {
+                        _old_cleanup = Some(runtime::spawn(async move {
+                            loop {
+                                let (n, _) = old_socket.recv_from(&mut buf).await.ok()?;
+                                if let Some(plain) =
+                                    dn_crypter.pad_decrypt::<msg::DataFrame>(&buf[..n])
+                                {
+                                    log::trace!(
+                                        "shard {} decrypted UDP message with len {}",
+                                        shard_id,
+                                        n
+                                    );
+                                    drop(send_frame_in.send_async(plain).await)
+                                }
                             }
-                        }
-                    }));
+                        }));
+                    }
                     socket = loop {
                         match runtime::new_udp_socket_bind(laddr_gen().ok()?).await {
                             Ok(sock) => break sock,

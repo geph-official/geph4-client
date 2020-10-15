@@ -46,5 +46,5 @@ fn main() {
     // create server
     let http_serv = binder_transport::HttpServer::new(opt.listen_http, master_secret);
     println!("HTTP listening on {}", opt.listen_http);
-    responder::handle_requests(http_serv, &binder_core).unwrap()
+    responder::handle_requests(http_serv, &binder_core)
 }

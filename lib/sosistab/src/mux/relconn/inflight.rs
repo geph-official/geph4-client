@@ -70,10 +70,6 @@ impl Inflight {
         self.inflight_count
     }
 
-    pub fn rto(&self) -> Duration {
-        self.rtt.rto()
-    }
-
     pub fn srtt(&self) -> Duration {
         Duration::from_millis(self.rtt.srtt)
     }

@@ -77,7 +77,7 @@ impl Multiplex {
             if let Ok(rc) = recv.recv_async().await {
                 break Ok(rc);
             }
-            smol::Timer::after(Duration::from_secs(1)).await;
+            smol::Timer::after(Duration::from_millis(500)).await;
         }
     }
 

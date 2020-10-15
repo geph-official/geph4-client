@@ -1,6 +1,5 @@
 use crate::{
-    cache::ClientCache, kalive::Keepalive, prelude::*, stats::StatCollector, AuthOpt, CommonOpt,
-    GEXEC,
+    cache::ClientCache, kalive::Keepalive, stats::StatCollector, AuthOpt, CommonOpt, GEXEC,
 };
 use scopeguard::defer;
 use smol::prelude::*;
