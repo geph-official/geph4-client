@@ -13,7 +13,7 @@ jobs:
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
       - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       - run: echo "export RUSTFLAGS='-C link-arg=-s'" >> $BASH_ENV
-      - run: sudo sh osx_build.sh
+      - run: sh osx_build.sh
       - run: cargo install cross
       - run: cross build --release --target x86_64-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml && cross build --release --target x86_64-unknown-linux-musl --manifest-path=geph4-client/Cargo.toml && cross build --release --target arm-unknown-linux-musleabi --manifest-path=geph4-client/Cargo.toml && cross build --release --target armv7-linux-androideabi --manifest-path=geph4-client/Cargo.toml && cross build --release --target aarch64-linux-android --manifest-path=geph4-client/Cargo.toml
       - run: mkdir ~/repo/OUTPUT/
