@@ -7,7 +7,7 @@ jobs:
     working_directory: ~/repo/
     machine:
       image: ubuntu-2004:202008-01
-    resource_class: 2xlarge
+    resource_class: xlarge
     steps:
       - checkout
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
