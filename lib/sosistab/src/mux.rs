@@ -68,17 +68,15 @@ impl Multiplex {
 
     /// Open a reliable conn to the other end.
     pub async fn open_conn(&self, additional: Option<String>) -> std::io::Result<RelConn> {
-        loop {
-            let (send, recv) = flume::unbounded();
-            self.conn_open
-                .send_async((additional.clone(), send))
-                .await
-                .map_err(to_ioerror)?;
-            if let Ok(rc) = recv.recv_async().await {
-                break Ok(rc);
-            }
-            smol::Timer::after(Duration::from_millis(500)).await;
+        let (send, recv) = flume::unbounded();
+        self.conn_open
+            .send_async((additional.clone(), send))
+            .await
+            .map_err(to_ioerror)?;
+        if let Ok(rc) = recv.recv_async().await {
+            return Ok(rc);
         }
+        Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout"))
     }
 
     /// Accept a reliable conn from the other end.

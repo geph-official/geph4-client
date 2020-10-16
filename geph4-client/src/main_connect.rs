@@ -256,7 +256,7 @@ async fn copy_with_stats(
     mut writer: impl AsyncWrite + Unpin,
     mut on_write: impl FnMut(usize),
 ) -> std::io::Result<()> {
-    let mut buffer = [0u8; 128 * 1024];
+    let mut buffer = vec![0u8; 32 * 1024];
     loop {
         let n = reader.read(&mut buffer).await?;
         if n == 0 {
