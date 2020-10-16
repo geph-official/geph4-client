@@ -238,7 +238,7 @@ impl RunDecoder {
             if run_no > self.top_run {
                 self.top_run = run_no;
                 // advance bottom
-                while self.top_run - self.bottom_run > 100 {
+                while self.top_run - self.bottom_run > 10 {
                     if let Some(dec) = self.decoders.remove(&self.bottom_run) {
                         self.total_count += (dec.good_pkts() + dec.lost_pkts()) as u64;
                         self.correct_count += dec.good_pkts() as u64
@@ -293,7 +293,7 @@ impl ReplayFilter {
             return false;
         }
         self.top_seqno = seqno;
-        while self.top_seqno - self.bottom_seqno > 1000 {
+        while self.top_seqno - self.bottom_seqno > 10000 {
             self.seen_seqno.remove(&self.bottom_seqno);
             self.bottom_seqno += 1;
         }

@@ -1,5 +1,6 @@
 use crate::{
-    cache::ClientCache, kalive::Keepalive, stats::StatCollector, AuthOpt, CommonOpt, GEXEC,
+    cache::ClientCache, kalive::Keepalive, stats::StatCollector, AuthOpt, CommonOpt, ALLOCATOR,
+    GEXEC,
 };
 use scopeguard::defer;
 use smol::prelude::*;
@@ -192,6 +193,9 @@ async fn handle_socks5(
 ) -> anyhow::Result<()> {
     stats.incr_open_conns();
     defer!(stats.decr_open_conns());
+    if ALLOCATOR.allocated() > 1024 * 1024 * 50 {
+        anyhow::bail!("too many connections")
+    }
     use socksv5::v5::*;
     let _handshake = read_handshake(s5client.clone()).await?;
     write_auth_method(s5client.clone(), SocksV5AuthMethod::Noauth).await?;
@@ -230,6 +234,11 @@ async fn handle_http(
     hclient: smol::net::TcpStream,
     keepalive: &Keepalive,
 ) -> anyhow::Result<()> {
+    stats.incr_open_conns();
+    defer!(stats.decr_open_conns());
+    if ALLOCATOR.allocated() > 1024 * 1024 * 50 {
+        anyhow::bail!("too many connections")
+    }
     // Rely on "squid" remotely
     let conn = keepalive.connect("127.0.0.1:3128").await?;
     smol::future::race(

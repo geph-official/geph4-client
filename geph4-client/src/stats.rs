@@ -26,10 +26,18 @@ impl StatCollector {
         *self.open_conns.lock() -= 1
     }
 
+    pub fn get_open_conns(&self) -> u64 {
+        *self.open_conns.lock()
+    }
+
     pub fn set_latency(&self, ms: f64) {
         let mut old = self.open_latency.lock();
         if *old > 0.1 {
-            *old = *old * 0.8 + ms * 0.2;
+            if ms > *old {
+                *old = *old * 0.9 + ms * 0.1;
+            } else {
+                *old = *old * 0.5 + ms * 0.5
+            }
         } else {
             *old = ms
         }

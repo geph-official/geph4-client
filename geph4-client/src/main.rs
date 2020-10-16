@@ -1,6 +1,6 @@
 #![type_length_limit = "2000000"]
 
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use binder_transport::BinderClient;
 use env_logger::Env;
@@ -18,6 +18,9 @@ mod main_binderproxy;
 
 static GEXEC: smol::Executor = smol::Executor::new();
 
+#[global_allocator]
+pub static ALLOCATOR: cap::Cap<std::alloc::System> = cap::Cap::new(std::alloc::System, 1024 * 1024 * 1000);
+
 #[derive(Debug, StructOpt)]
 enum Opt {
     Connect(main_connect::ConnectOpt),
@@ -28,10 +31,10 @@ enum Opt {
 fn main() -> anyhow::Result<()> {
     sosistab::runtime::set_smol_executor(&GEXEC);
     let opt: Opt = Opt::from_args();
-    env_logger::from_env(Env::default().default_filter_or("geph4_client=info")).init();
+    env_logger::from_env(Env::default().default_filter_or("geph4_client=debug")).init();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
-    smol::block_on(GEXEC.run(async move {
+    smol::future::block_on(GEXEC.run(async move {
         match opt {
             Opt::Connect(opt) => main_connect::main_connect(opt).await,
             Opt::Sync(opt) => main_sync::main_sync(opt).await,

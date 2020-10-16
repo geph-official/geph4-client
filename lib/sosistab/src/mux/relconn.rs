@@ -39,8 +39,8 @@ impl RelConn {
         dropper: impl FnOnce() + Send + 'static,
         additional_info: Option<String>,
     ) -> (Self, RelConnBack) {
-        let (send_write, recv_write) = bipe::bipe(65536);
-        let (send_read, recv_read) = bipe::bipe(1024 * 1024);
+        let (send_write, recv_write) = bipe::bipe(64 * 1024);
+        let (send_read, recv_read) = bipe::bipe(64 * 1024);
         let (send_wire_read, recv_wire_read) = flume::unbounded();
         runtime::spawn(relconn_actor(
             state,
@@ -377,12 +377,13 @@ async fn relconn_actor(
                         stream_id,
                     })) => {
                         log::trace!("new data pkt with seqno={}", seqno);
-                        conn_vars.ack_seqnos.insert(seqno);
                         if conn_vars.delayed_ack_timer.is_none() {
                             conn_vars.delayed_ack_timer =
                                 Instant::now().checked_add(Duration::from_millis(10));
                         }
-                        conn_vars.reorderer.insert(seqno, payload);
+                        if conn_vars.reorderer.insert(seqno, payload) {
+                            conn_vars.ack_seqnos.insert(seqno);
+                        }
                         let times = conn_vars.reorderer.take();
                         conn_vars.lowest_unseen += times.len() as u64;
                         let mut success = true;

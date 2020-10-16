@@ -145,20 +145,20 @@ impl FrameDecoder {
         // otherwise, attempt to reconstruct
         self.rs_decoder.reconstruct(&mut ref_vec).ok()?;
         self.done = true;
-        Some(
-            self.space
-                .iter()
-                .zip(self.present.iter().cloned())
-                .take(self.data_shards)
-                .filter_map(|(elem, present)| {
-                    if !present {
-                        post_decode(Bytes::copy_from_slice(elem))
-                    } else {
-                        None
-                    }
-                })
-                .collect(),
-        )
+        let res = self
+            .space
+            .drain(0..)
+            .zip(self.present.iter().cloned())
+            .take(self.data_shards)
+            .filter_map(|(elem, present)| {
+                if !present {
+                    post_decode(Bytes::copy_from_slice(&elem))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        Some(res)
     }
 }
 

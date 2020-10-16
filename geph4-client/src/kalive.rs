@@ -1,4 +1,4 @@
-use crate::{cache::ClientCache, GEXEC};
+use crate::{cache::ClientCache, ALLOCATOR, GEXEC};
 use crate::{prelude::*, stats::StatCollector};
 use anyhow::Context;
 use serde::de::DeserializeOwned;
@@ -75,8 +75,6 @@ async fn keepalive_actor_once(
     recv_socks5_conn: Receiver<(String, Sender<sosistab::mux::RelConn>)>,
 ) -> anyhow::Result<()> {
     stats.set_exit_descriptor(None);
-    // do we use bridges?
-    log::debug!("keepalive_actor_once");
 
     // find the exit
     let mut exits = ccache.get_exits().await.context("can't get exits")?;
@@ -202,6 +200,11 @@ async fn keepalive_actor_once(
                                 .await;
                             if let Some(remote) = remote {
                                 let remote = remote.ok()?;
+                                log::debug!(
+                                    "opened connection in {} ms, {}KiB allocated",
+                                    start.elapsed().as_millis(),
+                                    ALLOCATOR.allocated() / 1024
+                                );
                                 stats.set_latency(start.elapsed().as_secs_f64() * 1000.0);
                                 conn_reply.send(remote).await.ok()?;
                                 Some(())
