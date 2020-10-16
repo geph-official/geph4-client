@@ -1,5 +1,5 @@
 #!/bin/sh
-
+sudo apt update
 sudo apt install \
     clang \
     gcc \
@@ -7,7 +7,8 @@ sudo apt install \
     zlib1g-dev \
     libmpc-dev \
     libmpfr-dev \
-    libgmp-dev
+    libgmp-dev \
+    build-essential
 
 # Add macOS Rust target
 rustup target add x86_64-apple-darwin
