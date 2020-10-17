@@ -23,5 +23,10 @@ jobs:
       - run: mv ~/repo/target/aarch64-linux-android/release/geph4-client ~/repo/OUTPUT/geph4-client-android-aarch64
       - run: mv ~/repo/target/x86_64-pc-windows-gnu/release/geph4-client.exe ~/repo/OUTPUT/geph4-client-windows-amd64.exe
       - run: mv ~/repo/target/x86_64-apple-darwin/release/geph4-client ~/repo/OUTPUT/geph4-client-macos-amd64
+      - run: sudo apt install python3-pip
+      - run: sudo pip3 install --upgrade b2
+      - run: |
+          b2 authorize-account $B2_KEYID $B2_APPKEY
+      - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
       - store_artifacts:
           path: ~/repo/OUTPUT
