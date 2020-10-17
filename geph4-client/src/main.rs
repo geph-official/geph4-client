@@ -1,6 +1,6 @@
 #![type_length_limit = "2000000"]
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc};
 
 use binder_transport::BinderClient;
 use env_logger::Env;
@@ -12,20 +12,21 @@ use prelude::*;
 mod prelude;
 mod stats;
 
+mod main_binderproxy;
 mod main_connect;
 mod main_sync;
-mod main_binderproxy;
 
 static GEXEC: smol::Executor = smol::Executor::new();
 
 #[global_allocator]
-pub static ALLOCATOR: cap::Cap<std::alloc::System> = cap::Cap::new(std::alloc::System, 1024 * 1024 * 1000);
+pub static ALLOCATOR: cap::Cap<std::alloc::System> =
+    cap::Cap::new(std::alloc::System, 1024 * 1024 * 1000);
 
 #[derive(Debug, StructOpt)]
 enum Opt {
     Connect(main_connect::ConnectOpt),
     Sync(main_sync::SyncOpt),
-    BinderProxy(main_binderproxy::BinderProxyOpt)
+    BinderProxy(main_binderproxy::BinderProxyOpt),
 }
 
 fn main() -> anyhow::Result<()> {
@@ -38,20 +39,26 @@ fn main() -> anyhow::Result<()> {
         match opt {
             Opt::Connect(opt) => main_connect::main_connect(opt).await,
             Opt::Sync(opt) => main_sync::main_sync(opt).await,
-            Opt::BinderProxy(opt) => main_binderproxy::main_binderproxy(opt).await
+            Opt::BinderProxy(opt) => main_binderproxy::main_binderproxy(opt).await,
         }
     }))
 }
 
 #[derive(Debug, StructOpt)]
 pub struct CommonOpt {
-    #[structopt(long, default_value = "https://www.netlify.com/v4/")]
+    #[structopt(
+        long,
+        default_value = "https://www.netlify.com/v4/,https://www.cdn77.com/,https://ajax.aspnetcdn.com/"
+    )]
     /// HTTP(S) address of the binder, FRONTED
-    binder_http_front: String,
+    binder_http_fronts: String,
 
-    #[structopt(long, default_value = "loving-bell-981479.netlify.app")]
+    #[structopt(
+        long,
+        default_value = "loving-bell-981479.netlify.app,1049933718.rsc.cdn77.org,gephbinder-4.azureedge.net"
+    )]
     /// HTTP(S) actual host of the binder
-    binder_http_host: String,
+    binder_http_hosts: String,
 
     #[structopt(
         long,
@@ -61,7 +68,7 @@ pub struct CommonOpt {
     /// x25519 master key of the binder
     binder_master: x25519_dalek::PublicKey,
 
-    #[structopt( 
+    #[structopt(
         long,
         default_value = "4e01116de3721cc702f4c260977f4a1809194e9d3df803e17bb90db2a425e5ee",
         parse(from_str = str_to_mizaru_pk)
@@ -80,11 +87,26 @@ pub struct CommonOpt {
 
 impl CommonOpt {
     pub fn to_binder_client(&self) -> Arc<dyn BinderClient> {
-        Arc::new(binder_transport::HttpClient::new(
-            self.binder_master,
-            self.binder_http_front.to_string(),
-            &[("Host".to_string(), self.binder_http_host.clone())],
-        ))
+        let fronts: Vec<_> = self
+            .binder_http_fronts
+            .split(',')
+            .zip(self.binder_http_hosts.split(','))
+            .map(|(front, host)| (front.to_string(), host.to_string()))
+            .collect();
+        let mut toret = binder_transport::MultiBinderClient::empty();
+        for (front, host) in fronts {
+            toret = toret.add_client(binder_transport::HttpClient::new(
+                self.binder_master,
+                front,
+                &[("Host".to_string(), host.clone())],
+            ));
+        }
+        Arc::new(toret)
+        // Arc::new(binder_transport::HttpClient::new(
+        //     self.binder_master,
+        //     self.binder_http_fronts[0].to_string(),
+        //     &[("Host".to_string(), self.binder_http_host.clone())],
+        // ))
     }
 }
 
@@ -97,7 +119,7 @@ pub struct AuthOpt {
     )]
     /// where to store Geph's credential cache. The default value of "auto", meaning a platform-specific path that Geph gets to pick.
     credential_cache: PathBuf,
-    
+
     #[structopt(long)]
     /// username
     username: String,

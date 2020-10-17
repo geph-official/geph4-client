@@ -1,7 +1,7 @@
 use crate::*;
 use bytes::Bytes;
 use flume::{Receiver, Sender};
-use std::{sync::Arc, time::Duration};
+use std::sync::Arc;
 mod multiplex_actor;
 mod relconn;
 mod structs;
