@@ -1,5 +1,6 @@
 mod bindercore;
 mod responder;
+use env_logger::Env;
 use std::{net::SocketAddr, path::PathBuf};
 use structopt::StructOpt;
 
@@ -20,7 +21,7 @@ struct Opt {
 }
 
 fn main() {
-    env_logger::init();
+    env_logger::from_env(Env::default().default_filter_or("geph4_binder=debug")).init();
     let opt = Opt::from_args();
     let binder_core = bindercore::BinderCore::create(
         &opt.database,

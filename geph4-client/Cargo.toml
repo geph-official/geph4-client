@@ -7,6 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+prost = "0.6"
 cap="0.1"
 anyhow = "1.0.33"
 smol = "1.2.4"
@@ -23,6 +24,7 @@ sosistab={path="../lib/sosistab"}
 serde = { version = "1.0.116", features = ["derive"] }
 mizaru={path="../lib/mizaru"}
 rand= "0.7.3"
+pprof={version="0.3", features=["protobuf"]}
 rsa-fdh = "0.4.1"
 sha2 = "0.9.1"
 dirs = "3.0.1"

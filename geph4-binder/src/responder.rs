@@ -5,7 +5,6 @@ use binder_transport::{BinderError, BinderRequestData, BinderResponse, BinderSer
 /// Retry an action indefinitely when the database errors out
 fn db_retry<T>(action: impl Fn() -> Result<T, BinderError>) -> Result<T, BinderError> {
     for count in 1.. {
-        log::debug!("db_retry count = {}", count);
         match action() {
             Err(BinderError::DatabaseFailed) => {
                 std::thread::sleep(Duration::from_secs(1));
@@ -19,8 +18,12 @@ fn db_retry<T>(action: impl Fn() -> Result<T, BinderError>) -> Result<T, BinderE
 /// Respond to requests coming from the given BinderServer, using the given BinderCore.
 pub fn handle_requests(serv: impl BinderServer, core: &BinderCore) {
     easy_parallel::Parallel::new()
-        .each(0..16, |worker_id| loop {
-            if let Err(e) = handle_request_once(&serv, core) {
+        .each(0..64, |worker_id| loop {
+            if let Err(e) = {
+                let v = handle_request_once(&serv, core);
+                log::debug!("handling request on {}", worker_id);
+                v
+            } {
                 log::warn!("worker {} restarting ({})", worker_id, e)
             }
         })

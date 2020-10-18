@@ -77,7 +77,6 @@ impl FrameEncoder {
                 panic!()
             }))
         .min(255 - run_len)
-        .max(1)
     }
 }
 
@@ -87,6 +86,7 @@ pub struct FrameDecoder {
     parity_shards: usize,
     space: Vec<Vec<u8>>,
     present: Vec<bool>,
+    present_count: usize,
     rs_decoder: galois_8::ReedSolomon,
     done: bool,
 }
@@ -96,6 +96,7 @@ impl FrameDecoder {
         FrameDecoder {
             data_shards,
             parity_shards,
+            present_count: 0,
             space: vec![],
             present: vec![false; data_shards + parity_shards],
             rs_decoder: galois_8::ReedSolomon::new(data_shards, parity_shards.max(1)).unwrap(),
@@ -129,12 +130,19 @@ impl FrameDecoder {
         }
         // decompress without allocation
         self.space[pkt_idx].copy_from_slice(pkt);
+        if !self.present[pkt_idx] {
+            self.present_count += 1
+        }
         self.present[pkt_idx] = true;
         // if I'm a data shard, just return it
         if pkt_idx < self.data_shards || self.parity_shards == 0 {
             return Some(vec![post_decode(Bytes::copy_from_slice(
                 &self.space[pkt_idx],
             ))?]);
+        }
+        if self.present_count < self.data_shards {
+            log::debug!("don't even attempt yet");
+            return None;
         }
         let mut ref_vec: Vec<(&mut [u8], bool)> = self
             .space
@@ -143,6 +151,11 @@ impl FrameDecoder {
             .map(|(v, pres)| (v.as_mut(), *pres))
             .collect();
         // otherwise, attempt to reconstruct
+        log::debug!(
+            "attempting to reconstruct (data={}, parity={})",
+            self.data_shards,
+            self.parity_shards
+        );
         self.rs_decoder.reconstruct(&mut ref_vec).ok()?;
         self.done = true;
         let res = self

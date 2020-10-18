@@ -391,7 +391,7 @@ impl BinderCore {
         let rows = txn
             .query(query, &[&exit_hostname])
             .map_err(|_| BinderError::DatabaseFailed)?;
-        Ok(rows
+        let mut res: Vec<_> = rows
             .into_iter()
             .map(|row| {
                 let bridge_address: String = row.get(0);
@@ -404,7 +404,10 @@ impl BinderCore {
                     sosistab_key,
                 }
             })
-            .collect())
+            .collect();
+        res.sort_by(|a, b| a.endpoint.cmp(&b.endpoint));
+        res.dedup_by(|a, b| a.endpoint == b.endpoint);
+        Ok(res)
     }
 }
 

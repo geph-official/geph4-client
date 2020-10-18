@@ -19,8 +19,7 @@ mod main_sync;
 static GEXEC: smol::Executor = smol::Executor::new();
 
 #[global_allocator]
-pub static ALLOCATOR: cap::Cap<std::alloc::System> =
-    cap::Cap::new(std::alloc::System, 1024 * 1024 * 1000);
+pub static ALLOCATOR: cap::Cap<std::alloc::System> = cap::Cap::new(std::alloc::System, usize::MAX);
 
 #[derive(Debug, StructOpt)]
 enum Opt {

@@ -50,7 +50,6 @@ impl<T: Clone> Reorderer<T> {
                 log::warn!("spurious retransmission of {} received", seq);
             }
             // self.pkts.insert(seq, item);
-            log::debug!("{} pkts in reorderer", self.pkts.len());
             true
         } else {
             log::trace!("rejecting (seq={}, min={})", seq, self.min);

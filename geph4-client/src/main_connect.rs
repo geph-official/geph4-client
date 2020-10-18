@@ -2,11 +2,13 @@ use crate::{
     cache::ClientCache, kalive::Keepalive, stats::StatCollector, AuthOpt, CommonOpt, ALLOCATOR,
     GEXEC,
 };
+use prost::Message;
 use scopeguard::defer;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
 use std::{net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, sync::Arc, time::Duration};
 use structopt::StructOpt;
+
 #[derive(Debug, StructOpt)]
 pub struct ConnectOpt {
     #[structopt(flatten)]
@@ -38,6 +40,10 @@ pub struct ConnectOpt {
     #[structopt(long, default_value = "sg-sgp-test-01.exits.geph.io")]
     /// which exit server to connect to. If there isn't an exact match, the exit server with the most similar hostname is picked.
     exit_server: String,
+
+    #[structopt(long)]
+    /// whether or not to collect detailed profiling statistics
+    pprof: bool,
 }
 
 pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
@@ -57,24 +63,38 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     let stat_listener = smol::net::TcpListener::bind(opt.stats_listen).await?;
     let http_listener = smol::net::TcpListener::bind(opt.http_listen).await?;
     let scollect = stat_collector.clone();
+    // pprof profiler
+    let guard = if opt.pprof {
+        Some(pprof::ProfilerGuard::new(100).unwrap())
+    } else {
+        None
+    };
     // scope
     let scope = smol::Executor::new();
     if let Some(dns_listen) = opt.dns_listen {
         scope.spawn(dns_loop(dns_listen, &keepalive)).detach();
     }
     let _stat: smol::Task<anyhow::Result<()>> = scope.spawn(async {
-        loop {
-            let (stat_client, _) = stat_listener.accept().await?;
-            let scollect = scollect.clone();
-            GEXEC
-                .spawn(async move {
-                    drop(
-                        async_h1::accept(stat_client, |req| handle_stats(scollect.clone(), req))
-                            .await,
-                    );
-                })
-                .detach();
-        }
+        let my_scope = smol::Executor::new();
+        my_scope
+            .run(async {
+                loop {
+                    let (stat_client, _) = stat_listener.accept().await?;
+                    let scollect = scollect.clone();
+                    let guard = &guard;
+                    my_scope
+                        .spawn(async move {
+                            drop(
+                                async_h1::accept(stat_client, |req| {
+                                    handle_stats(guard, scollect.clone(), req)
+                                })
+                                .await,
+                            );
+                        })
+                        .detach();
+                }
+            })
+            .await
     });
     let _http: smol::Task<anyhow::Result<()>> = scope.spawn(async {
         let my_scope = smol::Executor::new();
@@ -102,12 +122,29 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
 }
 
 /// Handle a request for stats
-async fn handle_stats(
+async fn handle_stats<'a>(
+    pprof: &Option<pprof::ProfilerGuard<'a>>,
     stats: Arc<StatCollector>,
     _req: http_types::Request,
 ) -> http_types::Result<http_types::Response> {
     let mut res = http_types::Response::new(http_types::StatusCode::Ok);
     match _req.url().path() {
+        "/pprof" => {
+            if let Some(v) = pprof {
+                match v.report().build() {
+                    Ok(report) => {
+                        let profile = report.pprof().unwrap();
+                        let mut content = Vec::new();
+                        profile.encode(&mut content).unwrap();
+                        res.set_body(content);
+                        Ok(res)
+                    }
+                    Err(e) => Ok(http_types::Response::new(500)),
+                }
+            } else {
+                Ok(http_types::Response::new(404))
+            }
+        }
         "/proxy.pac" => {
             res.set_body("function FindProxyForURL(url, host){return 'PROXY 127.0.0.1:9910';}");
             Ok(res)
@@ -193,9 +230,6 @@ async fn handle_socks5(
 ) -> anyhow::Result<()> {
     stats.incr_open_conns();
     defer!(stats.decr_open_conns());
-    if ALLOCATOR.allocated() > 1024 * 1024 * 50 {
-        anyhow::bail!("too many connections")
-    }
     use socksv5::v5::*;
     let _handshake = read_handshake(s5client.clone()).await?;
     write_auth_method(s5client.clone(), SocksV5AuthMethod::Noauth).await?;
@@ -236,9 +270,6 @@ async fn handle_http(
 ) -> anyhow::Result<()> {
     stats.incr_open_conns();
     defer!(stats.decr_open_conns());
-    if ALLOCATOR.allocated() > 1024 * 1024 * 50 {
-        anyhow::bail!("too many connections")
-    }
     // Rely on "squid" remotely
     let conn = keepalive.connect("127.0.0.1:3128").await?;
     smol::future::race(

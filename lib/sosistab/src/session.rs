@@ -37,8 +37,8 @@ pub struct Session {
 impl Session {
     /// Creates a tuple of a Session and also a channel with which stuff is fed into the session.
     pub fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = flume::bounded(1000);
-        let (send_input, recv_input) = flume::bounded(1000);
+        let (send_tosend, recv_tosend) = flume::bounded(10);
+        let (send_input, recv_input) = flume::bounded(10);
         let (s, r) = flume::unbounded();
         let task = runtime::spawn(session_loop(cfg, recv_tosend, send_input, r));
         Session {
@@ -57,10 +57,10 @@ impl Session {
 
     /// Takes a Bytes to be sent and stuffs it into the session.
     pub async fn send_bytes(&self, to_send: Bytes) {
-        if self.send_tosend.try_send(to_send).is_err() {
-            log::warn!("overflowed send buffer at session!");
-        }
-        // drop(self.send_tosend.send_async(to_send).await)
+        // if self.send_tosend.try_send(to_send).is_err() {
+        //     log::warn!("overflowed send buffer at session!");
+        // }
+        drop(self.send_tosend.send_async(to_send).await)
     }
 
     /// Waits until the next application input is decoded by the session.
@@ -121,7 +121,7 @@ async fn session_loop(
                         to_send.push(infal(recv_tosend.recv_async()).await);
                         false
                     });
-                    if res.await || to_send.len() >= 32 {
+                    if res.await || to_send.len() >= 8 {
                         break &to_send;
                     }
                 }
