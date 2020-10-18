@@ -129,7 +129,7 @@ impl ClientCache {
                             unblinded_signature: tok.unblinded_signature,
                             exit_hostname,
                         },
-                        Duration::from_secs(10),
+                        Duration::from_secs(5),
                     )
                 })
                 .await?;
@@ -160,7 +160,7 @@ impl ClientCache {
                         level: level.to_string(),
                         epoch,
                     },
-                    Duration::from_secs(10),
+                    Duration::from_secs(5),
                 )
             })
             .await?;
@@ -182,7 +182,7 @@ impl ClientCache {
                             epoch,
                             blinded_digest,
                         },
-                        Duration::from_secs(10),
+                        Duration::from_secs(5),
                     )
                 })
                 .await;

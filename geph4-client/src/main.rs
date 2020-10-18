@@ -1,13 +1,15 @@
 #![type_length_limit = "2000000"]
 
-use std::{path::PathBuf, sync::Arc};
+use std::{io::Write, path::PathBuf, sync::Arc};
 
 use binder_transport::BinderClient;
-use env_logger::Env;
+use flexi_logger::{DeferredNow, Record};
+use stats::GLOBAL_LOGGER;
 use structopt::StructOpt;
 mod cache;
 mod kalive;
 mod persist;
+use once_cell::sync::Lazy;
 use prelude::*;
 mod prelude;
 mod stats;
@@ -29,12 +31,61 @@ enum Opt {
 }
 
 fn main() -> anyhow::Result<()> {
-    sosistab::runtime::set_smol_executor(&GEXEC);
+    // the logging function
+    fn logger(
+        write: &mut dyn Write,
+        now: &mut DeferredNow,
+        record: &Record<'_>,
+    ) -> Result<(), std::io::Error> {
+        static IP_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+            regex::Regex::new(r#"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"#).unwrap()
+        });
+        use flexi_logger::style;
+        let level = record.level();
+        let level_str = match level {
+            flexi_logger::Level::Debug => "DEBG".to_string(),
+            x => x.to_string(),
+        };
+        write!(
+            write,
+            "[{}] {} [{}:{}] {}",
+            style(level, now.now().naive_utc().format("%Y-%m-%d %H:%M:%S")),
+            style(level, level_str.clone()),
+            record.file().unwrap_or("<unnamed>"),
+            record.line().unwrap_or(0),
+            &record.args()
+        )?;
+        let detailed_line = format!(
+            "[{}] {} [{}:{}] {}",
+            now.now().naive_utc().format("%Y-%m-%d %H:%M:%S"),
+            level_str,
+            record.file().unwrap_or("<unnamed>"),
+            record.line().unwrap_or(0),
+            &record.args()
+        );
+        let mut logger = GLOBAL_LOGGER.write();
+        logger.push_back(
+            IP_REGEX
+                .replace_all(&detailed_line, "[redacted]")
+                .to_string(),
+        );
+        if logger.len() > 100000 {
+            logger.pop_front();
+        }
+        Ok(())
+    }
+
+    flexi_logger::Logger::with_env_or_str("geph4_client = debug")
+        // .format(flexi_logger::colored_detailed_format)
+        .set_palette("192;208;158;248;240".to_string())
+        .format(logger)
+        .start()
+        .unwrap();
     let opt: Opt = Opt::from_args();
-    env_logger::from_env(Env::default().default_filter_or("geph4_client=debug")).init();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
-    smol::future::block_on(GEXEC.run(async move {
+    sosistab::runtime::set_smol_executor(&GEXEC);
+    smol::block_on(GEXEC.run(async move {
         match opt {
             Opt::Connect(opt) => main_connect::main_connect(opt).await,
             Opt::Sync(opt) => main_sync::main_sync(opt).await,
@@ -101,11 +152,6 @@ impl CommonOpt {
             ));
         }
         Arc::new(toret)
-        // Arc::new(binder_transport::HttpClient::new(
-        //     self.binder_master,
-        //     self.binder_http_fronts[0].to_string(),
-        //     &[("Host".to_string(), self.binder_http_host.clone())],
-        // ))
     }
 }
 

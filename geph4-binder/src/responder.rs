@@ -4,7 +4,7 @@ use crate::bindercore::BinderCore;
 use binder_transport::{BinderError, BinderRequestData, BinderResponse, BinderServer};
 /// Retry an action indefinitely when the database errors out
 fn db_retry<T>(action: impl Fn() -> Result<T, BinderError>) -> Result<T, BinderError> {
-    for count in 1.. {
+    for _ in 1.. {
         match action() {
             Err(BinderError::DatabaseFailed) => {
                 std::thread::sleep(Duration::from_secs(1));

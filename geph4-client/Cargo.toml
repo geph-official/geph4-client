@@ -7,12 +7,10 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-prost = "0.6"
 cap="0.1"
 anyhow = "1.0.33"
 smol = "1.2.4"
 log = "0.4.11"
-env_logger = "0.7.1"
 structopt = "0.3.19"
 x25519-dalek={ version = "1.1.0", features = ["serde"] }
 ed25519-dalek={ version = "1.0.1", features = ["serde"] }
@@ -24,7 +22,6 @@ sosistab={path="../lib/sosistab"}
 serde = { version = "1.0.116", features = ["derive"] }
 mizaru={path="../lib/mizaru"}
 rand= "0.7.3"
-pprof={version="0.3", features=["protobuf"]}
 rsa-fdh = "0.4.1"
 sha2 = "0.9.1"
 dirs = "3.0.1"
@@ -35,7 +32,6 @@ futures-lite= "1.11.1"
 bimap="0.5"
 flume = "0.9.1"
 polling="=1.1.0"
-smolscale = {path="../lib/smolscale"}
 parking_lot = { version = "0.11.0", features = ["serde"] }
 scopeguard = "1.1.0"
 http-types = "2.5.0"
@@ -43,3 +39,5 @@ serde_json = "1.0.58"
 strsim = "0.10.0"
 smol-timeout = "0.6.0"
 rusqlite={version="0.24", features = ["bundled" ]}
+flexi_logger = "0.16.1"
+regex="1.4.1"

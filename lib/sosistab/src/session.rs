@@ -82,6 +82,7 @@ pub struct SessionStats {
     pub down_loss: f64,
     pub down_recovered_loss: f64,
     pub down_redundant: f64,
+    pub recent_seqnos: Vec<u64>,
 }
 
 async fn session_loop(
@@ -158,6 +159,7 @@ async fn session_loop(
         }
     };
     let decoder = smol::lock::Mutex::new(RunDecoder::default());
+    let seqnos = smol::lock::Mutex::new(VecDeque::new());
     // receive loop
     let recv_loop = async {
         let mut rp_filter = ReplayFilter::new(0);
@@ -170,6 +172,13 @@ async fn session_loop(
                     new_frame.frame_no
                 );
                 continue;
+            }
+            {
+                let mut seqnos = seqnos.lock().await;
+                seqnos.push_back(new_frame.frame_no);
+                if seqnos.len() > 100000 {
+                    seqnos.pop_front();
+                }
             }
             loss_calc.update_params(new_frame.high_recv_frame_no, new_frame.total_recv_frames);
             measured_loss.store(loss_to_u8(loss_calc.median), Ordering::Relaxed);
@@ -203,6 +212,7 @@ async fn session_loop(
                     - (decoder.correct_count as f64 / decoder.total_count as f64).min(1.0),
                 down_redundant: decoder.total_parity_shards as f64
                     / decoder.total_data_shards as f64,
+                recent_seqnos: seqnos.lock().await.iter().cloned().collect(),
             };
             infal(req.send_async(response)).await;
         }

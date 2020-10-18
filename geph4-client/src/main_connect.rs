@@ -1,8 +1,5 @@
-use crate::{
-    cache::ClientCache, kalive::Keepalive, stats::StatCollector, AuthOpt, CommonOpt, ALLOCATOR,
-    GEXEC,
-};
-use prost::Message;
+use crate::stats::GLOBAL_LOGGER;
+use crate::{cache::ClientCache, kalive::Keepalive, stats::StatCollector, AuthOpt, CommonOpt};
 use scopeguard::defer;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
@@ -63,12 +60,6 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     let stat_listener = smol::net::TcpListener::bind(opt.stats_listen).await?;
     let http_listener = smol::net::TcpListener::bind(opt.http_listen).await?;
     let scollect = stat_collector.clone();
-    // pprof profiler
-    let guard = if opt.pprof {
-        Some(pprof::ProfilerGuard::new(100).unwrap())
-    } else {
-        None
-    };
     // scope
     let scope = smol::Executor::new();
     if let Some(dns_listen) = opt.dns_listen {
@@ -81,12 +72,11 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
                 loop {
                     let (stat_client, _) = stat_listener.accept().await?;
                     let scollect = scollect.clone();
-                    let guard = &guard;
                     my_scope
                         .spawn(async move {
                             drop(
                                 async_h1::accept(stat_client, |req| {
-                                    handle_stats(guard, scollect.clone(), req)
+                                    handle_stats(scollect.clone(), req)
                                 })
                                 .await,
                             );
@@ -121,29 +111,23 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         .await
 }
 
+use std::io::prelude::*;
+
 /// Handle a request for stats
-async fn handle_stats<'a>(
-    pprof: &Option<pprof::ProfilerGuard<'a>>,
+async fn handle_stats(
     stats: Arc<StatCollector>,
     _req: http_types::Request,
 ) -> http_types::Result<http_types::Response> {
     let mut res = http_types::Response::new(http_types::StatusCode::Ok);
     match _req.url().path() {
-        "/pprof" => {
-            if let Some(v) = pprof {
-                match v.report().build() {
-                    Ok(report) => {
-                        let profile = report.pprof().unwrap();
-                        let mut content = Vec::new();
-                        profile.encode(&mut content).unwrap();
-                        res.set_body(content);
-                        Ok(res)
-                    }
-                    Err(e) => Ok(http_types::Response::new(500)),
-                }
-            } else {
-                Ok(http_types::Response::new(404))
+        "/debugpack" => {
+            let mut out = Vec::new();
+            let noo = GLOBAL_LOGGER.read();
+            for line in noo.iter() {
+                writeln!(out, "{}", line)?;
             }
+            res.set_body(out);
+            Ok(res)
         }
         "/proxy.pac" => {
             res.set_body("function FindProxyForURL(url, host){return 'PROXY 127.0.0.1:9910';}");
