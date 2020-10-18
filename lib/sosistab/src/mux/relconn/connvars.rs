@@ -62,29 +62,13 @@ impl ConnVars {
     }
 
     pub fn pacing_rate(&self) -> f64 {
-        if self.slow_start {
-            return self.inflight.rate() * 2.0;
-        }
-        if self.loss_rate > 0.02 {
-            return self.inflight.rate() * 0.5;
-        }
-        // self.inflight.bandwidth_estimate() * 2.0
-        // 10000.0
-        let multiplier = if self.flights % 100 == 1 {
-            0.1
-        } else {
-            match self.flights % 2 {
-                0 => 1.5,
-                1 => 0.5,
-                _ => 0.95,
-            }
-        };
-        self.inflight.rate() * multiplier
+        self.inflight.rate() * 2.0
     }
 
     pub fn congestion_ack(&mut self) {
         self.loss_rate *= 0.99;
-        self.cwnd = (self.cwnd * 0.9 + self.cwnd_target() * 0.1).min(self.cwnd + 64.0 / self.cwnd);
+        let n = 0.23 * self.cwnd.powf(0.4).max(1.0);
+        self.cwnd += n / self.cwnd;
         let now = Instant::now();
         if now.saturating_duration_since(self.last_flight) > self.inflight.srtt() {
             self.flights += 1;
