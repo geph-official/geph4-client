@@ -1,4 +1,7 @@
-use parking_lot::Mutex;
+use std::collections::VecDeque;
+
+use once_cell::sync::Lazy;
+use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -46,3 +49,6 @@ impl StatCollector {
         *self.exit_info.lock() = desc
     }
 }
+
+pub static GLOBAL_LOGGER: Lazy<RwLock<VecDeque<String>>> =
+    Lazy::new(|| RwLock::new(VecDeque::new()));

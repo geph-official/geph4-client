@@ -40,7 +40,7 @@ impl RelConn {
         additional_info: Option<String>,
     ) -> (Self, RelConnBack) {
         let (send_write, recv_write) = bipe::bipe(64 * 1024);
-        let (send_read, recv_read) = bipe::bipe(64 * 1024);
+        let (send_read, recv_read) = bipe::bipe(1024 * 1024);
         let (send_wire_read, recv_wire_read) = flume::unbounded();
         runtime::spawn(relconn_actor(
             state,
