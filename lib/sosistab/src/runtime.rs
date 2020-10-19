@@ -15,7 +15,7 @@ static FALLBACK: Lazy<Arc<Executor<'static>>> = Lazy::new(|| {
             let ex = ex.clone();
             builder
                 .spawn(move || {
-                    smol::future::block_on(ex.run(smol::future::pending::<()>()));
+                    smol::block_on(ex.run(smol::future::pending::<()>()));
                 })
                 .unwrap();
         }

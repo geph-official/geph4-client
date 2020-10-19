@@ -144,23 +144,14 @@ async fn relconn_actor(
         NewPkt(Message),
         Closing,
     }
-    // let (send_buf, recv_buf) = flume::bounded(10000);
+
     let transmit = |msg| async {
         drop(send_wire_write.send_async(msg).await);
         smol::future::yield_now().await;
     };
     let mut fragments: VecDeque<Bytes> = VecDeque::new();
-    // let limiter = Arc::new(VarRateLimit::new());
+    let limiter = Arc::new(VarRateLimit::new());
     let implied_rate = Arc::new(AtomicU32::new(100));
-    // let irr = implied_rate.clone();
-    // let lim = limiter.clone();
-    // let _task: smol::Task<Option<()>> = runtime::spawn(async move {
-    //     loop {
-    //         let msg = recv_buf.recv_async().await.ok()?;
-    //         lim.wait(irr.load(Ordering::Relaxed)).await;
-    //         send_wire_write.send_async(msg).await.ok()?;
-    //     }
-    // });
     loop {
         state = match state {
             SynReceived { stream_id } => {
@@ -264,13 +255,13 @@ async fn relconn_actor(
                                 };
                                 if let Some(to_write) = to_write {
                                     fragments.push_back(to_write);
-                                    // limiter.wait(implied_rate.load(Ordering::Relaxed)).await;
+                                    limiter.wait(implied_rate.load(Ordering::Relaxed)).await;
                                     Ok(Evt::NewWrite(fragments.pop_front().unwrap()))
                                 } else {
                                     Ok(Evt::Closing)
                                 }
                             } else {
-                                // limiter.wait(implied_rate.load(Ordering::Relaxed)).await;
+                                limiter.wait(implied_rate.load(Ordering::Relaxed)).await;
                                 Ok::<Evt, anyhow::Error>(Evt::NewWrite(
                                     fragments.pop_front().unwrap(),
                                 ))
@@ -357,7 +348,7 @@ async fn relconn_actor(
                             }
                         }
                         conn_vars.inflight.mark_acked_lt(seqno);
-                        // implied_rate.store(conn_vars.pacing_rate() as u32, Ordering::Relaxed);
+                        implied_rate.store(conn_vars.pacing_rate() as u32, Ordering::Relaxed);
                         if conn_vars.inflight.len() == 0 && conn_vars.closing {
                             Reset {
                                 stream_id,

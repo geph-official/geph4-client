@@ -102,7 +102,7 @@ pub async fn connect_custom(
     unimplemented!()
 }
 
-const SHARDS: u8 = 3;
+const SHARDS: u8 = 1;
 const RESET_MILLIS: u128 = 500;
 
 async fn init_session(
@@ -221,7 +221,7 @@ async fn client_backhaul_once(
                             }
                         }
                         .or(async {
-                            smol::Timer::after(Duration::from_secs(1)).await;
+                            smol::Timer::after(Duration::from_secs(5)).await;
                             None
                         }),
                     );

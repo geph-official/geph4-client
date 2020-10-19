@@ -1,4 +1,4 @@
-use std::{collections::BTreeSet, time::Instant};
+use std::{collections::BTreeSet, collections::VecDeque, time::Instant};
 
 use bytes::Bytes;
 
@@ -7,6 +7,7 @@ use crate::mux::structs::*;
 use super::inflight::Inflight;
 
 pub(crate) struct ConnVars {
+    pub pre_inflight: VecDeque<Message>,
     pub inflight: Inflight,
     pub next_free_seqno: Seqno,
     pub retrans_count: u64,
@@ -32,6 +33,7 @@ pub(crate) struct ConnVars {
 impl Default for ConnVars {
     fn default() -> Self {
         ConnVars {
+            pre_inflight: VecDeque::new(),
             inflight: Inflight::new(),
             next_free_seqno: 0,
             retrans_count: 0,
@@ -57,53 +59,30 @@ impl Default for ConnVars {
 }
 
 impl ConnVars {
-<<<<<<< HEAD
     fn cwnd_target(&self) -> f64 {
-        (self.inflight.bdp() * 2.0).min(10000.0).max(16.0)
+        (self.inflight.bdp() * 1.5).min(10000.0).max(16.0)
     }
 
-    // pub fn pacing_rate(&self) -> f64 {
-    //     20000.0
-=======
-    // fn cwnd_target(&self) -> f64 {
-    //     (self.inflight.bdp() * 1.5).min(10000.0).max(16.0)
-    // }
-
-    // pub fn pacing_rate(&self) -> f64 {
-    //     if self.slow_start {
-    //         return self.inflight.rate() * 2.0;
-    //     }
-    //     // if self.loss_rate > 0.02 {
-    //     //     return self.inflight.rate() * 0.5;
-    //     // }
-    //     // self.inflight.bandwidth_estimate() * 2.0
-    //     // 10000.0
-    //     let multiplier = if self.flights % 100 == 1 {
-    //         0.1
-    //     } else {
-    //         match self.flights % 5 {
-    //             0 => 1.5,
-    //             1 => 0.5,
-    //             _ => 0.95,
-    //         }
-    //     };
-    //     self.inflight.rate() * multiplier
->>>>>>> master
-    // }
+    pub fn pacing_rate(&self) -> f64 {
+        self.inflight.rate()
+        // * match self.flights % 5 {
+        //     0 => 1.25,
+        //     1 => 0.75,
+        //     _ => 0.8,
+        // }
+    }
 
     pub fn congestion_ack(&mut self) {
         self.loss_rate *= 0.99;
-<<<<<<< HEAD
-        if self.slow_start && self.cwnd < 1000.0 {
-            self.cwnd += 1.0
-        } else {
-            let n = 0.23 * self.cwnd.powf(0.4).max(1.0) * 3.0;
-            self.cwnd += n / self.cwnd;
-        }
-=======
-        self.cwnd += 16.0 / self.cwnd;
->>>>>>> master
+        // self.cwnd = self.cwnd * 0.999 + self.cwnd_target() * 0.001;
+        self.cwnd = self.cwnd_target();
         let now = Instant::now();
+        // log::debug!(
+        //     "ACK CWND => {}; loss rate {}, srtt {}ms",
+        //     self.cwnd,
+        //     self.loss_rate,
+        //     self.inflight.srtt().as_millis()
+        // );
         if now.saturating_duration_since(self.last_flight) > self.inflight.srtt() {
             self.flights += 1;
             self.last_flight = now
@@ -114,21 +93,13 @@ impl ConnVars {
         self.slow_start = false;
         self.loss_rate = self.loss_rate * 0.99 + 0.01;
         let now = Instant::now();
-<<<<<<< HEAD
         if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() * 2 {
-            if self.cwnd > self.inflight.bdp() {
-                self.cwnd = self.inflight.bdp().max(self.cwnd * 0.5);
-            }
-=======
-        if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() {
-            // self.cwnd = self.inflight.bdp();
-            self.cwnd *= 0.5;
->>>>>>> master
             log::debug!(
-                "LOSS CWND => {}; loss rate {}, srtt {}ms",
+                "LOSS CWND => {}; loss rate {}, srtt {}ms, rate {}",
                 self.cwnd,
                 self.loss_rate,
-                self.inflight.srtt().as_millis()
+                self.inflight.srtt().as_millis(),
+                self.inflight.rate()
             );
             self.last_loss = now;
         }

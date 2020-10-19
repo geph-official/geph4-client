@@ -3,10 +3,17 @@ use crate::msg::DataFrame;
 use crate::runtime;
 use bytes::Bytes;
 use flume::{Receiver, Sender};
+use governor::{Quota, RateLimiter};
 use smol::prelude::*;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::time::Duration;
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    time::Instant,
+};
+use std::{
+    num::NonZeroU32,
+    sync::atomic::{AtomicU64, AtomicU8, Ordering},
+};
 
 async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T {
     match fut.await {
@@ -37,8 +44,8 @@ pub struct Session {
 impl Session {
     /// Creates a tuple of a Session and also a channel with which stuff is fed into the session.
     pub fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = flume::bounded(2000);
-        let (send_input, recv_input) = flume::bounded(2000);
+        let (send_tosend, recv_tosend) = flume::bounded(500);
+        let (send_input, recv_input) = flume::bounded(500);
         let (s, r) = flume::unbounded();
         let task = runtime::spawn(session_loop(cfg, recv_tosend, send_input, r));
         Session {
@@ -100,7 +107,7 @@ async fn session_loop(
     let send_loop = async {
         let shaper = RateLimiter::direct_with_clock(
             Quota::per_second(NonZeroU32::new(10000u32).unwrap())
-                .allow_burst(NonZeroU32::new(1).unwrap()),
+                .allow_burst(NonZeroU32::new(20).unwrap()),
             &governor::clock::MonotonicClock::default(),
         );
         let mut frame_no = 0u64;
@@ -153,7 +160,13 @@ async fn session_loop(
                         })
                         .await,
                 );
-                shaper.until_ready().await;
+                // every 10000 frames, we send 1000 frames slowly. this keeps the loss estimator accurate
+                // let frame_cycle = frame_no % 10000;
+                // if frame_cycle >= 9000 {
+                //     let _ = shaper.until_n_ready(NonZeroU32::new(5).unwrap()).await;
+                // } else {
+                //     shaper.until_ready().await;
+                // }
                 frame_no += 1;
             }
             run_no += 1;

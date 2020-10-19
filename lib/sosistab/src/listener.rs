@@ -215,7 +215,7 @@ impl ListenerActor {
                                                 flume::bounded(100);
                                             // create session
                                             let (session_output_send, session_output_recv) =
-                                                flume::bounded::<msg::DataFrame>(100);
+                                                flume::bounded::<msg::DataFrame>(1000);
                                             let mut locked_addrs = IndexMap::new();
                                             locked_addrs.insert(shard_id, addr);
                                             // send for poll

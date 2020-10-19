@@ -112,7 +112,7 @@ async fn keepalive_actor_once(
             .into_iter()
             .map(|desc| {
                 let send = send.clone();
-                smol::spawn(async move {
+                GEXEC.spawn(async move {
                     log::debug!("connecting through {}...", desc.endpoint);
                     drop(
                         send.send((
