@@ -61,14 +61,18 @@ impl ConnVars {
         (self.inflight.bdp() * 2.0).min(10000.0).max(16.0)
     }
 
-    pub fn pacing_rate(&self) -> f64 {
-        self.inflight.rate() * 2.0
-    }
+    // pub fn pacing_rate(&self) -> f64 {
+    //     20000.0
+    // }
 
     pub fn congestion_ack(&mut self) {
         self.loss_rate *= 0.99;
-        let n = 0.23 * self.cwnd.powf(0.4).max(1.0);
-        self.cwnd += n / self.cwnd;
+        if self.slow_start && self.cwnd < 1000.0 {
+            self.cwnd += 1.0
+        } else {
+            let n = 0.23 * self.cwnd.powf(0.4).max(1.0) * 3.0;
+            self.cwnd += n / self.cwnd;
+        }
         let now = Instant::now();
         if now.saturating_duration_since(self.last_flight) > self.inflight.srtt() {
             self.flights += 1;
@@ -80,8 +84,10 @@ impl ConnVars {
         self.slow_start = false;
         self.loss_rate = self.loss_rate * 0.99 + 0.01;
         let now = Instant::now();
-        if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() {
-            self.cwnd *= 0.8;
+        if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() * 2 {
+            if self.cwnd > self.inflight.bdp() {
+                self.cwnd = self.inflight.bdp().max(self.cwnd * 0.5);
+            }
             log::debug!(
                 "LOSS CWND => {}; loss rate {}, srtt {}ms",
                 self.cwnd,

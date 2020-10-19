@@ -141,7 +141,7 @@ impl FrameDecoder {
             ))?]);
         }
         if self.present_count < self.data_shards {
-            log::debug!("don't even attempt yet");
+            log::trace!("don't even attempt yet");
             return None;
         }
         let mut ref_vec: Vec<(&mut [u8], bool)> = self
@@ -151,7 +151,7 @@ impl FrameDecoder {
             .map(|(v, pres)| (v.as_mut(), *pres))
             .collect();
         // otherwise, attempt to reconstruct
-        log::debug!(
+        log::trace!(
             "attempting to reconstruct (data={}, parity={})",
             self.data_shards,
             self.parity_shards

@@ -150,7 +150,7 @@ async fn relconn_actor(
         smol::future::yield_now().await;
     };
     let mut fragments: VecDeque<Bytes> = VecDeque::new();
-    let limiter = Arc::new(VarRateLimit::new());
+    // let limiter = Arc::new(VarRateLimit::new());
     let implied_rate = Arc::new(AtomicU32::new(100));
     // let irr = implied_rate.clone();
     // let lim = limiter.clone();
@@ -264,13 +264,13 @@ async fn relconn_actor(
                                 };
                                 if let Some(to_write) = to_write {
                                     fragments.push_back(to_write);
-                                    limiter.wait(implied_rate.load(Ordering::Relaxed)).await;
+                                    // limiter.wait(implied_rate.load(Ordering::Relaxed)).await;
                                     Ok(Evt::NewWrite(fragments.pop_front().unwrap()))
                                 } else {
                                     Ok(Evt::Closing)
                                 }
                             } else {
-                                limiter.wait(implied_rate.load(Ordering::Relaxed)).await;
+                                // limiter.wait(implied_rate.load(Ordering::Relaxed)).await;
                                 Ok::<Evt, anyhow::Error>(Evt::NewWrite(
                                     fragments.pop_front().unwrap(),
                                 ))
@@ -357,7 +357,7 @@ async fn relconn_actor(
                             }
                         }
                         conn_vars.inflight.mark_acked_lt(seqno);
-                        implied_rate.store(conn_vars.pacing_rate() as u32, Ordering::Relaxed);
+                        // implied_rate.store(conn_vars.pacing_rate() as u32, Ordering::Relaxed);
                         if conn_vars.inflight.len() == 0 && conn_vars.closing {
                             Reset {
                                 stream_id,
