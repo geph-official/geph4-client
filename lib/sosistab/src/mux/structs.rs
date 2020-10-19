@@ -96,7 +96,7 @@ impl VarRateLimit {
     pub async fn wait(&self, speed: u32) {
         let mut next_time = self.next_time.lock().await;
         smol::Timer::at(*next_time).await;
-        *next_time = next_time
+        *next_time = Instant::now()
             .checked_add(Duration::from_micros(1_000_000 / (speed.max(100)) as u64))
             .expect("time OOB")
     }
