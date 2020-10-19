@@ -57,34 +57,34 @@ impl Default for ConnVars {
 }
 
 impl ConnVars {
-    fn cwnd_target(&self) -> f64 {
-        (self.inflight.bdp() * 2.0).min(10000.0).max(16.0)
-    }
+    // fn cwnd_target(&self) -> f64 {
+    //     (self.inflight.bdp() * 1.5).min(10000.0).max(16.0)
+    // }
 
-    pub fn pacing_rate(&self) -> f64 {
-        if self.slow_start {
-            return self.inflight.rate() * 2.0;
-        }
-        if self.loss_rate > 0.02 {
-            return self.inflight.rate() * 0.5;
-        }
-        // self.inflight.bandwidth_estimate() * 2.0
-        // 10000.0
-        let multiplier = if self.flights % 100 == 1 {
-            0.1
-        } else {
-            match self.flights % 2 {
-                0 => 1.5,
-                1 => 0.5,
-                _ => 0.95,
-            }
-        };
-        self.inflight.rate() * multiplier
-    }
+    // pub fn pacing_rate(&self) -> f64 {
+    //     if self.slow_start {
+    //         return self.inflight.rate() * 2.0;
+    //     }
+    //     // if self.loss_rate > 0.02 {
+    //     //     return self.inflight.rate() * 0.5;
+    //     // }
+    //     // self.inflight.bandwidth_estimate() * 2.0
+    //     // 10000.0
+    //     let multiplier = if self.flights % 100 == 1 {
+    //         0.1
+    //     } else {
+    //         match self.flights % 5 {
+    //             0 => 1.5,
+    //             1 => 0.5,
+    //             _ => 0.95,
+    //         }
+    //     };
+    //     self.inflight.rate() * multiplier
+    // }
 
     pub fn congestion_ack(&mut self) {
         self.loss_rate *= 0.99;
-        self.cwnd = (self.cwnd * 0.9 + self.cwnd_target() * 0.1).min(self.cwnd + 64.0 / self.cwnd);
+        self.cwnd += 32.0 / self.cwnd;
         let now = Instant::now();
         if now.saturating_duration_since(self.last_flight) > self.inflight.srtt() {
             self.flights += 1;
@@ -97,6 +97,7 @@ impl ConnVars {
         self.loss_rate = self.loss_rate * 0.99 + 0.01;
         let now = Instant::now();
         if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() {
+            // self.cwnd = self.inflight.bdp();
             self.cwnd *= 0.8;
             log::debug!(
                 "LOSS CWND => {}; loss rate {}, srtt {}ms",
