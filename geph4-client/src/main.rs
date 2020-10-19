@@ -84,7 +84,7 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
-    sosistab::runtime::set_smol_executor(&GEXEC);
+    // sosistab::runtime::set_smol_executor(&GEXEC);
     smol::block_on(GEXEC.run(async move {
         match opt {
             Opt::Connect(opt) => main_connect::main_connect(opt).await,

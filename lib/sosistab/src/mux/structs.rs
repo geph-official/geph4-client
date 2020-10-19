@@ -1,6 +1,6 @@
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, num::NonZeroU32};
+use std::{collections::HashMap, time::Duration, time::Instant};
 
 /// A sequence number.
 pub type Seqno = u64;
@@ -15,6 +15,15 @@ pub enum Message {
         seqno: Seqno,
         payload: Bytes,
     },
+}
+
+impl Message {
+    pub fn seqno(&self) -> Seqno {
+        match self {
+            Message::Rel { seqno, .. } => *seqno,
+            _ => 0,
+        }
+    }
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
@@ -74,36 +83,22 @@ impl<T: Clone> Reorderer<T> {
 }
 
 pub struct VarRateLimit {
-    limiter: governor::RateLimiter<
-        governor::state::NotKeyed,
-        governor::state::InMemoryState,
-        governor::clock::MonotonicClock,
-    >,
+    next_time: smol::lock::Mutex<Instant>,
 }
-
-const DIVIDER: u32 = 1000000;
-const DIVIDER_FRAC: u32 = 100;
 
 impl VarRateLimit {
     pub fn new() -> Self {
-        VarRateLimit {
-            limiter: governor::RateLimiter::direct_with_clock(
-                governor::Quota::per_second(NonZeroU32::new(DIVIDER).unwrap())
-                    .allow_burst(NonZeroU32::new(DIVIDER / DIVIDER_FRAC).unwrap()),
-                &governor::clock::MonotonicClock::default(),
-            ),
+        Self {
+            next_time: smol::lock::Mutex::new(Instant::now()),
         }
     }
 
     pub async fn wait(&self, speed: u32) {
-        let speed = speed.max(DIVIDER_FRAC * 2);
-        let divided = NonZeroU32::new((DIVIDER / speed.max(1)).max(1)).unwrap();
-        // self.limiter.until_n_ready(divided).await.unwrap()
-        while let Err(governor::NegativeMultiDecision::BatchNonConforming(_, until)) =
-            self.limiter.check_n(divided)
-        {
-            smol::Timer::at(until.earliest_possible()).await;
-        }
+        let mut next_time = self.next_time.lock().await;
+        smol::Timer::at(*next_time).await;
+        *next_time = Instant::now()
+            .checked_add(Duration::from_micros(1_000_000 / (speed.max(100)) as u64))
+            .expect("time OOB")
     }
 
     // pub async fn wait(&self, speed: u32) {
