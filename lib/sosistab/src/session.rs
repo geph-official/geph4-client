@@ -5,11 +5,14 @@ use bytes::Bytes;
 use flume::{Receiver, Sender};
 use governor::{Quota, RateLimiter};
 use smol::prelude::*;
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::time::Duration;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     num::NonZeroU32,
+};
+use std::{
+    sync::atomic::{AtomicU64, AtomicU8, Ordering},
+    time::Instant,
 };
 
 async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T {
@@ -81,12 +84,13 @@ impl Session {
 }
 
 /// Statistics of a single Sosistab session.
+#[derive(Debug)]
 pub struct SessionStats {
     pub down_total: u64,
     pub down_loss: f64,
     pub down_recovered_loss: f64,
     pub down_redundant: f64,
-    pub recent_seqnos: Vec<u64>,
+    pub recent_seqnos: Vec<(Instant, u64)>,
 }
 
 async fn session_loop(
@@ -102,8 +106,8 @@ async fn session_loop(
     // sending loop
     let send_loop = async {
         let shaper = RateLimiter::direct_with_clock(
-            Quota::per_second(NonZeroU32::new(20000u32).unwrap())
-                .allow_burst(NonZeroU32::new(128).unwrap()),
+            Quota::per_second(NonZeroU32::new(10000u32).unwrap())
+                .allow_burst(NonZeroU32::new(1).unwrap()),
             &governor::clock::MonotonicClock::default(),
         );
         let mut frame_no = 0u64;
@@ -179,8 +183,8 @@ async fn session_loop(
             }
             {
                 let mut seqnos = seqnos.lock().await;
-                seqnos.push_back(new_frame.frame_no);
-                if seqnos.len() > 100000 {
+                seqnos.push_back((Instant::now(), new_frame.frame_no));
+                if seqnos.len() > 10000 {
                     seqnos.pop_front();
                 }
             }

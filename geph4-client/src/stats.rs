@@ -4,7 +4,7 @@ use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Default, Serialize, Deserialize)]
 pub struct StatCollector {
     total_rx: Mutex<u64>,
     total_tx: Mutex<u64>,

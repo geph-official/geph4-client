@@ -72,11 +72,12 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
                 loop {
                     let (stat_client, _) = stat_listener.accept().await?;
                     let scollect = scollect.clone();
+                    let keepalive = &keepalive;
                     my_scope
                         .spawn(async move {
                             drop(
                                 async_h1::accept(stat_client, |req| {
-                                    handle_stats(scollect.clone(), req)
+                                    handle_stats(scollect.clone(), keepalive, req)
                                 })
                                 .await,
                             );
@@ -116,16 +117,36 @@ use std::io::prelude::*;
 /// Handle a request for stats
 async fn handle_stats(
     stats: Arc<StatCollector>,
+    kalive: &Keepalive,
     _req: http_types::Request,
 ) -> http_types::Result<http_types::Response> {
     let mut res = http_types::Response::new(http_types::StatusCode::Ok);
     match _req.url().path() {
+        "/sosistab" => {
+            let mut out = Vec::new();
+            writeln!(out, "time,seqno")?;
+            let detail = kalive.get_stats().await?;
+            if let Some((first_time, _)) = detail.recent_seqnos.first() {
+                for (time, seqno) in detail.recent_seqnos.iter() {
+                    writeln!(
+                        out,
+                        "{},{}",
+                        time.saturating_duration_since(*first_time).as_secs_f64(),
+                        seqno
+                    )?;
+                }
+            }
+            res.append_header("content-type", "text/plain");
+            res.set_body(out);
+            Ok(res)
+        }
         "/debugpack" => {
             let mut out = Vec::new();
             let noo = GLOBAL_LOGGER.read();
             for line in noo.iter() {
                 writeln!(out, "{}", line)?;
             }
+            res.append_header("content-type", "text/plain");
             res.set_body(out);
             Ok(res)
         }

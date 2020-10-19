@@ -11,6 +11,7 @@ use std::{sync::Arc, time::Instant};
 /// An "actor" that keeps a client session alive.
 pub struct Keepalive {
     open_socks5_conn: Sender<(String, Sender<sosistab::mux::RelConn>)>,
+    get_stats: Sender<Sender<sosistab::SessionStats>>,
     _task: smol::Task<anyhow::Result<()>>,
 }
 
@@ -23,14 +24,17 @@ impl Keepalive {
         ccache: Arc<ClientCache>,
     ) -> Self {
         let (send, recv) = smol::channel::unbounded();
+        let (send_stats, recv_stats) = smol::channel::unbounded();
         Keepalive {
             open_socks5_conn: send,
+            get_stats: send_stats,
             _task: GEXEC.spawn(keepalive_actor(
                 stats,
                 exit_host.to_string(),
                 use_bridges,
                 ccache,
                 recv,
+                recv_stats,
             )),
         }
     }
@@ -43,6 +47,13 @@ impl Keepalive {
             .await?;
         Ok(recv.recv().await?)
     }
+
+    /// Gets session statistics
+    pub async fn get_stats(&self) -> anyhow::Result<sosistab::SessionStats> {
+        let (send, recv) = smol::channel::bounded(1);
+        self.get_stats.send(send).await?;
+        Ok(recv.recv().await?)
+    }
 }
 
 async fn keepalive_actor(
@@ -51,6 +62,7 @@ async fn keepalive_actor(
     use_bridges: bool,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::mux::RelConn>)>,
+    recv_get_stats: Receiver<Sender<sosistab::SessionStats>>,
 ) -> anyhow::Result<()> {
     loop {
         if let Err(err) = keepalive_actor_once(
@@ -59,6 +71,7 @@ async fn keepalive_actor(
             use_bridges,
             ccache.clone(),
             recv_socks5_conn.clone(),
+            recv_get_stats.clone(),
         )
         .await
         {
@@ -73,6 +86,7 @@ async fn keepalive_actor_once(
     use_bridges: bool,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::mux::RelConn>)>,
+    recv_get_stats: Receiver<Sender<sosistab::SessionStats>>,
 ) -> anyhow::Result<()> {
     stats.set_exit_descriptor(None);
 
@@ -218,7 +232,14 @@ async fn keepalive_actor_once(
                         .detach();
                 }
             }
-            .or(async { Err(recv_stop.recv().await?) }),
+            .or(async { Err(recv_stop.recv().await?) })
+            .or(async {
+                loop {
+                    let stat_send = recv_get_stats.recv().await?;
+                    let stats = mux.get_session().get_stats().await;
+                    stat_send.send(stats).await?;
+                }
+            }),
         )
         .await
 }
