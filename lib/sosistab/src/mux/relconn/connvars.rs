@@ -70,7 +70,7 @@ impl ConnVars {
 
     pub fn congestion_ack(&mut self) {
         self.loss_rate *= 0.99;
-        self.cwnd += 16.0 / self.cwnd;
+        self.cwnd += (self.inflight.min_rtt().as_millis() / 10) as f64 / self.cwnd;
         let now = Instant::now();
         if now.saturating_duration_since(self.last_flight) > self.inflight.srtt() {
             self.flights += 1;
