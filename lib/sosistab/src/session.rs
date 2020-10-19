@@ -3,14 +3,10 @@ use crate::msg::DataFrame;
 use crate::runtime;
 use bytes::Bytes;
 use flume::{Receiver, Sender};
-use governor::{Quota, RateLimiter};
 use smol::prelude::*;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::time::Duration;
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    num::NonZeroU32,
-};
 
 async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T {
     match fut.await {
@@ -41,8 +37,8 @@ pub struct Session {
 impl Session {
     /// Creates a tuple of a Session and also a channel with which stuff is fed into the session.
     pub fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = flume::bounded(1000);
-        let (send_input, recv_input) = flume::bounded(1000);
+        let (send_tosend, recv_tosend) = flume::bounded(2000);
+        let (send_input, recv_input) = flume::bounded(2000);
         let (s, r) = flume::unbounded();
         let task = runtime::spawn(session_loop(cfg, recv_tosend, send_input, r));
         Session {
@@ -61,10 +57,10 @@ impl Session {
 
     /// Takes a Bytes to be sent and stuffs it into the session.
     pub async fn send_bytes(&self, to_send: Bytes) {
-        if self.send_tosend.try_send(to_send).is_err() {
-            log::warn!("overflowed send buffer at session!");
-        }
-        // drop(self.send_tosend.send_async(to_send).await)
+        // if self.send_tosend.try_send(to_send).is_err() {
+        //     log::warn!("overflowed send buffer at session!");
+        // }
+        drop(self.send_tosend.send_async(to_send).await)
     }
 
     /// Waits until the next application input is decoded by the session.
@@ -81,12 +77,13 @@ impl Session {
 }
 
 /// Statistics of a single Sosistab session.
+#[derive(Debug)]
 pub struct SessionStats {
     pub down_total: u64,
     pub down_loss: f64,
     pub down_recovered_loss: f64,
     pub down_redundant: f64,
-    pub recent_seqnos: Vec<u64>,
+    pub recent_seqnos: Vec<(Instant, u64)>,
 }
 
 async fn session_loop(
@@ -102,8 +99,8 @@ async fn session_loop(
     // sending loop
     let send_loop = async {
         let shaper = RateLimiter::direct_with_clock(
-            Quota::per_second(NonZeroU32::new(20000u32).unwrap())
-                .allow_burst(NonZeroU32::new(128).unwrap()),
+            Quota::per_second(NonZeroU32::new(10000u32).unwrap())
+                .allow_burst(NonZeroU32::new(1).unwrap()),
             &governor::clock::MonotonicClock::default(),
         );
         let mut frame_no = 0u64;
@@ -179,8 +176,8 @@ async fn session_loop(
             }
             {
                 let mut seqnos = seqnos.lock().await;
-                seqnos.push_back(new_frame.frame_no);
-                if seqnos.len() > 100000 {
+                seqnos.push_back((Instant::now(), new_frame.frame_no));
+                if seqnos.len() > 10000 {
                     seqnos.pop_front();
                 }
             }
@@ -349,13 +346,13 @@ impl LossCalculator {
             self.last_total_seqno = total_seqno;
             let loss_sample = 1.0 - delta_total / delta_top.max(delta_total);
             self.loss_samples.push_back(loss_sample);
-            if self.loss_samples.len() > 256 {
+            if self.loss_samples.len() > 64 {
                 self.loss_samples.pop_front();
             }
             let median = {
                 let mut lala: Vec<f64> = self.loss_samples.iter().cloned().collect();
                 lala.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-                lala[lala.len() / 8]
+                lala[lala.len() / 4]
             };
             self.median = median
         }

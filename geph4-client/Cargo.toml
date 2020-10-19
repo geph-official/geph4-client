@@ -7,37 +7,34 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-cap="0.1"
 anyhow = "1.0.33"
-smol = "1.2.4"
-log = "0.4.11"
-structopt = "0.3.19"
-x25519-dalek={ version = "1.1.0", features = ["serde"] }
-ed25519-dalek={ version = "1.0.1", features = ["serde"] }
-binder_transport = {path="../lib/binder_transport"}
+async-h1= "2.1.3"
 bincode = "1.3.1"
+binder_transport = {path="../lib/binder_transport"}
+cap= "0.1.0"
+dirs = "3.0.1"
+ed25519-dalek={ version = "1.0.1", features = ["serde"] }
+flexi_logger = "0.16.1"
+flume = "0.9.1"
+futures-lite= "1.11.1"
 hex = "0.4.2"
+http-types = "2.6.0"
+log = "0.4.11"
+mizaru={path="../lib/mizaru"}
+once_cell= "1.4.1"
+parking_lot = { version = "0.11.0", features = ["serde"] }
+rand= "0.7.3"
+regex= "1.4.1"
+rsa-fdh = "0.4.1"
+rusqlite={ version = "0.24.1", features = ["bundled" ] }
+scopeguard = "1.1.0"
+serde = { version = "1.0.117", features = ["derive"] }
+serde_json = "1.0.59"
+sha2 = "0.9.1"
+smol = "1.2.4"
+smol-timeout = "0.6.0"
 socksv5 = "0.2.0"
 sosistab={path="../lib/sosistab"}
-serde = { version = "1.0.116", features = ["derive"] }
-mizaru={path="../lib/mizaru"}
-rand= "0.7.3"
-rsa-fdh = "0.4.1"
-sha2 = "0.9.1"
-dirs = "3.0.1"
-dns-parser="0.8"
-once_cell= "1.4.1"
-async-h1= "2.1.2"
-futures-lite= "1.11.1"
-bimap="0.5"
-flume = "0.9.1"
-polling="=1.1.0"
-parking_lot = { version = "0.11.0", features = ["serde"] }
-scopeguard = "1.1.0"
-http-types = "2.5.0"
-serde_json = "1.0.58"
 strsim = "0.10.0"
-smol-timeout = "0.6.0"
-rusqlite={version="0.24", features = ["bundled" ]}
-flexi_logger = "0.16.1"
-regex="1.4.1"
+structopt = "0.3.20"
+x25519-dalek={ version = "1.1.0", features = ["serde"] }

@@ -75,7 +75,8 @@ impl FrameEncoder {
                     }
                 }
                 panic!()
-            }))
+            })
+            + 1)
         .min(255 - run_len)
     }
 }

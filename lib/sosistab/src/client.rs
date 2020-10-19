@@ -160,7 +160,7 @@ async fn client_backhaul_once(
     let mut last_resume = Instant::now();
     let mut updated = false;
     let mut socket = runtime::new_udp_socket_bind(laddr_gen().ok()?).await.ok()?;
-    let mut _old_cleanup: Option<smol::Task<Option<()>>> = None;
+    // let mut _old_cleanup: Option<smol::Task<Option<()>>> = None;
 
     #[derive(Debug)]
     enum Evt {
@@ -191,7 +191,6 @@ async fn client_backhaul_once(
         match smol::future::race(down, up).await {
             Some(Evt::Incoming(df)) => {
                 send_frame_in.send_async(df).await.ok()?;
-                _old_cleanup = None;
             }
             Some(Evt::Outgoing(bts)) => {
                 let now = Instant::now();
@@ -205,8 +204,8 @@ async fn client_backhaul_once(
                     let dn_crypter = dn_crypter.clone();
                     let send_frame_in = send_frame_in.clone();
                     // spawn a task to clean up the UDP socket
-                    if _old_cleanup.is_none() {
-                        _old_cleanup = Some(runtime::spawn(async move {
+                    let tata: smol::Task<Option<()>> = runtime::spawn(
+                        async move {
                             loop {
                                 let (n, _) = old_socket.recv_from(&mut buf).await.ok()?;
                                 if let Some(plain) =
@@ -220,8 +219,13 @@ async fn client_backhaul_once(
                                     drop(send_frame_in.send_async(plain).await)
                                 }
                             }
-                        }));
-                    }
+                        }
+                        .or(async {
+                            smol::Timer::after(Duration::from_secs(1)).await;
+                            None
+                        }),
+                    );
+                    tata.detach();
                     socket = loop {
                         match runtime::new_udp_socket_bind(laddr_gen().ok()?).await {
                             Ok(sock) => break sock,
