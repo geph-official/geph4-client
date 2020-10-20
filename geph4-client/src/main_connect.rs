@@ -1,5 +1,6 @@
 use crate::stats::GLOBAL_LOGGER;
 use crate::{cache::ClientCache, kalive::Keepalive, stats::StatCollector, AuthOpt, CommonOpt};
+use chrono::prelude::*;
 use scopeguard::defer;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
@@ -122,32 +123,53 @@ async fn handle_stats(
 ) -> http_types::Result<http_types::Response> {
     let mut res = http_types::Response::new(http_types::StatusCode::Ok);
     match _req.url().path() {
-        "/sosistab" => {
-            let mut out = Vec::new();
-            writeln!(out, "time,seqno")?;
+        "/debugpack" => {
+            // create logs and sosistab buffers
+            let mut logs_buffer = Vec::new();
+            {
+                let noo = GLOBAL_LOGGER.read();
+                for line in noo.iter() {
+                    writeln!(logs_buffer, "{}", line)?;
+                }
+            }
+            let mut sosistab_buf = Vec::new();
+            writeln!(sosistab_buf, "time,seqno")?;
             let detail = kalive.get_stats().await?;
             if let Some((first_time, _)) = detail.recent_seqnos.first() {
                 for (time, seqno) in detail.recent_seqnos.iter() {
                     writeln!(
-                        out,
+                        sosistab_buf,
                         "{},{}",
                         time.saturating_duration_since(*first_time).as_secs_f64(),
                         seqno
                     )?;
                 }
             }
-            res.append_header("content-type", "text/plain");
-            res.set_body(out);
-            Ok(res)
-        }
-        "/debugpack" => {
-            let mut out = Vec::new();
-            let noo = GLOBAL_LOGGER.read();
-            for line in noo.iter() {
-                writeln!(out, "{}", line)?;
-            }
-            res.append_header("content-type", "text/plain");
-            res.set_body(out);
+            // form a tar
+            let tar_buffer = Vec::new();
+            let mut tar_build = tar::Builder::new(tar_buffer);
+            let mut sosis_header = tar::Header::new_gnu();
+            sosis_header.set_mode(0o666);
+            sosis_header.set_size(sosistab_buf.len() as u64);
+            tar_build.append_data(
+                &mut sosis_header,
+                "sosistab-trace.csv",
+                sosistab_buf.as_slice(),
+            )?;
+            let mut logs_header = tar::Header::new_gnu();
+            logs_header.set_mode(0o666);
+            logs_header.set_size(logs_buffer.len() as u64);
+            tar_build.append_data(&mut logs_header, "logs.txt", logs_buffer.as_slice())?;
+            let result = tar_build.into_inner()?;
+            res.insert_header("content-type", "application/tar");
+            res.insert_header(
+                "content-disposition",
+                format!(
+                    "attachment; filename=\"geph4-debug-{}.tar\"",
+                    Local::now().to_rfc3339()
+                ),
+            );
+            res.set_body(result);
             Ok(res)
         }
         "/proxy.pac" => {

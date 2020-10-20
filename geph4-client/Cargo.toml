@@ -18,6 +18,7 @@ flexi_logger = "0.16.1"
 flume = "0.9.1"
 futures-lite= "1.11.1"
 hex = "0.4.2"
+tar="0.4"
 http-types = "2.6.0"
 log = "0.4.11"
 mizaru={path="../lib/mizaru"}
@@ -38,3 +39,4 @@ sosistab={path="../lib/sosistab"}
 strsim = "0.10.0"
 structopt = "0.3.20"
 x25519-dalek={ version = "1.1.0", features = ["serde"] }
+chrono = "0.4.19"
