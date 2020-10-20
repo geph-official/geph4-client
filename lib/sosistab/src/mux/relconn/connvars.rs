@@ -45,7 +45,7 @@ impl Default for ConnVars {
             lowest_unseen: 0,
 
             slow_start: true,
-            cwnd: 16.0,
+            cwnd: 128.0,
             last_loss: Instant::now(),
 
             flights: 0,

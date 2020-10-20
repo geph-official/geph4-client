@@ -370,7 +370,7 @@ async fn relconn_actor(
                         log::trace!("new data pkt with seqno={}", seqno);
                         if conn_vars.delayed_ack_timer.is_none() {
                             conn_vars.delayed_ack_timer =
-                                Instant::now().checked_add(Duration::from_millis(1));
+                                Instant::now().checked_add(Duration::from_millis(5));
                         }
                         if conn_vars.reorderer.insert(seqno, payload) {
                             conn_vars.ack_seqnos.insert(seqno);
