@@ -15,7 +15,6 @@ cap= "0.1.0"
 dirs = "3.0.1"
 ed25519-dalek={ version = "1.0.1", features = ["serde"] }
 flexi_logger = "0.16.1"
-flume = "0.9.1"
 futures-lite= "1.11.1"
 hex = "0.4.2"
 tar="0.4"
@@ -40,4 +39,8 @@ strsim = "0.10.0"
 structopt = "0.3.20"
 x25519-dalek={ version = "1.1.0", features = ["serde"] }
 chrono = "0.4.19"
-jemallocator="0.3"
+num_cpus= "1.13.0"
+
+
+# [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+# jemallocator-global = "0.3.0"

@@ -1,6 +1,6 @@
 use crate::*;
 use bytes::Bytes;
-use flume::{Receiver, Sender};
+use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use std::net::SocketAddr;
 use std::{
@@ -112,8 +112,8 @@ async fn init_session(
     remote_addr: SocketAddr,
     laddr_gen: Arc<impl Fn() -> std::io::Result<SocketAddr> + Send + Sync + 'static>,
 ) -> std::io::Result<Session> {
-    let (send_frame_out, recv_frame_out) = flume::bounded::<msg::DataFrame>(1000);
-    let (send_frame_in, recv_frame_in) = flume::bounded::<msg::DataFrame>(1000);
+    let (send_frame_out, recv_frame_out) = smol::channel::bounded::<msg::DataFrame>(1);
+    let (send_frame_in, recv_frame_in) = smol::channel::bounded::<msg::DataFrame>(1);
     let backhaul_tasks: Vec<_> = (0..SHARDS)
         .map(|i| {
             runtime::spawn(client_backhaul_once(
@@ -173,24 +173,25 @@ async fn client_backhaul_once(
         let down = {
             let dn_crypter = dn_crypter.clone();
             async move {
-                let (n, _) = down_socket.recv_from(&mut buf).await.ok()?;
-                loop {
-                    if let Some(plain) = dn_crypter.pad_decrypt::<msg::DataFrame>(&buf[..n]) {
-                        log::trace!("shard {} decrypted UDP message with len {}", shard_id, n);
-                        break Some(Evt::Incoming(plain));
-                    }
+                let (n, addr) = down_socket.recv_from(&mut buf).await.ok()?;
+                if let Some(plain) = dn_crypter.pad_decrypt::<msg::DataFrame>(&buf[..n]) {
+                    log::trace!("shard {} decrypted UDP message with len {}", shard_id, n);
+                    Some(Evt::Incoming(plain))
+                } else {
+                    log::warn!("anomalous UDP packet of len {} from {}", n, addr);
+                    smol::future::pending().await
                 }
             }
         };
         let up_crypter = up_crypter.clone();
         let up = async {
-            let df = recv_frame_out.recv_async().await.ok()?;
+            let df = recv_frame_out.recv().await.ok()?;
             let encrypted = up_crypter.pad_encrypt(df, 1000);
             Some(Evt::Outgoing(encrypted))
         };
         match smol::future::race(down, up).await {
             Some(Evt::Incoming(df)) => {
-                send_frame_in.send_async(df).await.ok()?;
+                send_frame_in.send(df).await.ok()?;
             }
             Some(Evt::Outgoing(bts)) => {
                 let now = Instant::now();
@@ -216,7 +217,7 @@ async fn client_backhaul_once(
                                         shard_id,
                                         n
                                     );
-                                    drop(send_frame_in.send_async(plain).await)
+                                    drop(send_frame_in.send(plain).await)
                                 }
                             }
                         }
@@ -258,7 +259,7 @@ async fn client_backhaul_once(
                 }
                 drop(socket.send_to(&bts, remote_addr).await);
             }
-            _ => unimplemented!(),
+            None => return None,
         }
     }
 }

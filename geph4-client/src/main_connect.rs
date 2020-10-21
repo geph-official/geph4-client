@@ -190,7 +190,7 @@ async fn handle_stats(
 async fn dns_loop(addr: SocketAddr, keepalive: &Keepalive) -> anyhow::Result<()> {
     let socket = smol::net::UdpSocket::bind(addr).await?;
     let mut buf = [0; 2048];
-    let (send_conn, recv_conn) = flume::unbounded();
+    let (send_conn, recv_conn) = smol::channel::unbounded();
     let scope = smol::Executor::new();
     let dns_timeout = Duration::from_secs(1);
     scope
@@ -233,7 +233,7 @@ async fn dns_loop(addr: SocketAddr, keepalive: &Keepalive) -> anyhow::Result<()>
                                 .ok()?;
                             // TODO THIS IS WRONG BUT IT USUALLY WORKS
                             socket.send_to(&true_buf, c_addr).await.ok()?;
-                            send_conn.send(conn).ok()?;
+                            send_conn.send(conn).await.ok()?;
                             Some(())
                         };
                         for i in 0u32..5 {

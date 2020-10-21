@@ -1,6 +1,6 @@
 mod wiretypes;
 
-use std::sync::Mutex;
+use std::sync::{atomic::AtomicUsize, atomic::Ordering};
 
 pub use wiretypes::*;
 mod http;
@@ -42,16 +42,15 @@ impl BinderRequest {
 /// A BinderClient implementation wrapping multiple BinderClients.
 pub struct MultiBinderClient {
     clients: Vec<Box<dyn BinderClient>>,
-    index: Mutex<usize>,
+    index: AtomicUsize,
 }
 
 impl MultiBinderClient {
     /// Create a MBC that doesn't have any BinderClients.
     pub fn empty() -> Self {
-        #[allow(clippy::all)]
         MultiBinderClient {
             clients: Vec::new(),
-            index: Mutex::new(0),
+            index: AtomicUsize::new(0),
         }
     }
 
@@ -69,17 +68,11 @@ impl BinderClient for MultiBinderClient {
         request: BinderRequestData,
         timeout: std::time::Duration,
     ) -> BinderResult<BinderResponse> {
-        #[allow(clippy::all)]
-        let curr_idx = *self.index.lock().unwrap();
+        let curr_idx = self.index.fetch_add(1, Ordering::Relaxed);
         let client = &self.clients[curr_idx % self.clients.len()];
         match client.request(request, timeout) {
             Ok(v) => Ok(v),
-            Err(e) => {
-                #[allow(clippy::all)]
-                let mut noo = self.index.lock().unwrap();
-                *noo += 1;
-                Err(e)
-            }
+            Err(e) => Err(e),
         }
     }
 }

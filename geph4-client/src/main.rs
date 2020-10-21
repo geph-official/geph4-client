@@ -72,7 +72,7 @@ fn main() -> anyhow::Result<()> {
         Ok(())
     }
 
-    flexi_logger::Logger::with_env_or_str("geph4_client = debug")
+    flexi_logger::Logger::with_env_or_str("geph4_client = debug, warn")
         // .format(flexi_logger::colored_detailed_format)
         .set_palette("192;208;158;248;240".to_string())
         .format(logger)
@@ -81,7 +81,12 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
-    sosistab::runtime::set_smol_executor(&GEXEC);
+    // sosistab::runtime::set_smol_executor(&GEXEC);
+    // // we actually spawn 2 threads per CPU to improve preemption etc
+    // // one less because the main thread exists too
+    // for _ in 1..num_cpus::get() * 2 {
+    //     std::thread::spawn(move || smol::block_on(GEXEC.run(smol::future::pending::<()>())));
+    // }
     smol::block_on(GEXEC.run(async move {
         match opt {
             Opt::Connect(opt) => main_connect::main_connect(opt).await,

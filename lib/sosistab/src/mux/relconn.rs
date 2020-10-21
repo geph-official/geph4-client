@@ -4,8 +4,8 @@ use async_dup::Mutex as DMutex;
 use bipe::{BipeReader, BipeWriter};
 use bytes::{Bytes, BytesMut};
 use connvars::ConnVars;
-use flume::{Receiver, Sender};
 use mux::structs::{Message, RelKind, Seqno, VarRateLimit};
+use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use std::{
     collections::BTreeSet,
@@ -40,8 +40,8 @@ impl RelConn {
         additional_info: Option<String>,
     ) -> (Self, RelConnBack) {
         let (send_write, recv_write) = bipe::bipe(64 * 1024);
-        let (send_read, recv_read) = bipe::bipe(1024 * 1024);
-        let (send_wire_read, recv_wire_read) = flume::unbounded();
+        let (send_read, recv_read) = bipe::bipe(64 * 1024);
+        let (send_wire_read, recv_wire_read) = smol::channel::bounded(16);
         runtime::spawn(relconn_actor(
             state,
             recv_write,
@@ -146,7 +146,7 @@ async fn relconn_actor(
     }
 
     let transmit = |msg| async {
-        drop(send_wire_write.send_async(msg).await);
+        drop(send_wire_write.send(msg).await);
         smol::future::yield_now().await;
     };
     let mut fragments: VecDeque<Bytes> = VecDeque::new();
@@ -181,7 +181,7 @@ async fn relconn_actor(
                 }
                 let synack_evt = async {
                     loop {
-                        match recv_wire_read.recv_async().await? {
+                        match recv_wire_read.recv().await? {
                             Message::Rel { .. } => return Ok::<_, anyhow::Error>(true),
                             _ => continue,
                         }
@@ -271,7 +271,7 @@ async fn relconn_actor(
                         }
                     };
                     let new_pkt = async {
-                        Ok::<Evt, anyhow::Error>(Evt::NewPkt(recv_wire_read.recv_async().await?))
+                        Ok::<Evt, anyhow::Error>(Evt::NewPkt(recv_wire_read.recv().await?))
                     };
                     ack_timer.or(rto_timeout.or(new_write.or(new_pkt))).await
                 };
@@ -458,7 +458,7 @@ async fn relconn_actor(
                         true
                     },
                     async {
-                        if let Ok(Message::Rel { kind, .. }) = recv_wire_read.recv_async().await {
+                        if let Ok(Message::Rel { kind, .. }) = recv_wire_read.recv().await {
                             kind == RelKind::Rst
                         } else {
                             smol::future::pending().await
@@ -481,6 +481,6 @@ pub(crate) struct RelConnBack {
 
 impl RelConnBack {
     pub async fn process(&self, input: Message) {
-        drop(self.send_wire_read.send_async(input).await)
+        drop(self.send_wire_read.send(input).await)
     }
 }
