@@ -263,8 +263,8 @@ impl ListenerActor {
                                                 })
                                             };
                                             let mut session = Session::new(SessionConfig {
-                                                latency: Duration::from_millis(3),
-                                                target_loss: 0.02,
+                                                latency: Duration::from_millis(5),
+                                                target_loss: 0.005,
                                                 send_frame: session_output_send,
                                                 recv_frame: session_input_recv,
                                             });

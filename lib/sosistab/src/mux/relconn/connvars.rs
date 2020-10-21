@@ -71,7 +71,7 @@ impl ConnVars {
     pub fn congestion_ack(&mut self) {
         self.loss_rate *= 0.99;
         let n = (0.23 * self.cwnd.powf(0.4)).max(1.0);
-        self.cwnd += n * 32.0 / self.cwnd;
+        self.cwnd += n * 8.0 / self.cwnd;
         let now = Instant::now();
         if now.saturating_duration_since(self.last_flight) > self.inflight.srtt() {
             self.flights += 1;
@@ -84,7 +84,8 @@ impl ConnVars {
         self.loss_rate = self.loss_rate * 0.99 + 0.01;
         let now = Instant::now();
         if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() * 2 {
-            self.cwnd *= 0.5;
+            let bdp = self.inflight.bdp();
+            self.cwnd = self.cwnd.min((self.cwnd * 0.5).max(bdp));
             log::debug!(
                 "LOSS CWND => {}; loss rate {}, srtt {}ms, rate {}",
                 self.cwnd,
