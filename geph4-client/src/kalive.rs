@@ -1,4 +1,4 @@
-use crate::{cache::ClientCache, ALLOCATOR, GEXEC};
+use crate::{cache::ClientCache, GEXEC};
 use crate::{prelude::*, stats::StatCollector};
 use anyhow::Context;
 use serde::de::DeserializeOwned;
@@ -220,9 +220,8 @@ async fn keepalive_actor_once(
                             if let Some(remote) = remote {
                                 let remote = remote.ok()?;
                                 log::debug!(
-                                    "opened connection in {} ms, {}KiB allocated",
-                                    start.elapsed().as_millis(),
-                                    ALLOCATOR.allocated() / 1024
+                                    "opened connection in {} ms",
+                                    start.elapsed().as_millis()
                                 );
                                 stats.set_latency(start.elapsed().as_secs_f64() * 1000.0);
                                 conn_reply.send(remote).await.ok()?;

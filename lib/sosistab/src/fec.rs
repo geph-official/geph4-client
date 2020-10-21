@@ -1,6 +1,7 @@
 use bytes::{Bytes, BytesMut};
 use probability::distribution::Distribution;
 use reed_solomon_erasure::galois_8;
+use std::cell::RefCell;
 use std::collections::HashMap;
 /// A forward error correction encoder. Retains internal state for memoization, memory pooling etc.
 #[derive(Debug)]
@@ -87,8 +88,25 @@ pub struct FrameDecoder {
     space: Vec<Vec<u8>>,
     present: Vec<bool>,
     present_count: usize,
-    rs_decoder: galois_8::ReedSolomon,
+    rs_decoder: Option<&'static galois_8::ReedSolomon>,
     done: bool,
+}
+
+thread_local! {
+    static DECODER_CACHE: RefCell<HashMap<(usize, usize), &'static galois_8::ReedSolomon>> = RefCell::new(HashMap::new());
+}
+
+fn new_rs_decoder(data_shards: usize, parity_shards: usize) -> &'static galois_8::ReedSolomon {
+    DECODER_CACHE.with(|val| {
+        let mut map = val.borrow_mut();
+        if let Some(rs) = map.get(&(data_shards, parity_shards)) {
+            *rs
+        } else {
+            let noo = Box::new(galois_8::ReedSolomon::new(data_shards, parity_shards).unwrap());
+            map.insert((data_shards, parity_shards), Box::leak(noo));
+            map.get(&(data_shards, parity_shards)).unwrap()
+        }
+    })
 }
 
 impl FrameDecoder {
@@ -99,7 +117,11 @@ impl FrameDecoder {
             present_count: 0,
             space: vec![],
             present: vec![false; data_shards + parity_shards],
-            rs_decoder: galois_8::ReedSolomon::new(data_shards, parity_shards.max(1)).unwrap(),
+            rs_decoder: if parity_shards > 0 && data_shards + parity_shards <= 128 {
+                Some(new_rs_decoder(data_shards, parity_shards))
+            } else {
+                None
+            },
             done: false,
         }
     }
@@ -121,6 +143,10 @@ impl FrameDecoder {
     }
 
     pub fn decode(&mut self, pkt: &[u8], pkt_idx: usize) -> Option<Vec<Bytes>> {
+        // if we don't have parity shards, don't touch anything
+        if self.parity_shards == 0 {
+            return Some(vec![post_decode(Bytes::copy_from_slice(pkt))?]);
+        }
         if self.space.is_empty() {
             log::trace!("decode with pad len {}", pkt.len());
             self.space = vec![vec![0u8; pkt.len()]; self.data_shards + self.parity_shards]
@@ -135,7 +161,7 @@ impl FrameDecoder {
         }
         self.present[pkt_idx] = true;
         // if I'm a data shard, just return it
-        if pkt_idx < self.data_shards || self.parity_shards == 0 {
+        if pkt_idx < self.data_shards {
             return Some(vec![post_decode(Bytes::copy_from_slice(
                 &self.space[pkt_idx],
             ))?]);
@@ -156,7 +182,11 @@ impl FrameDecoder {
             self.data_shards,
             self.parity_shards
         );
-        self.rs_decoder.reconstruct(&mut ref_vec).ok()?;
+        self.rs_decoder
+            .as_ref()
+            .expect("must have a decoder if parity_shards > 0")
+            .reconstruct(&mut ref_vec)
+            .ok()?;
         self.done = true;
         let res = self
             .space

@@ -6,7 +6,7 @@ use std::{pin::Pin, sync::Arc, task::Context, task::Poll};
 
 /// Create a "bipe". Use async_dup's methods if you want something cloneable/shareable
 pub fn bipe(capacity: usize) -> (BipeWriter, BipeReader) {
-    let info = Arc::new(Mutex::new((false, BytesMut::new())));
+    let info = Arc::new(Mutex::new((false, BytesMut::with_capacity(capacity))));
     let event = Arc::new(event_listener::Event::new());
     (
         BipeWriter {
@@ -75,7 +75,7 @@ impl AsyncWrite for BipeWriter {
         Poll::Ready(Ok(()))
     }
 
-    fn poll_close(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
+    fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         self.queue.lock().0 = true;
         self.signal.notify(usize::MAX);
         Poll::Ready(Ok(()))
@@ -104,9 +104,9 @@ impl AsyncRead for BipeReader {
                     let to_copy_len = queue.len().min(buf.len());
                     (&mut buf[..to_copy_len]).copy_from_slice(&queue[..to_copy_len]);
                     *queue = queue.split_off(to_copy_len);
-                    if queue.is_empty() {
-                        *queue = BytesMut::new();
-                    }
+                    // if queue.is_empty() {
+                    //     *queue = BytesMut::new();
+                    // }
                     self.signal.notify(usize::MAX);
                     return Poll::Ready(Ok(to_copy_len));
                 }

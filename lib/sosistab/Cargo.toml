@@ -35,6 +35,7 @@ reed-solomon-erasure= "4.0.2"
 indexmap= "1.6.0"
 flume = "0.9.1"
 bloomfilter = "1.0.3"
+concurrent-queue="1.2"
 
 [dev-dependencies]
 env_logger= "0.7.1"
