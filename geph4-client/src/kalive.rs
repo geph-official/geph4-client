@@ -75,7 +75,8 @@ async fn keepalive_actor(
         )
         .await
         {
-            log::warn!("keepalive_actor restarting: {}", err)
+            log::warn!("keepalive_actor restarting: {}", err);
+            smol::Timer::after(Duration::from_secs(1)).await;
         }
     }
 }
@@ -106,6 +107,10 @@ async fn keepalive_actor_once(
             .get_bridges(&exit_host)
             .await
             .context("can't get bridges")?;
+        log::debug!("got {} bridges", bridges.len());
+        if bridges.is_empty() {
+            anyhow::bail!("absolutely no bridges found")
+        }
         // spawn a task for *every* bridge
         let (send, recv) = smol::channel::unbounded();
         let _tasks: Vec<_> = bridges

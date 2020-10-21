@@ -8,6 +8,7 @@ use rsa_fdh::blind;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::Sha256;
 use smol::prelude::*;
+use smol_timeout::TimeoutExt;
 use std::{sync::Arc, time::Duration, time::SystemTime};
 
 /// An cached client
@@ -20,6 +21,8 @@ pub struct ClientCache {
     database: Arc<Mutex<KVDatabase>>,
     pub force_sync: bool,
 }
+
+static TIMEOUT: Duration = Duration::from_secs(5);
 
 impl ClientCache {
     /// Create a new ClientCache that saves to the given database.
@@ -59,7 +62,7 @@ impl ClientCache {
         Ok(client_cache)
     }
 
-    async fn get_cached<T: Serialize + DeserializeOwned + Clone>(
+    async fn get_cached<T: Serialize + DeserializeOwned + Clone + std::fmt::Debug>(
         &self,
         key: &str,
         fallback: impl Future<Output = anyhow::Result<T>>,
@@ -85,11 +88,14 @@ impl ClientCache {
             .unwrap()
             .as_secs();
         let fresh = fallback.await?;
+        log::trace!("fallback resolved for {}! ({:?})", key, fresh);
         let mut database = self.database.lock();
+        log::trace!("database locked for {}!", key);
         let mut db = database.transaction();
         // save to disk
         db.insert(&key, (fresh.clone(), deadline));
         db.commit();
+        log::trace!("about to return for {}!", key);
         Ok(fresh)
     }
 
@@ -121,7 +127,7 @@ impl ClientCache {
         self.get_cached(
             &format!("cache.bridges.{}", exit_hostname),
             async {
-                let res = smol::unblock(move || {
+                let res = timeout(smol::unblock(move || {
                     binder_client.request(
                         BinderRequestData::GetBridges {
                             level: tok.level,
@@ -129,10 +135,11 @@ impl ClientCache {
                             unblinded_signature: tok.unblinded_signature,
                             exit_hostname,
                         },
-                        Duration::from_secs(5),
+                        TIMEOUT,
                     )
-                })
-                .await?;
+                }))
+                .await??;
+                log::debug!("bridge response is {:?}", res);
                 if let BinderResponse::GetBridgesResp(bridges) = res {
                     Ok(bridges)
                 } else {
@@ -154,16 +161,16 @@ impl ClientCache {
             };
             let epoch = mizaru::time_to_epoch(SystemTime::now()) as u16;
             let binder_client = self.binder_client.clone();
-            let subkey = smol::unblock(move || {
+            let subkey = timeout(smol::unblock(move || {
                 binder_client.request(
                     BinderRequestData::GetEpochKey {
                         level: level.to_string(),
                         epoch,
                     },
-                    Duration::from_secs(5),
+                    TIMEOUT,
                 )
-            })
-            .await?;
+            }))
+            .await??;
             if let BinderResponse::GetEpochKeyResp(subkey) = subkey {
                 // create FDH
                 let digest = blind::hash_message::<Sha256, _>(&subkey, &digest).unwrap();
@@ -173,7 +180,7 @@ impl ClientCache {
                 let binder_client = self.binder_client.clone();
                 let username = self.username.clone();
                 let password = self.password.clone();
-                let resp = smol::unblock(move || {
+                let resp = timeout(smol::unblock(move || {
                     binder_client.request(
                         BinderRequestData::Authenticate {
                             username,
@@ -182,10 +189,10 @@ impl ClientCache {
                             epoch,
                             blinded_digest,
                         },
-                        Duration::from_secs(5),
+                        TIMEOUT,
                     )
-                })
-                .await;
+                }))
+                .await?;
                 match resp {
                     Ok(BinderResponse::AuthenticateResp {
                         user_info,
@@ -232,4 +239,10 @@ pub struct Token {
     pub epoch: u16,
     pub unblinded_digest: Vec<u8>,
     pub unblinded_signature: mizaru::UnblindedSignature,
+}
+
+async fn timeout<T, F: Future<Output = T>>(fut: F) -> anyhow::Result<T> {
+    fut.timeout(TIMEOUT)
+        .await
+        .ok_or_else(|| anyhow::anyhow!("timeout"))
 }

@@ -233,10 +233,10 @@ struct RttCalculator {
 impl Default for RttCalculator {
     fn default() -> Self {
         RttCalculator {
-            srtt: 1000,
-            rttvar: 1000,
-            rto: 1000,
-            min_rtt: 1000,
+            srtt: 300,
+            rttvar: 0,
+            rto: 300,
+            min_rtt: 300,
             rtt_update_time: Instant::now(),
             existing: false,
         }

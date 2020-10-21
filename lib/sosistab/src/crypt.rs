@@ -80,7 +80,7 @@ impl StdAEAD {
         bincode::serialize_into(&mut plain, &msg).unwrap();
         let plainlen = plain.len();
         if plain.len() > target_len {
-            target_len = plain.len() + rand::thread_rng().gen_range(0, 5);
+            target_len = plain.len() + rand::thread_rng().gen_range(0, 16);
         }
         plain.extend_from_slice(&vec![0; target_len - plain.len()]);
         let encrypted = self.encrypt(&plain, rand::thread_rng().gen());

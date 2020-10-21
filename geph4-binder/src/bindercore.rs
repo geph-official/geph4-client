@@ -387,7 +387,7 @@ impl BinderCore {
         let mut txn: postgres::Transaction<'_> = client
             .transaction()
             .map_err(|_| BinderError::DatabaseFailed)?;
-        let query = "select bridge_address,sosistab_pubkey from routes where update_time > NOW() - interval '1 minute' and hostname=$1";
+        let query = "select bridge_address,sosistab_pubkey from routes where update_time > NOW() - interval '2 minute' and hostname=$1";
         let rows = txn
             .query(query, &[&exit_hostname])
             .map_err(|_| BinderError::DatabaseFailed)?;
@@ -407,6 +407,7 @@ impl BinderCore {
             .collect();
         res.sort_by(|a, b| a.endpoint.cmp(&b.endpoint));
         res.dedup_by(|a, b| a.endpoint == b.endpoint);
+        log::debug!("serving out {} bridges", res.len());
         Ok(res)
     }
 }

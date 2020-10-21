@@ -102,7 +102,7 @@ pub async fn connect_custom(
     unimplemented!()
 }
 
-const SHARDS: u8 = 1;
+const SHARDS: u8 = 6;
 const RESET_MILLIS: u128 = 500;
 
 async fn init_session(
@@ -130,7 +130,7 @@ async fn init_session(
         .collect();
     let mut session = Session::new(SessionConfig {
         latency: std::time::Duration::from_millis(3),
-        target_loss: 0.5,
+        target_loss: 0.05,
         send_frame: send_frame_out,
         recv_frame: recv_frame_in,
     });
@@ -235,12 +235,12 @@ async fn client_backhaul_once(
                             }
                         }
                     };
-                    // log::debug!(
-                    //     "resending resume token {} to {} from {}...",
-                    //     shard_id,
-                    //     remote_addr,
-                    //     socket.get_ref().local_addr().unwrap()
-                    // );
+                    log::trace!(
+                        "resending resume token {} to {} from {}...",
+                        shard_id,
+                        remote_addr,
+                        socket.local_addr().unwrap()
+                    );
                     drop(
                         socket
                             .send_to(
