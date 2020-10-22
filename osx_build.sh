@@ -11,7 +11,7 @@ sudo apt install \
     build-essential
 
 # Add macOS Rust target
-rustup +nightly target add x86_64-apple-darwin
+rustup target add x86_64-apple-darwin
 
 git clone https://github.com/tpoechtrager/osxcross
 cd osxcross
@@ -21,4 +21,4 @@ UNATTENDED=yes OSX_VERSION_MIN=10.7 ./build.sh
 PATH="$(pwd)/target/bin:$PATH" \
 CC=o64-clang \
 CXX=o64-clang++ \
-cargo +nightly build -Z strip=symbols --release --target x86_64-apple-darwin --manifest-path=../geph4-client/Cargo.toml
+cargo build --release --target x86_64-apple-darwin --manifest-path=../geph4-client/Cargo.toml
