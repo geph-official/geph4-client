@@ -48,6 +48,7 @@ impl RelConn {
             send_read,
             recv_wire_read,
             output,
+            additional_info.clone(),
             dropper,
         ))
         .detach();
@@ -132,6 +133,7 @@ async fn relconn_actor(
     mut send_read: BipeWriter,
     recv_wire_read: Receiver<Message>,
     send_wire_write: Sender<Message>,
+    additional_info: Option<String>,
     dropper: impl FnOnce(),
 ) -> anyhow::Result<()> {
     let _guard = scopeguard::guard((), |_| dropper());
@@ -189,7 +191,7 @@ async fn relconn_actor(
                 };
                 let success = synack_evt
                     .or(async {
-                        smol::Timer::after(Duration::from_secs(wait_interval as u64)).await;
+                        smol::Timer::after(Duration::from_millis(wait_interval as u64 * 500)).await;
                         Ok(false)
                     })
                     .await?;
@@ -205,7 +207,12 @@ async fn relconn_actor(
                         kind: RelKind::Syn,
                         stream_id,
                         seqno: 0,
-                        payload: Bytes::new(),
+                        payload: Bytes::copy_from_slice(
+                            additional_info
+                                .as_ref()
+                                .unwrap_or(&"".to_string())
+                                .as_bytes(),
+                        ),
                     })
                     .await;
                     SynSent {

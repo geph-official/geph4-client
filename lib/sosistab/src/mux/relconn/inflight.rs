@@ -172,14 +172,17 @@ impl Inflight {
             let time = time.0.saturating_duration_since(Instant::now());
             smol::Timer::after(time).await;
             let (seqno, _) = self.times.pop().unwrap();
-            let rto = self.rtt.rto();
+            let mut rto = self.rtt.rto();
             if let Some(seg) = self.get_seqno(seqno) {
                 if !seg.acked {
                     seg.retrans += 1;
                     let rtx = seg.retrans;
-                    let minrto = rto * 2u32.pow(rtx as u32);
+                    for _ in 0..rtx {
+                        rto *= 3;
+                        rto /= 2
+                    }
 
-                    self.times.push(seqno, Reverse(Instant::now() + minrto));
+                    self.times.push(seqno, Reverse(Instant::now() + rto));
                     return (seqno, true);
                 }
             }
