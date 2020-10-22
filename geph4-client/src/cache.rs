@@ -139,7 +139,6 @@ impl ClientCache {
                     )
                 }))
                 .await??;
-                log::debug!("bridge response is {:?}", res);
                 if let BinderResponse::GetBridgesResp(bridges) = res {
                     Ok(bridges)
                 } else {
