@@ -8,7 +8,7 @@ use structopt::StructOpt;
 mod listen;
 
 #[global_allocator]
-static ALLOC: jemallocator::Jemalloc = jemallocator::Jemalloc;
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 #[derive(Debug, StructOpt)]
 struct Opt {
@@ -43,8 +43,6 @@ struct Opt {
 static GEXEC: smol::Executor = smol::Executor::new();
 
 fn main() -> anyhow::Result<()> {
-    // sosistab::runtime::set_smol_executor(&GEXEC);
-
     let opt: Opt = Opt::from_args();
     let stat_client = statsd::Client::new(opt.statsd_addr, "geph4")?;
     env_logger::from_env(Env::default().default_filter_or("geph4_exit=info")).init();

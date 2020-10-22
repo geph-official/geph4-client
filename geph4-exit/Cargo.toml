@@ -27,3 +27,4 @@ smolscale = {path="../lib/smolscale"}
 jemallocator = "0.3.2"
 smol-timeout = "0.6.0"
 statsd = "0.14.0"
+mimalloc = "0.1.22"

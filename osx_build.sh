@@ -21,4 +21,4 @@ UNATTENDED=yes OSX_VERSION_MIN=10.7 ./build.sh
 PATH="$(pwd)/target/bin:$PATH" \
 CC=o64-clang \
 CXX=o64-clang++ \
-cargo build --release --target x86_64-apple-darwin --manifest-path=../geph4-client/Cargo.toml
+cross +nightly build -Z strip=symbols --release --target x86_64-apple-darwin --manifest-path=../geph4-client/Cargo.toml

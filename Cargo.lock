@@ -549,12 +549,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "631ae5198c9be5e753e5cc215e1bd73c2b466a3565173db433f52bb9d3e66dba"
 
 [[package]]
-name = "cap"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dfb342bc1e95bfb9b3eb80593701657580f1606df8c5563003e6fc1cd8f09ba1"
-
-[[package]]
 name = "cc"
 version = "1.0.61"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -636,6 +630,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4344512281c643ae7638bbabc3af17a11307803ec8f0fcad9fae512a8bf36467"
 dependencies = [
  "bitflags",
+]
+
+[[package]]
+name = "cmake"
+version = "0.1.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e56268c17a6248366d66d4a47a3381369d068cce8409bb1716ed77ea32163bb"
+dependencies = [
+ "cc",
 ]
 
 [[package]]
@@ -1307,7 +1310,6 @@ dependencies = [
  "async-h1",
  "bincode",
  "binder_transport",
- "cap",
  "chrono",
  "dirs",
  "ed25519-dalek",
@@ -1315,7 +1317,6 @@ dependencies = [
  "futures-lite",
  "hex",
  "http-types",
- "jemallocator-global",
  "log",
  "mizaru",
  "num_cpus",
@@ -1352,6 +1353,7 @@ dependencies = [
  "hex",
  "jemallocator",
  "log",
+ "mimalloc",
  "mizaru",
  "once_cell",
  "rand 0.7.3",
@@ -1618,16 +1620,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "jemallocator-global"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "991b61de8365c8b5707cf6cabbff98cfd6eaca9b851948b883efea408c7f581e"
-dependencies = [
- "cfg-if 0.1.10",
- "jemallocator",
-]
-
-[[package]]
 name = "js-sys"
 version = "0.3.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1675,6 +1667,15 @@ name = "libm"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
+
+[[package]]
+name = "libmimalloc-sys"
+version = "0.1.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "82151ff13433c4d403cb15d0e6fbda14b24d65bd1a5b33f7d52ec983cc00752d"
+dependencies = [
+ "cmake",
+]
 
 [[package]]
 name = "libsodium-sys"
@@ -1748,6 +1749,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "043175f069eda7b85febe4a74abbaeff828d9f8b448515d3151a14a3542811aa"
 dependencies = [
  "autocfg 1.0.1",
+]
+
+[[package]]
+name = "mimalloc"
+version = "0.1.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4a5d2c9cb18f9cdc6d88f4aca6d3d8ea89c4c8202d6facfc7e56efdee97b80fa"
+dependencies = [
+ "libmimalloc-sys",
 ]
 
 [[package]]

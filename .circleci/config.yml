@@ -11,12 +11,13 @@ jobs:
     steps:
       - checkout
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
+      - run: apt-get update && apt-get install upx-ucl
       - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       - run: echo "export RUSTFLAGS='-C link-arg=-s'" >> $BASH_ENV
       - run: sh osx_build.sh
       - run: cargo install cross
-      - run: cross build --release --target x86_64-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml && cross build --release --target x86_64-unknown-linux-musl --manifest-path=geph4-client/Cargo.toml && cross build --release --target armv7-linux-androideabi --manifest-path=geph4-client/Cargo.toml && cross build --release --target aarch64-linux-android --manifest-path=geph4-client/Cargo.toml && cross build --release --target armv7-unknown-linux-musleabihf --manifest-path=geph4-client/Cargo.toml
-      - run: cross build --release --target x86_64-unknown-linux-musl --manifest-path=geph4-bridge/Cargo.toml
+      - run: cross +nightly build -Z strip=symbols --release --target x86_64-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml && cross +nightly build -Z strip=symbols --release --target x86_64-unknown-linux-musl --manifest-path=geph4-client/Cargo.toml && cross +nightly build -Z strip=symbols --release --target armv7-linux-androideabi --manifest-path=geph4-client/Cargo.toml && cross +nightly build -Z strip=symbols --release --target aarch64-linux-android --manifest-path=geph4-client/Cargo.toml && cross +nightly build -Z strip=symbols --release --target armv7-unknown-linux-musleabihf --manifest-path=geph4-client/Cargo.toml
+      - run: cross +nightly build -Z strip=symbols --release --target x86_64-unknown-linux-musl --manifest-path=geph4-bridge/Cargo.toml
       - run: mkdir ~/repo/OUTPUT/
       - run: mv ~/repo/target/x86_64-unknown-linux-musl/release/geph4-client ~/repo/OUTPUT/geph4-client-linux-amd64
       - run: mv ~/repo/target/armv7-unknown-linux-musleabihf/release/geph4-client ~/repo/OUTPUT/geph4-client-linux-armv7
@@ -27,6 +28,7 @@ jobs:
       - run: mv ~/repo/target/x86_64-apple-darwin/release/geph4-client ~/repo/OUTPUT/geph4-client-macos-amd64
       - run: sudo apt install python3-pip
       - run: sudo pip3 install --upgrade b2
+      - run: upx --force ~/repo/OUTPUT/*
       - run: |
           b2 authorize-account $B2_KEYID $B2_APPKEY
       - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/

@@ -11,7 +11,6 @@ anyhow = "1.0.33"
 async-h1= "2.1.3"
 bincode = "1.3.1"
 binder_transport = {path="../lib/binder_transport"}
-cap= "0.1.0"
 dirs = "3.0.1"
 ed25519-dalek={ version = "1.0.1", features = ["serde"] }
 flexi_logger = "0.16.1"
@@ -42,5 +41,5 @@ chrono = "0.4.19"
 num_cpus= "1.13.0"
 
 
-[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
-jemallocator-global = "0.3.0"
+# [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+# mimalloc = "0.1.22"
