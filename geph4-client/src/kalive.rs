@@ -165,8 +165,8 @@ async fn keepalive_actor_once(
     };
     let session: anyhow::Result<sosistab::Session> = connected_sess_async
         .or(async {
-            smol::Timer::after(Duration::from_secs(30)).await;
-            anyhow::bail!("initial connection timeout after 30");
+            smol::Timer::after(Duration::from_secs(10)).await;
+            anyhow::bail!("initial connection timeout after 10");
         })
         .await;
     let session = session?;
@@ -175,7 +175,10 @@ async fn keepalive_actor_once(
     let scope = smol::Executor::new();
     // now let's authenticate
     let token = ccache.get_auth_token().await?;
-    authenticate_session(&mux, &token).await?;
+    authenticate_session(&mux, &token)
+        .timeout(Duration::from_secs(5))
+        .await
+        .ok_or_else(|| anyhow::anyhow!("authentication timed out"))??;
     // TODO actually authenticate
     log::info!(
         "KEEPALIVE MAIN LOOP for exit_host={}, use_bridges={}",
