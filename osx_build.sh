@@ -11,7 +11,7 @@ sudo apt install \
     build-essential
 
 # Add macOS Rust target
-rustup target add x86_64-apple-darwin
+rustup +nightly target add x86_64-apple-darwin
 
 git clone https://github.com/tpoechtrager/osxcross
 cd osxcross
