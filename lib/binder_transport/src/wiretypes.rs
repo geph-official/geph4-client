@@ -98,6 +98,19 @@ impl BinderRequestData {
                 .as_bytes(),
         )
     }
+
+    /// Returns a boolean determining whether or not this request is idempotent.
+    pub fn is_idempotent(&self) -> bool {
+        match self {
+            BinderRequestData::GetEpochKey { .. } => true,
+            BinderRequestData::GetCaptcha { .. } => true,
+            BinderRequestData::GetExits { .. } => true,
+            BinderRequestData::GetBridges { .. } => true,
+            // BinderRequestData::Authenticate { .. } => true,
+            // BinderRequestData::Validate { .. } => true,
+            _ => false,
+        }
+    }
 }
 
 /// Encrypted binder request data. Uses a crypto-box-like construction.

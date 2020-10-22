@@ -1,6 +1,6 @@
 mod wiretypes;
 
-use std::sync::{atomic::AtomicUsize, atomic::Ordering};
+use std::sync::{atomic::AtomicUsize, atomic::Ordering, Arc};
 
 pub use wiretypes::*;
 mod http;
@@ -41,7 +41,7 @@ impl BinderRequest {
 
 /// A BinderClient implementation wrapping multiple BinderClients.
 pub struct MultiBinderClient {
-    clients: Vec<Box<dyn BinderClient>>,
+    clients: Vec<Arc<dyn BinderClient>>,
     index: AtomicUsize,
 }
 
@@ -56,14 +56,15 @@ impl MultiBinderClient {
 
     /// Add a new MBC, returning the MBC produced.
     pub fn add_client(mut self, new: impl BinderClient + 'static) -> Self {
-        self.clients.push(Box::new(new));
+        self.clients.push(Arc::new(new));
         self.clients.shuffle(&mut rand::thread_rng());
         self
     }
 }
 
-impl BinderClient for MultiBinderClient {
-    fn request(
+impl MultiBinderClient {
+    // does the request on ONE binder
+    fn request_one(
         &self,
         request: BinderRequestData,
         timeout: std::time::Duration,
@@ -73,6 +74,42 @@ impl BinderClient for MultiBinderClient {
         match client.request(request, timeout) {
             Ok(v) => Ok(v),
             Err(e) => Err(e),
+        }
+    }
+
+    // does the request on all binders
+    fn request_multi(
+        &self,
+        request: BinderRequestData,
+        timeout: std::time::Duration,
+    ) -> BinderResult<BinderResponse> {
+        let (send_res, recv_res) = smol::channel::unbounded();
+        for (idx, client) in self.clients.iter().enumerate() {
+            let client = client.clone();
+            let request = request.clone();
+            let send_res = send_res.clone();
+            std::thread::spawn(move || {
+                let result = client.request(request, timeout);
+                drop(send_res.try_send((idx, result)));
+            });
+        }
+        let (idx, res) =
+            smol::future::block_on(recv_res.recv()).expect("result channel shouldn't have closed");
+        self.index.store(idx, Ordering::Relaxed);
+        res
+    }
+}
+
+impl BinderClient for MultiBinderClient {
+    fn request(
+        &self,
+        request: BinderRequestData,
+        timeout: std::time::Duration,
+    ) -> BinderResult<BinderResponse> {
+        if request.is_idempotent() {
+            self.request_multi(request, timeout)
+        } else {
+            self.request_one(request, timeout)
         }
     }
 }
