@@ -11,7 +11,7 @@ jobs:
     steps:
       - checkout
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
-      - run: apt-get update && apt-get install upx-ucl
+      - run: sudo apt-get update && sudo apt-get install upx-ucl
       - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       - run: echo "export RUSTFLAGS='-C link-arg=-s'" >> $BASH_ENV
       - run: sh osx_build.sh
