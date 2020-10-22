@@ -42,5 +42,5 @@ chrono = "0.4.19"
 num_cpus= "1.13.0"
 
 
-# [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
-# jemallocator-global = "0.3.0"
+[target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
+jemallocator-global = "0.3.0"

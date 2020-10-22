@@ -129,7 +129,7 @@ async fn init_session(
         })
         .collect();
     let mut session = Session::new(SessionConfig {
-        latency: std::time::Duration::from_millis(3),
+        latency: std::time::Duration::from_millis(1),
         target_loss: 0.05,
         send_frame: send_frame_out,
         recv_frame: recv_frame_in,

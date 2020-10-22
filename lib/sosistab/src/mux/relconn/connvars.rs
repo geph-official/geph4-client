@@ -21,6 +21,7 @@ pub(crate) struct ConnVars {
     slow_start: bool,
     pub cwnd: f64,
     last_loss: Instant,
+    last_ack: Instant,
 
     flights: u64,
     last_flight: Instant,
@@ -45,8 +46,9 @@ impl Default for ConnVars {
             lowest_unseen: 0,
 
             slow_start: true,
-            cwnd: 128.0,
+            cwnd: 16.0,
             last_loss: Instant::now(),
+            last_ack: Instant::now(),
 
             flights: 0,
             last_flight: Instant::now(),
@@ -65,13 +67,17 @@ impl ConnVars {
     }
 
     pub fn congestion_ack(&mut self) {
-        self.loss_rate *= 0.99;
-        let n = (0.23 * self.cwnd.powf(0.4)).max(1.0);
-        self.cwnd += n * 8.0 / self.cwnd;
         let now = Instant::now();
         if now.saturating_duration_since(self.last_flight) > self.inflight.srtt() {
             self.flights += 1;
             self.last_flight = now
+        }
+        self.loss_rate *= 0.99;
+        if self.slow_start && self.cwnd < 5000.0 {
+            self.cwnd += 1.0
+        } else {
+            let n = (0.23 * self.cwnd.powf(0.8)).max(1.0);
+            self.cwnd += n / self.cwnd;
         }
     }
 

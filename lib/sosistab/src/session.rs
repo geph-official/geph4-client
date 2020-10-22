@@ -64,10 +64,10 @@ impl Session {
 
     /// Takes a Bytes to be sent and stuffs it into the session.
     pub async fn send_bytes(&self, to_send: Bytes) {
-        // if self.send_tosend.try_send(to_send).is_err() {
-        //     log::warn!("overflowed send buffer at session!");
-        // }
-        drop(self.send_tosend.send(to_send).await)
+        if self.send_tosend.try_send(to_send).is_err() {
+            log::warn!("overflowed send buffer at session!");
+        }
+        // drop(self.send_tosend.send(to_send).await)
     }
 
     /// Waits until the next application input is decoded by the session.
