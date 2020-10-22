@@ -7,7 +7,7 @@ use smol_timeout::TimeoutExt;
 use std::{net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, sync::Arc, time::Duration};
 use structopt::StructOpt;
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, StructOpt, Clone)]
 pub struct ConnectOpt {
     #[structopt(flatten)]
     common: CommonOpt,
@@ -231,7 +231,6 @@ async fn dns_loop(addr: SocketAddr, keepalive: &Keepalive) -> anyhow::Result<()>
                                 .timeout(dns_timeout)
                                 .await?
                                 .ok()?;
-                            // TODO THIS IS WRONG BUT IT USUALLY WORKS
                             socket.send_to(&true_buf, c_addr).await.ok()?;
                             send_conn.send(conn).await.ok()?;
                             Some(())

@@ -1,6 +1,6 @@
 #![type_length_limit = "2000000"]
 
-use std::{io::Write, path::PathBuf, sync::Arc};
+use std::{io::Write, path::PathBuf, sync::Arc, time::Duration};
 
 use binder_transport::BinderClient;
 use flexi_logger::{DeferredNow, Record};
@@ -81,22 +81,25 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
-    // sosistab::runtime::set_smol_executor(&GEXEC);
-    // // we actually spawn 2 threads per CPU to improve preemption etc
-    // // one less because the main thread exists too
-    // for _ in 1..num_cpus::get() * 2 {
-    //     std::thread::spawn(move || smol::block_on(GEXEC.run(smol::future::pending::<()>())));
-    // }
+    sosistab::runtime::set_smol_executor(&GEXEC);
+    for _ in 1..num_cpus::get() {
+        std::thread::spawn(move || smol::block_on(GEXEC.run(smol::future::pending::<()>())));
+    }
     smol::block_on(GEXEC.run(async move {
         match opt {
-            Opt::Connect(opt) => main_connect::main_connect(opt).await,
+            Opt::Connect(opt) => loop {
+                if let Err(err) = main_connect::main_connect(opt.clone()).await {
+                    log::error!("Something SERIOUSLY wrong has happened! {:#?}", err);
+                    smol::Timer::after(Duration::from_secs(1)).await;
+                }
+            },
             Opt::Sync(opt) => main_sync::main_sync(opt).await,
             Opt::BinderProxy(opt) => main_binderproxy::main_binderproxy(opt).await,
         }
     }))
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, StructOpt, Clone)]
 pub struct CommonOpt {
     #[structopt(
         long,
@@ -157,7 +160,7 @@ impl CommonOpt {
     }
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, StructOpt, Clone)]
 pub struct AuthOpt {
     #[structopt(
         long,

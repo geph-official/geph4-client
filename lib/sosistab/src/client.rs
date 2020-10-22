@@ -112,8 +112,8 @@ async fn init_session(
     remote_addr: SocketAddr,
     laddr_gen: Arc<impl Fn() -> std::io::Result<SocketAddr> + Send + Sync + 'static>,
 ) -> std::io::Result<Session> {
-    let (send_frame_out, recv_frame_out) = smol::channel::bounded::<msg::DataFrame>(1);
-    let (send_frame_in, recv_frame_in) = smol::channel::bounded::<msg::DataFrame>(1);
+    let (send_frame_out, recv_frame_out) = smol::channel::bounded::<msg::DataFrame>(1000);
+    let (send_frame_in, recv_frame_in) = smol::channel::bounded::<msg::DataFrame>(1000);
     let backhaul_tasks: Vec<_> = (0..SHARDS)
         .map(|i| {
             runtime::spawn(client_backhaul_once(

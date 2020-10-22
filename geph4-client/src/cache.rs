@@ -22,7 +22,7 @@ pub struct ClientCache {
     pub force_sync: bool,
 }
 
-static TIMEOUT: Duration = Duration::from_secs(5);
+static TIMEOUT: Duration = Duration::from_secs(10);
 
 impl ClientCache {
     /// Create a new ClientCache that saves to the given database.

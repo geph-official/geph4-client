@@ -45,7 +45,7 @@ impl Session {
     /// Creates a tuple of a Session and also a channel with which stuff is fed into the session.
     pub fn new(cfg: SessionConfig) -> Self {
         let (send_tosend, recv_tosend) = smol::channel::bounded(500);
-        let (send_input, recv_input) = smol::channel::bounded(1);
+        let (send_input, recv_input) = smol::channel::bounded(500);
         let (s, r) = smol::channel::unbounded();
         let task = runtime::spawn(session_loop(cfg, recv_tosend, send_input, r));
         Session {

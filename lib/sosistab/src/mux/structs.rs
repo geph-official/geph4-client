@@ -17,14 +17,14 @@ pub enum Message {
     },
 }
 
-impl Message {
-    pub fn seqno(&self) -> Seqno {
-        match self {
-            Message::Rel { seqno, .. } => *seqno,
-            _ => 0,
-        }
-    }
-}
+// impl Message {
+//     pub fn seqno(&self) -> Seqno {
+//         match self {
+//             Message::Rel { seqno, .. } => *seqno,
+//             _ => 0,
+//         }
+//     }
+// }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum RelKind {
