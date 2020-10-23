@@ -192,7 +192,7 @@ async fn keepalive_actor_once(
                 smol::Timer::after(Duration::from_secs(200)).await;
                 if mux
                     .open_conn(None)
-                    .timeout(Duration::from_secs(30))
+                    .timeout(Duration::from_secs(3600))
                     .await
                     .is_none()
                 {
@@ -218,7 +218,7 @@ async fn keepalive_actor_once(
                             let start = Instant::now();
                             let remote = (&mux)
                                 .open_conn(Some(conn_host))
-                                .timeout(Duration::from_secs(15))
+                                .timeout(Duration::from_secs(3600))
                                 .await;
                             if let Some(remote) = remote {
                                 let remote = remote.ok()?;
