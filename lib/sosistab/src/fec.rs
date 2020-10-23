@@ -182,11 +182,7 @@ impl FrameDecoder {
             self.data_shards,
             self.parity_shards
         );
-        self.rs_decoder
-            .as_ref()
-            .expect("must have a decoder if parity_shards > 0")
-            .reconstruct(&mut ref_vec)
-            .ok()?;
+        self.rs_decoder.as_ref()?.reconstruct(&mut ref_vec).ok()?;
         self.done = true;
         let res = self
             .space
