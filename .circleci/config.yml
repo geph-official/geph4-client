@@ -11,7 +11,6 @@ jobs:
     steps:
       - checkout
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
-      - run: sudo apt-get update && sudo apt-get install upx-ucl
       - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       - run: echo "export RUSTFLAGS='-C link-arg=-s'" >> $BASH_ENV
       - run: sh osx_build.sh
@@ -28,7 +27,6 @@ jobs:
       - run: mv ~/repo/target/x86_64-apple-darwin/release/geph4-client ~/repo/OUTPUT/geph4-client-macos-amd64
       - run: sudo apt install python3-pip
       - run: sudo pip3 install --upgrade b2
-      - run: upx --force ~/repo/OUTPUT/*
       - run: |
           b2 authorize-account $B2_KEYID $B2_APPKEY
       - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
