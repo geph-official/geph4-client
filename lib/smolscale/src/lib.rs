@@ -1,72 +1,138 @@
-use async_task::Runnable;
-use crossbeam_channel::{Receiver, Sender};
-use smol::prelude::*;
-use std::time::Duration;
+//! A global, auto-scaling, preemptive scheduler based on `async-executor`.
+//!
+//! `smolscale` is a fairly thin wrapper around a global [`async-executor`]. Unlike `async-global-executor` and friends, however, it has a **preemptive** thread pool that ensures that tasks cannot block other tasks no matter what. This means that you can do things like run expensive computations or even do blocking I/O within a task without worrying about causing deadlocks. Even with "traditional" tasks that do not block, this approach can reduce worst-case latency.
+//!
+//! Furthermore, the thread pool is **adaptive**, using the least amount of threads required to "get the job done". This minimizes OS-level context switching, increasing performance in I/O bound tasks compared to the usual approach of spawning OS threads matching the number of CPUs.
+//!
+//! Finally, this crate has seriously minimal dependencies, and will not add significantly to your compilation times.
+//!
+//! This crate is heavily inspired by Stjepan Glavina's [previous work on async-std](https://async.rs/blog/stop-worrying-about-blocking-the-new-async-std-runtime/).
 
-const IDLE_THREAD_MS: u64 = 1000;
-// const GROW_POOL_MS: u64 = 3;
+use futures_lite::prelude::*;
+use futures_lite::Future;
+use once_cell::sync::OnceCell;
+use pin_project_lite::pin_project;
+use std::{
+    pin::Pin,
+    sync::atomic::AtomicUsize,
+    sync::atomic::Ordering,
+    task::{Context, Poll},
+    time::Duration,
+};
 
-pub struct ExecutorPool {
-    send: Sender<Runnable>,
-}
+const CHANGE_THRESH: u32 = 10;
+const MONITOR_MS: u64 = 10;
 
-impl Default for ExecutorPool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+static EXEC: async_executor::Executor<'static> = async_executor::Executor::new();
 
-impl ExecutorPool {
-    /// Creates a new ExecutorPool. This implicitly starts an autoscaling thread pool in the background.
-    pub fn new() -> Self {
-        let (send, recv) = crossbeam_channel::unbounded();
+static FUTURES_BEING_POLLED: AtomicUsize = AtomicUsize::new(0);
+static FBP_NONZERO: event_listener::Event = event_listener::Event::new();
+static POLL_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+static MONITOR: OnceCell<std::thread::JoinHandle<()>> = OnceCell::new();
+
+static UNDERLOAD: event_listener::Event = event_listener::Event::new();
+
+fn start_monitor() {
+    MONITOR.get_or_init(|| {
         std::thread::Builder::new()
-            .name("ss-manager".into())
-            .spawn(move || execute_thread_pool(recv))
+            .name("sscale-mon".into())
+            .spawn(monitor_loop)
+            .unwrap()
+    });
+}
+
+fn monitor_loop() {
+    fn start_thread() {
+        std::thread::Builder::new()
+            .name("sscale-wkr".into())
+            .spawn(|| {
+                let listener = UNDERLOAD.listen();
+                async_io::block_on(EXEC.run(futures_lite::future::pending::<()>()).or(async {
+                    listener.await;
+                }))
+            })
             .unwrap();
-        ExecutorPool { send }
     }
+    start_thread();
 
-    /// Runs the given future.
-    pub fn spawn<F: Future<Output = T> + 'static + Send, T: Send + 'static>(
-        &self,
-        fut: F,
-    ) -> smol::Task<T> {
-        let send = self.send.clone();
-        let schedule = move |runnable| send.send(runnable).unwrap();
-        let (runnable, task) = async_task::spawn(fut, schedule);
-        runnable.schedule();
-        task
-    }
-}
-
-fn execute_thread_pool(recv_tasks: Receiver<Runnable>) -> Option<()> {
-    let (send_runnable, recv_runnable) = crossbeam_channel::bounded(0);
+    let mut running_threads: usize = 1;
+    let mut last_count: usize = 0;
+    let mut overload_iters = 0;
+    let mut underload_iters = 0;
     loop {
-        let to_run = recv_tasks.recv().ok()?;
-        let returned = match send_runnable.try_send(to_run) {
-            Err(crossbeam_channel::TrySendError::Full(to_run)) => Some(to_run),
-            Err(crossbeam_channel::TrySendError::Disconnected(to_run)) => Some(to_run),
-            Ok(()) => None,
+        std::thread::sleep(Duration::from_millis(MONITOR_MS));
+        let fbp = loop {
+            let fbp = FUTURES_BEING_POLLED.load(Ordering::SeqCst);
+            if fbp > 0 {
+                break fbp;
+            }
+            let listener = FBP_NONZERO.listen();
+            let fbp = FUTURES_BEING_POLLED.load(Ordering::SeqCst);
+            if fbp > 0 {
+                break fbp;
+            }
+            overload_iters = 0;
+            underload_iters += 1;
+            if underload_iters > CHANGE_THRESH {
+                underload_iters = 0;
+                if running_threads > 1 {
+                    UNDERLOAD.notify_additional_relaxed(1);
+                    running_threads -= 1;
+                }
+            }
+            listener.wait();
         };
-        if let Some(to_run) = returned {
-            let recv_runnable = recv_runnable.clone();
-            std::thread::Builder::new()
-                .name("ss-worker".into())
-                .spawn(move || execute_worker(to_run, recv_runnable))
-                .unwrap();
+        debug_assert!(fbp <= running_threads);
+        let new_count = POLL_COUNT.load(Ordering::Relaxed);
+        if FUTURES_BEING_POLLED.load(Ordering::Relaxed) == running_threads {
+            underload_iters = 0;
+            overload_iters += 1;
+            if new_count == last_count || overload_iters > CHANGE_THRESH {
+                start_thread();
+                running_threads += 1;
+            }
         }
+        last_count = new_count;
     }
 }
 
-fn execute_worker(first_runnable: Runnable, more_runnables: Receiver<Runnable>) {
-    first_runnable.run();
-    loop {
-        let runnable = more_runnables.recv_timeout(Duration::from_millis(IDLE_THREAD_MS));
-        if let Ok(runnable) = runnable {
-            runnable.run();
-        } else {
-            return;
+/// Spawns a task onto the lazily-initialized global executor.
+///
+/// The task can block or run CPU-intensive code if needed --- it will not block other tasks.
+pub fn spawn<T: Send + 'static>(
+    future: impl Future<Output = T> + Send + 'static,
+) -> async_executor::Task<T> {
+    start_monitor();
+    EXEC.spawn(WrappedFuture::new(future))
+}
+
+pin_project! {
+struct WrappedFuture<T, F: Future<Output = T>> {
+    #[pin]
+    fut: F,
+}
+}
+
+impl<T, F: Future<Output = T>> Future for WrappedFuture<T, F> {
+    type Output = T;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+        let pval = FUTURES_BEING_POLLED.fetch_add(1, Ordering::SeqCst);
+        if pval == 0 {
+            FBP_NONZERO.notify(1);
         }
+        POLL_COUNT.fetch_add(1, Ordering::Relaxed);
+        scopeguard::defer!({
+            FUTURES_BEING_POLLED.fetch_sub(1, Ordering::Relaxed);
+        });
+        this.fut.poll(cx)
+    }
+}
+
+impl<T, F: Future<Output = T> + 'static> WrappedFuture<T, F> {
+    pub fn new(fut: F) -> Self {
+        WrappedFuture { fut }
     }
 }

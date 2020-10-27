@@ -1,6 +1,8 @@
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, time::Duration, time::Instant};
+use std::{collections::BTreeMap, time::Duration, time::Instant};
+
+use super::mempress;
 
 /// A sequence number.
 pub type Seqno = u64;
@@ -15,6 +17,16 @@ pub enum Message {
         seqno: Seqno,
         payload: Bytes,
     },
+}
+
+impl Message {
+    /// clears the payload, freeing memory sooner rather than later
+    pub fn clear_payload(&mut self) {
+        match self {
+            Message::Urel(b) => *b = Bytes::new(),
+            Message::Rel { payload, .. } => *payload = Bytes::new(),
+        }
+    }
 }
 
 // impl Message {
@@ -39,16 +51,22 @@ pub enum RelKind {
 
 #[derive(Clone)]
 pub struct Reorderer<T: Clone> {
-    pkts: HashMap<Seqno, T>,
+    pkts: BTreeMap<Seqno, T>,
     min: Seqno,
 }
 
 impl<T: Clone> Default for Reorderer<T> {
     fn default() -> Self {
         Reorderer {
-            pkts: HashMap::new(),
+            pkts: BTreeMap::new(),
             min: 0,
         }
+    }
+}
+
+impl<T: Clone> Drop for Reorderer<T> {
+    fn drop(&mut self) {
+        mempress::decr(self.pkts.len());
     }
 }
 
@@ -57,6 +75,8 @@ impl<T: Clone> Reorderer<T> {
         if seq >= self.min && seq <= self.min + 20000 {
             if self.pkts.insert(seq, item).is_some() {
                 log::trace!("spurious retransmission of {} received", seq);
+            } else {
+                mempress::incr(1);
             }
             // self.pkts.insert(seq, item);
             true
@@ -66,17 +86,15 @@ impl<T: Clone> Reorderer<T> {
         }
     }
     pub fn take(&mut self) -> Vec<T> {
-        let mut output = Vec::new();
+        let mut output = Vec::with_capacity(self.pkts.len());
         for idx in self.min.. {
             if let Some(item) = self.pkts.remove(&idx) {
+                mempress::decr(1);
                 output.push(item.clone());
                 self.min = idx + 1;
             } else {
                 break;
             }
-        }
-        if self.pkts.is_empty() {
-            self.pkts = HashMap::new()
         }
         output
     }

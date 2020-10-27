@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, collections::VecDeque, time::Instant};
 
 use bytes::Bytes;
 
-use crate::mux::structs::*;
+use crate::mux::{mempress, structs::*};
 
 use super::inflight::Inflight;
 
@@ -19,9 +19,9 @@ pub(crate) struct ConnVars {
     pub lowest_unseen: Seqno,
     // read_buffer: VecDeque<Bytes>,
     slow_start: bool,
+    ssthresh: f64,
     pub cwnd: f64,
     last_loss: Instant,
-    last_ack: Instant,
 
     flights: u64,
     last_flight: Instant,
@@ -46,9 +46,9 @@ impl Default for ConnVars {
             lowest_unseen: 0,
 
             slow_start: true,
-            cwnd: 16.0,
+            cwnd: 64.0,
+            ssthresh: 10000.0,
             last_loss: Instant::now(),
-            last_ack: Instant::now(),
 
             flights: 0,
             last_flight: Instant::now(),
@@ -73,7 +73,11 @@ impl ConnVars {
             self.last_flight = now
         }
         self.loss_rate *= 0.99;
-        if self.slow_start && self.cwnd < 5000.0 {
+        if mempress::is_pressured() {
+            self.congestion_loss();
+            return;
+        }
+        if self.slow_start && self.cwnd < self.ssthresh {
             self.cwnd += 1.0
         } else {
             let n = (0.23 * self.cwnd.powf(0.8)).max(1.0);

@@ -5,7 +5,6 @@ use bytes::Bytes;
 use governor::{Quota, RateLimiter};
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
-use std::time::Duration;
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     time::Instant,
@@ -14,6 +13,7 @@ use std::{
     num::NonZeroU32,
     sync::atomic::{AtomicU64, AtomicU8, Ordering},
 };
+use std::{sync::Arc, time::Duration};
 
 async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T {
     match fut.await {
@@ -25,6 +25,7 @@ async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct SessionConfig {
     pub latency: Duration,
     pub target_loss: f64,
@@ -34,7 +35,7 @@ pub struct SessionConfig {
 
 /// Representation of an isolated session that deals only in DataFrames and abstracts away all I/O concerns. It's the user's responsibility to poll the session. Otherwise, it might not make progress and will drop packets.
 pub struct Session {
-    send_tosend: Sender<Bytes>,
+    pub(crate) send_tosend: Sender<Bytes>,
     recv_input: Receiver<Bytes>,
     get_stats: Sender<Sender<SessionStats>>,
     _dropper: Vec<Box<dyn FnOnce() + Send + Sync + 'static>>,
@@ -65,7 +66,7 @@ impl Session {
     /// Takes a Bytes to be sent and stuffs it into the session.
     pub async fn send_bytes(&self, to_send: Bytes) {
         if self.send_tosend.try_send(to_send).is_err() {
-            log::warn!("overflowed send buffer at session!");
+            log::trace!("overflowed send buffer at session!");
         }
         // drop(self.send_tosend.send(to_send).await)
     }
@@ -99,80 +100,117 @@ async fn session_loop(
     send_input: Sender<Bytes>,
     recv_statreq: Receiver<Sender<SessionStats>>,
 ) {
-    let measured_loss = AtomicU8::new(0);
-    let high_recv_frame_no = AtomicU64::new(0);
-    let total_recv_frames = AtomicU64::new(0);
+    let measured_loss = Arc::new(AtomicU8::new(0));
+    let high_recv_frame_no = Arc::new(AtomicU64::new(0));
+    let total_recv_frames = Arc::new(AtomicU64::new(0));
 
     // sending loop
-    let send_loop = async {
-        let shaper = RateLimiter::direct_with_clock(
-            Quota::per_second(NonZeroU32::new(10000u32).unwrap())
-                .allow_burst(NonZeroU32::new(20).unwrap()),
-            &governor::clock::MonotonicClock::default(),
-        );
-        let mut frame_no = 0u64;
-        let mut run_no = 0u64;
-        let mut to_send = Vec::new();
-        loop {
-            // obtain a vector of bytes to send
-            let to_send = {
-                to_send.clear();
-                // get as much tosend as possible within the timeout
-                // this lets us do it at maximum efficiency
-                to_send.push(infal(recv_tosend.recv()).await);
-                let mut timeout = smol::Timer::after(cfg.latency);
-                loop {
-                    let res = async {
-                        (&mut timeout).await;
-                        true
-                    }
-                    .or(async {
-                        to_send.push(infal(recv_tosend.recv()).await);
-                        false
-                    });
-                    if res.await || to_send.len() >= 16 {
-                        break &to_send;
-                    }
+    let send_task = runtime::spawn(session_send_loop(
+        cfg.clone(),
+        recv_tosend.clone(),
+        measured_loss.clone(),
+        high_recv_frame_no.clone(),
+        total_recv_frames.clone(),
+    ));
+    let recv_task = runtime::spawn(session_recv_loop(
+        cfg,
+        send_input,
+        recv_statreq,
+        measured_loss,
+        high_recv_frame_no,
+        total_recv_frames,
+    ));
+    smol::future::race(send_task, recv_task).await;
+}
+
+async fn session_send_loop(
+    cfg: SessionConfig,
+    recv_tosend: Receiver<Bytes>,
+    measured_loss: Arc<AtomicU8>,
+    high_recv_frame_no: Arc<AtomicU64>,
+    total_recv_frames: Arc<AtomicU64>,
+) {
+    // let shaper = RateLimiter::direct_with_clock(
+    //     Quota::per_second(NonZeroU32::new(10000u32).unwrap())
+    //         .allow_burst(NonZeroU32::new(20).unwrap()),
+    //     &governor::clock::MonotonicClock::default(),
+    // );
+    let mut frame_no = 0u64;
+    let mut run_no = 0u64;
+    let mut to_send = Vec::new();
+    loop {
+        // obtain a vector of bytes to send
+        let to_send = {
+            to_send.clear();
+            // get as much tosend as possible within the timeout
+            // this lets us do it at maximum efficiency
+            to_send.push(infal(recv_tosend.recv()).await);
+            let mut timeout = smol::Timer::after(cfg.latency);
+            loop {
+                let res = async {
+                    (&mut timeout).await;
+                    true
                 }
-            };
-            // encode into raptor
-            let encoded = FrameEncoder::new(loss_to_u8(cfg.target_loss))
-                .encode(measured_loss.load(Ordering::Relaxed), &to_send);
-            for (idx, bts) in encoded.iter().enumerate() {
-                if frame_no % 1000 == 0 {
-                    log::debug!(
-                        "frame {}, measured loss {}",
-                        frame_no,
-                        measured_loss.load(Ordering::Relaxed)
-                    );
+                .or(async {
+                    to_send.push(infal(recv_tosend.recv()).await);
+                    false
+                });
+                if res.await || to_send.len() >= 16 {
+                    break &to_send;
                 }
-                drop(
-                    cfg.send_frame
-                        .send(DataFrame {
-                            frame_no,
-                            run_no,
-                            run_idx: idx as u8,
-                            data_shards: to_send.len() as u8,
-                            parity_shards: (encoded.len() - to_send.len()) as u8,
-                            high_recv_frame_no: high_recv_frame_no.load(Ordering::Relaxed),
-                            total_recv_frames: total_recv_frames.load(Ordering::Relaxed),
-                            body: bts.clone(),
-                        })
-                        .await,
-                );
-                // every 10000 frames, we send 1000 frames slowly. this keeps the loss estimator accurate
-                // let frame_cycle = frame_no % 10000;
-                // if frame_cycle >= 9000 {
-                //     let _ = shaper.until_n_ready(NonZeroU32::new(5).unwrap()).await;
-                // } else {
-                //     shaper.until_ready().await;
-                // }
-                shaper.until_ready().await;
-                frame_no += 1;
             }
-            run_no += 1;
+        };
+        // encode into raptor
+        let encoded = FrameEncoder::new(loss_to_u8(cfg.target_loss))
+            .encode(measured_loss.load(Ordering::Relaxed), &to_send);
+        for (idx, bts) in encoded.iter().enumerate() {
+            if frame_no % 1000 == 0 {
+                log::debug!(
+                    "frame {}, measured loss {}",
+                    frame_no,
+                    measured_loss.load(Ordering::Relaxed)
+                );
+            }
+            drop(
+                cfg.send_frame
+                    .send(DataFrame {
+                        frame_no,
+                        run_no,
+                        run_idx: idx as u8,
+                        data_shards: to_send.len() as u8,
+                        parity_shards: (encoded.len() - to_send.len()) as u8,
+                        high_recv_frame_no: high_recv_frame_no.load(Ordering::Relaxed),
+                        total_recv_frames: total_recv_frames.load(Ordering::Relaxed),
+                        body: bts.clone(),
+                    })
+                    .await,
+            );
+            // every 10000 frames, we send 1000 frames slowly. this keeps the loss estimator accurate
+            // let frame_cycle = frame_no % 10000;
+            // if frame_cycle >= 9000 {
+            //     let _ = shaper.until_n_ready(NonZeroU32::new(5).unwrap()).await;
+            // } else {
+            //     shaper.until_ready().await;
+            // }
+            // while let Err(e) = shaper.check() {
+            //     let instant = e.earliest_possible();
+            //     smol::Timer::at(instant).await;
+            // }
+            // shaper.until_ready().await;
+            frame_no += 1;
         }
-    };
+        run_no += 1;
+    }
+}
+
+async fn session_recv_loop(
+    cfg: SessionConfig,
+    send_input: Sender<Bytes>,
+    recv_statreq: Receiver<Sender<SessionStats>>,
+    measured_loss: Arc<AtomicU8>,
+    high_recv_frame_no: Arc<AtomicU64>,
+    total_recv_frames: Arc<AtomicU64>,
+) {
     let decoder = smol::lock::Mutex::new(RunDecoder::default());
     let seqnos = smol::lock::Mutex::new(VecDeque::new());
     // receive loop
@@ -232,11 +270,8 @@ async fn session_loop(
             infal(req.send(response)).await;
         }
     };
-    smol::future::race(send_loop, recv_loop)
-        .or(stats_loop)
-        .await;
+    smol::future::race(stats_loop, recv_loop).await
 }
-
 /// A reordering-resistant FEC reconstructor
 #[derive(Default)]
 struct RunDecoder {

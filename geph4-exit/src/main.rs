@@ -7,9 +7,6 @@ use structopt::StructOpt;
 
 mod listen;
 
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 #[derive(Debug, StructOpt)]
 struct Opt {
     #[structopt(long, default_value = "https://binder-v4.geph.io")]
@@ -40,13 +37,11 @@ struct Opt {
     exit_hostname: String,
 }
 
-static GEXEC: smol::Executor = smol::Executor::new();
-
 fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let stat_client = statsd::Client::new(opt.statsd_addr, "geph4")?;
-    env_logger::from_env(Env::default().default_filter_or("geph4_exit=info")).init();
-    smol::block_on(GEXEC.run(async move {
+    env_logger::from_env(Env::default().default_filter_or("geph4_exit=info,warn")).init();
+    smol::future::block_on(smolscale::spawn(async move {
         log::info!("geph4-exit starting...");
         // read or generate key
         let signing_sk = {

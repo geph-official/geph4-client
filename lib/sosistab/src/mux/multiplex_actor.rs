@@ -15,7 +15,6 @@ pub async fn multiplex(
     conn_open_recv: Receiver<(Option<String>, Sender<RelConn>)>,
     conn_accept_send: Sender<RelConn>,
 ) -> anyhow::Result<()> {
-    let _exit = scopeguard::guard((), |_| log::warn!("multiplex context exited!"));
     let conn_tab = Arc::new(RwLock::new(ConnTable::default()));
     let (glob_send, glob_recv) = smol::channel::bounded(1000);
     let (dead_send, dead_recv) = smol::channel::unbounded();

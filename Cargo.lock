@@ -100,6 +100,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aioutils"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bincode",
+ "serde",
+ "smol",
+ "smol-timeout",
+]
+
+[[package]]
 name = "ansi_term"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -245,9 +256,9 @@ dependencies = [
 
 [[package]]
 name = "async-net"
-version = "1.4.7"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ee4c3668eb091d781e97f0026b5289b457c77d407a85749a9bb4c057456c428f"
+checksum = "06de475c85affe184648202401d7622afb32f0f74e02192857d0201a16defbe5"
 dependencies = [
  "async-io",
  "blocking",
@@ -630,15 +641,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4344512281c643ae7638bbabc3af17a11307803ec8f0fcad9fae512a8bf36467"
 dependencies = [
  "bitflags",
-]
-
-[[package]]
-name = "cmake"
-version = "0.1.44"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e56268c17a6248366d66d4a47a3381369d068cce8409bb1716ed77ea32163bb"
-dependencies = [
- "cc",
 ]
 
 [[package]]
@@ -1165,9 +1167,9 @@ checksum = "5fc94b64bb39543b4e432f1790b6bf18e3ee3b74653c5449f63310e9a74b123c"
 
 [[package]]
 name = "futures-lite"
-version = "1.11.1"
+version = "1.11.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "381a7ad57b1bad34693f63f6f377e1abded7a9c85c9d3eb6771e11c60aaadab9"
+checksum = "5e6c079abfac3ab269e2927ec048dabc89d009ebfdda6b8ee86624f30c689658"
 dependencies = [
  "fastrand",
  "futures-core",
@@ -1284,6 +1286,7 @@ dependencies = [
 name = "geph4-bridge"
 version = "0.1.0"
 dependencies = [
+ "aioutils",
  "anyhow",
  "bincode",
  "binder_transport",
@@ -1306,6 +1309,7 @@ dependencies = [
 name = "geph4-client"
 version = "0.0.0"
 dependencies = [
+ "aioutils",
  "anyhow",
  "async-h1",
  "bincode",
@@ -1332,6 +1336,7 @@ dependencies = [
  "sha2",
  "smol",
  "smol-timeout",
+ "smolscale",
  "socksv5",
  "sosistab",
  "strsim 0.10.0",
@@ -1344,6 +1349,7 @@ dependencies = [
 name = "geph4-exit"
 version = "0.1.0"
 dependencies = [
+ "aioutils",
  "anyhow",
  "bincode",
  "binder_transport",
@@ -1351,10 +1357,10 @@ dependencies = [
  "ed25519-dalek",
  "env_logger",
  "hex",
- "jemallocator",
+ "jemallocator-global",
  "log",
- "mimalloc",
  "mizaru",
+ "num_cpus",
  "once_cell",
  "rand 0.7.3",
  "serde",
@@ -1620,6 +1626,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "jemallocator-global"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "991b61de8365c8b5707cf6cabbff98cfd6eaca9b851948b883efea408c7f581e"
+dependencies = [
+ "cfg-if 0.1.10",
+ "jemallocator",
+]
+
+[[package]]
 name = "js-sys"
 version = "0.3.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1667,15 +1683,6 @@ name = "libm"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c7d73b3f436185384286bd8098d17ec07c9a7d2388a6599f824d8502b529702a"
-
-[[package]]
-name = "libmimalloc-sys"
-version = "0.1.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82151ff13433c4d403cb15d0e6fbda14b24d65bd1a5b33f7d52ec983cc00752d"
-dependencies = [
- "cmake",
-]
 
 [[package]]
 name = "libsodium-sys"
@@ -1749,15 +1756,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "043175f069eda7b85febe4a74abbaeff828d9f8b448515d3151a14a3542811aa"
 dependencies = [
  "autocfg 1.0.1",
-]
-
-[[package]]
-name = "mimalloc"
-version = "0.1.22"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4a5d2c9cb18f9cdc6d88f4aca6d3d8ea89c4c8202d6facfc7e56efdee97b80fa"
-dependencies = [
- "libmimalloc-sys",
 ]
 
 [[package]]
@@ -2915,9 +2913,13 @@ dependencies = [
 name = "smolscale"
 version = "0.1.0"
 dependencies = [
- "async-task",
- "crossbeam-channel",
- "smol",
+ "async-executor",
+ "async-io",
+ "event-listener",
+ "futures-lite",
+ "once_cell",
+ "pin-project-lite",
+ "scopeguard",
 ]
 
 [[package]]
@@ -2972,6 +2974,7 @@ dependencies = [
  "scopeguard",
  "serde",
  "smol",
+ "smolscale",
  "socket2",
  "socksv5",
  "x25519-dalek",
@@ -3358,17 +3361,6 @@ dependencies = [
  "log",
  "pin-project-lite",
  "tokio",
-]
-
-[[package]]
-name = "tundevice"
-version = "0.1.0"
-dependencies = [
- "blocking",
- "bytes",
- "cc",
- "flume",
- "smol",
 ]
 
 [[package]]

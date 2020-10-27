@@ -140,7 +140,7 @@ async fn relconn_actor(
     // match on our current state repeatedly
     #[derive(Debug, Clone)]
     enum Evt {
-        Rto((Seqno, bool)),
+        Rto(Option<(Seqno, bool)>),
         AckTimer,
         NewWrite(Bytes),
         NewPkt(Message),
@@ -297,7 +297,7 @@ async fn relconn_actor(
                             }
                         }
                     }
-                    Ok(Evt::Rto((seqno, _is_timeout))) => {
+                    Ok(Evt::Rto(Some((seqno, _is_timeout)))) => {
                         // retransmit packet
                         // assert!(!conn_vars.inflight.len() == 0);
                         if conn_vars.inflight.len() > 0 {

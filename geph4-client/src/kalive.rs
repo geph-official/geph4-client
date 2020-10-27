@@ -1,7 +1,6 @@
-use crate::{cache::ClientCache, GEXEC};
-use crate::{prelude::*, stats::StatCollector};
+use crate::cache::ClientCache;
+use crate::stats::StatCollector;
 use anyhow::Context;
-use serde::de::DeserializeOwned;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
@@ -28,7 +27,7 @@ impl Keepalive {
         Keepalive {
             open_socks5_conn: send,
             get_stats: send_stats,
-            _task: GEXEC.spawn(keepalive_actor(
+            _task: smolscale::spawn(keepalive_actor(
                 stats,
                 exit_host.to_string(),
                 use_bridges,
@@ -117,7 +116,7 @@ async fn keepalive_actor_once(
             .into_iter()
             .map(|desc| {
                 let send = send.clone();
-                GEXEC.spawn(async move {
+                smolscale::spawn(async move {
                     log::debug!("connecting through {}...", desc.endpoint);
                     drop(
                         send.send((
@@ -192,7 +191,7 @@ async fn keepalive_actor_once(
                 smol::Timer::after(Duration::from_secs(200)).await;
                 if mux
                     .open_conn(None)
-                    .timeout(Duration::from_secs(3600))
+                    .timeout(Duration::from_secs(15))
                     .await
                     .is_none()
                 {
@@ -218,7 +217,7 @@ async fn keepalive_actor_once(
                             let start = Instant::now();
                             let remote = (&mux)
                                 .open_conn(Some(conn_host))
-                                .timeout(Duration::from_secs(3600))
+                                .timeout(Duration::from_secs(15))
                                 .await;
                             if let Some(remote) = remote {
                                 let remote = remote.ok()?;
@@ -266,7 +265,7 @@ async fn authenticate_session(
 ) -> anyhow::Result<()> {
     let mut auth_conn = session.open_conn(None).await?;
     log::debug!("sending auth info...");
-    write_pascalish(
+    aioutils::write_pascalish(
         &mut auth_conn,
         &(
             &token.unblinded_digest,
@@ -275,20 +274,6 @@ async fn authenticate_session(
         ),
     )
     .await?;
-    let _: u8 = read_pascalish(&mut auth_conn).await?;
+    let _: u8 = aioutils::read_pascalish(&mut auth_conn).await?;
     Ok(())
-}
-
-async fn read_pascalish<T: DeserializeOwned>(
-    reader: &mut (impl AsyncRead + Unpin),
-) -> anyhow::Result<T> {
-    // first read 2 bytes as length
-    let mut len_bts = [0u8; 2];
-    reader.read_exact(&mut len_bts).await?;
-    let len = u16::from_be_bytes(len_bts);
-    // then read len
-    let mut true_buf = vec![0u8; len as usize];
-    reader.read_exact(&mut true_buf).await?;
-    // then deserialize
-    Ok(bincode::deserialize(&true_buf)?)
 }

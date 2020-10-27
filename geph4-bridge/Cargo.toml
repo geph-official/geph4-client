@@ -23,3 +23,5 @@ serde = "1.0.116"
 blake3 = "0.3.7"
 ureq = "1.5.1"
 flume = "0.9.1"
+
+aioutils={path="../lib/aioutils"}

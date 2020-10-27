@@ -4,7 +4,6 @@ use anyhow::Context;
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
 use ed25519_dalek::Signer;
 use rand::prelude::*;
-use serde::{de::DeserializeOwned, Serialize};
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
 
@@ -100,12 +99,13 @@ async fn handle_control<'a>(
     scope
         .run(async {
             loop {
-                let (their_addr, their_group): (SocketAddr, String) = read_pascalish(&mut client)
-                    .or(async {
-                        smol::Timer::after(Duration::from_secs(60)).await;
-                        anyhow::bail!("timeout")
-                    })
-                    .await?;
+                let (their_addr, their_group): (SocketAddr, String) =
+                    aioutils::read_pascalish(&mut client)
+                        .or(async {
+                            smol::Timer::after(Duration::from_secs(60)).await;
+                            anyhow::bail!("timeout")
+                        })
+                        .await?;
                 log::info!("bridge in group {} to forward {}", their_group, their_addr);
                 // create or recall binding
                 if info.is_none() {
@@ -144,7 +144,7 @@ async fn handle_control<'a>(
                 }
                 // send to the other side and then binder
                 let (port, sosistab_pk) = info.unwrap();
-                write_pascalish(&mut client, &(port, sosistab_pk)).await?;
+                aioutils::write_pascalish(&mut client, &(port, sosistab_pk)).await?;
                 let route_unixtime = SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
@@ -217,7 +217,7 @@ async fn authenticate_sess(
     log::debug!("authenticating session...");
     // wait for a message containing a blinded signature
     let (auth_tok, auth_sig, level): (Vec<u8>, mizaru::UnblindedSignature, String) =
-        read_pascalish(&mut stream).await?;
+        aioutils::read_pascalish(&mut stream).await?;
     if (auth_sig.epoch as i32 - mizaru::time_to_epoch(SystemTime::now()) as i32).abs() > 2 {
         anyhow::bail!("outdated authentication token")
     }
@@ -237,7 +237,7 @@ async fn authenticate_sess(
         anyhow::bail!("unexpected authentication response from binder: {:?}", res)
     }
     // send response
-    write_pascalish(&mut stream, &1u8).await?;
+    aioutils::write_pascalish(&mut stream, &1u8).await?;
     Ok(())
 }
 
@@ -249,7 +249,7 @@ async fn handle_proxy_stream<'a>(
     // read proxy request
     let to_prox: String = match client.additional_info() {
         Some(s) => s.to_string(),
-        None => read_pascalish(&mut client).await?,
+        None => aioutils::read_pascalish(&mut client).await?,
     };
     log::info!("proxying {}", to_prox);
     let remote = smol::net::TcpStream::connect(&to_prox)
@@ -272,57 +272,13 @@ async fn handle_proxy_stream<'a>(
     let key = format!("exit_usage.{}", exit_hostname.replace(".", "-"));
     // copy the streams
     smol::future::race(
-        copy_with_stats(remote.clone(), client.clone(), |n| {
-            stat_client.sampled_count(&key, n as f64, 0.1);
+        aioutils::copy_with_stats(remote.clone(), client.clone(), |n| {
+            stat_client.sampled_count(&key, n as f64, 0.5);
         }),
-        copy_with_stats(client, remote, |n| {
-            stat_client.sampled_count(&key, n as f64, 0.1);
+        aioutils::copy_with_stats(client, remote, |n| {
+            stat_client.sampled_count(&key, n as f64, 0.5);
         }),
     )
     .await?;
     Ok(())
-}
-
-async fn read_pascalish<T: DeserializeOwned>(
-    reader: &mut (impl AsyncRead + Unpin),
-) -> anyhow::Result<T> {
-    // first read 2 bytes as length
-    let mut len_bts = [0u8; 2];
-    reader.read_exact(&mut len_bts).await?;
-    let len = u16::from_be_bytes(len_bts);
-    // then read len
-    let mut true_buf = vec![0u8; len as usize];
-    reader.read_exact(&mut true_buf).await?;
-    // then deserialize
-    Ok(bincode::deserialize(&true_buf)?)
-}
-
-async fn write_pascalish<T: Serialize>(
-    writer: &mut (impl AsyncWrite + Unpin),
-    value: &T,
-) -> anyhow::Result<()> {
-    let serialized = bincode::serialize(value).unwrap();
-    assert!(serialized.len() <= 65535);
-    // write bytes
-    writer
-        .write_all(&(serialized.len() as u16).to_be_bytes())
-        .await?;
-    writer.write_all(&serialized).await?;
-    Ok(())
-}
-
-async fn copy_with_stats(
-    mut reader: impl AsyncRead + Unpin,
-    mut writer: impl AsyncWrite + Unpin,
-    mut on_write: impl FnMut(usize),
-) -> std::io::Result<()> {
-    let mut buffer = [0u8; 128 * 1024];
-    loop {
-        let n = reader.read(&mut buffer).await?;
-        if n == 0 {
-            return Ok(());
-        }
-        on_write(n);
-        writer.write_all(&buffer[..n]).await?;
-    }
 }

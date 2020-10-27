@@ -1,31 +1,13 @@
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::OnceCell;
 use smol::net::AsyncToSocketAddrs;
 use smol::prelude::*;
 use smol::Executor;
 use socket2::{Domain, Socket, Type};
-use std::sync::Arc;
-use std::thread;
 use std::{convert::TryInto, net::SocketAddr};
-
-static FALLBACK: Lazy<Arc<Executor<'static>>> = Lazy::new(|| {
-    let ex = Arc::new(Executor::new());
-    for i in 1..=num_cpus::get() {
-        let builder = thread::Builder::new().name(format!("sosistab-fallback-{}", i));
-        {
-            let ex = ex.clone();
-            builder
-                .spawn(move || {
-                    smol::block_on(ex.run(smol::future::pending::<()>()));
-                })
-                .unwrap();
-        }
-    }
-    ex
-});
 
 static USER_EXEC: OnceCell<&'static Executor> = OnceCell::new();
 
-/// Sets the sosistab executor. If not set, a backup threadpool will be used.
+/// Sets the sosistab executor. If not set, smolscale will be used.
 pub fn set_smol_executor(exec: &'static Executor<'static>) {
     USER_EXEC.set(exec).expect("already initialized")
 }
@@ -37,7 +19,7 @@ pub(crate) fn spawn<T: Send + 'static>(
     if let Some(ex) = USER_EXEC.get() {
         ex.spawn(future)
     } else {
-        FALLBACK.spawn(future)
+        smolscale::spawn(future)
     }
 }
 

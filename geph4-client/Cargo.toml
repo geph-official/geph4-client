@@ -40,6 +40,9 @@ x25519-dalek={ version = "1.1.0", features = ["serde"] }
 chrono = "0.4.19"
 num_cpus= "1.13.0"
 
+smolscale={path="../lib/smolscale"}
+aioutils={path="../lib/aioutils"}
+
 
 # [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
 # mimalloc = "0.1.22"

@@ -58,8 +58,10 @@ impl AsyncWrite for BipeWriter {
                 }
                 let queue = &mut boo.1;
                 if queue.len() < self.capacity + buf.len() {
+                    if queue.is_empty() {
+                        self.signal.notify(usize::MAX);
+                    }
                     queue.extend_from_slice(buf);
-                    self.signal.notify(usize::MAX);
                     return Poll::Ready(Ok(buf.len()));
                 }
             }

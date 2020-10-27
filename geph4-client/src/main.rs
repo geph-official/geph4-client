@@ -17,9 +17,6 @@ mod stats;
 mod main_binderproxy;
 mod main_connect;
 mod main_sync;
-
-static GEXEC: smol::Executor = smol::Executor::new();
-
 #[derive(Debug, StructOpt)]
 enum Opt {
     Connect(main_connect::ConnectOpt),
@@ -81,11 +78,7 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
-    sosistab::runtime::set_smol_executor(&GEXEC);
-    for _ in 1..num_cpus::get() {
-        std::thread::spawn(move || smol::block_on(GEXEC.run(smol::future::pending::<()>())));
-    }
-    smol::block_on(GEXEC.run(async move {
+    smol::future::block_on(smolscale::spawn(async move {
         match opt {
             Opt::Connect(opt) => loop {
                 if let Err(err) = main_connect::main_connect(opt.clone()).await {

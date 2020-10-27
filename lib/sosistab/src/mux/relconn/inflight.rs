@@ -1,4 +1,4 @@
-use crate::mux::structs::*;
+use crate::mux::{mempress, structs::*};
 use std::{
     cmp::Reverse,
     collections::BTreeSet,
@@ -30,6 +30,12 @@ pub struct Inflight {
 
     delivered: u64,
     delivered_time: Instant,
+}
+
+impl Drop for Inflight {
+    fn drop(&mut self) {
+        mempress::decr(self.inflight_count);
+    }
 }
 
 impl Inflight {
@@ -103,6 +109,7 @@ impl Inflight {
                         toret = true;
                         seg.acked = true;
                         self.inflight_count -= 1;
+                        mempress::decr(1);
                         if seg.retrans == 0 {
                             if let Message::Rel { payload, .. } = &seg.payload {
                                 if payload.len() == MSS {
@@ -116,6 +123,7 @@ impl Inflight {
                                 }
                             }
                         }
+                        seg.payload.clear_payload();
 
                         self.rtt.record_sample(if seg.retrans == 0 {
                             Some(now.saturating_duration_since(seg.send_time))
@@ -145,6 +153,7 @@ impl Inflight {
                 delivered: self.delivered,
                 delivered_time: self.delivered_time,
             });
+            mempress::incr(1);
             self.inflight_count += 1;
         }
         self.times.push(seqno, Reverse(Instant::now() + rto));
@@ -161,16 +170,19 @@ impl Inflight {
         None
     }
 
-    pub async fn wait_first(&mut self) -> (Seqno, bool) {
+    pub async fn wait_first(&mut self) -> Option<(Seqno, bool)> {
         if let Some(seq) = self.fast_retrans.iter().next() {
             let seq = *seq;
             self.fast_retrans.remove(&seq);
-            return (seq, false);
+            return Some((seq, false));
         }
         while !self.times.is_empty() {
             let (_, time) = self.times.peek().unwrap();
-            let time = time.0.saturating_duration_since(Instant::now());
-            smol::Timer::after(time).await;
+            let durat = time.0.saturating_duration_since(Instant::now());
+            if durat.as_secs() > 30 {
+                return None;
+            }
+            smol::Timer::at(time.0).await;
             let (seqno, _) = self.times.pop().unwrap();
             let mut rto = self.rtt.rto();
             if let Some(seg) = self.get_seqno(seqno) {
@@ -183,7 +195,7 @@ impl Inflight {
                     }
 
                     self.times.push(seqno, Reverse(Instant::now() + rto));
-                    return (seqno, true);
+                    return Some((seqno, true));
                 }
             }
         }

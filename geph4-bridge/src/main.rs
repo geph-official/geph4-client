@@ -2,7 +2,6 @@ use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse, ExitDescriptor};
 use env_logger::Env;
-use serde::{de::DeserializeOwned, Serialize};
 use smol::prelude::*;
 use std::time::Duration;
 use structopt::StructOpt;
@@ -176,9 +175,10 @@ async fn manage_exit_once(
     // enter the main loop
     loop {
         // send address and group
-        write_pascalish(&mut conn, &(my_addr, bridge_group)).await?;
+        aioutils::write_pascalish(&mut conn, &(my_addr, bridge_group)).await?;
         // receive route
-        let (port, sosistab_pk): (u16, x25519_dalek::PublicKey) = read_pascalish(&mut conn).await?;
+        let (port, sosistab_pk): (u16, x25519_dalek::PublicKey) =
+            aioutils::read_pascalish(&mut conn).await?;
         log::info!(
             "route at {} is {}/{}",
             exit.hostname,
@@ -189,32 +189,4 @@ async fn manage_exit_once(
         route_update.send_async((port, sosistab_pk)).await?;
         smol::Timer::after(Duration::from_secs(30)).await;
     }
-}
-
-async fn read_pascalish<T: DeserializeOwned>(
-    reader: &mut (impl AsyncRead + Unpin),
-) -> anyhow::Result<T> {
-    // first read 2 bytes as length
-    let mut len_bts = [0u8; 2];
-    reader.read_exact(&mut len_bts).await?;
-    let len = u16::from_be_bytes(len_bts);
-    // then read len
-    let mut true_buf = vec![0u8; len as usize];
-    reader.read_exact(&mut true_buf).await?;
-    // then deserialize
-    Ok(bincode::deserialize(&true_buf)?)
-}
-
-async fn write_pascalish<T: Serialize>(
-    writer: &mut (impl AsyncWrite + Unpin),
-    value: &T,
-) -> anyhow::Result<()> {
-    let serialized = bincode::serialize(value).unwrap();
-    assert!(serialized.len() <= 65535);
-    // write bytes
-    writer
-        .write_all(&(serialized.len() as u16).to_be_bytes())
-        .await?;
-    writer.write_all(&serialized).await?;
-    Ok(())
 }
