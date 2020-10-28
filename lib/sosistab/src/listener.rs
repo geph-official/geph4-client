@@ -73,7 +73,7 @@ impl RecentFilter {
         if Instant::now()
             .saturating_duration_since(self.curr_time)
             .as_secs()
-            > 120
+            > 600
         {
             std::mem::swap(&mut self.curr_bloom, &mut self.last_bloom);
             self.curr_bloom.clear()

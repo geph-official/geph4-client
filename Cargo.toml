@@ -15,10 +15,10 @@ members = [
 
 
 [profile.dev]
-opt-level=0
+opt-level=2
 lto="off"
 incremental=true
 
 [profile.release]
 panic = "abort"
-opt-level="s"
+opt-level=3

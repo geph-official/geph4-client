@@ -42,7 +42,3 @@ num_cpus= "1.13.0"
 
 smolscale={path="../lib/smolscale"}
 aioutils={path="../lib/aioutils"}
-
-
-# [target.'cfg(any(target_os = "linux", target_os = "android"))'.dependencies]
-# mimalloc = "0.1.22"

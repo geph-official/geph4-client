@@ -230,7 +230,7 @@ async fn relconn_actor(
                     let writeable = conn_vars.inflight.inflight() <= conn_vars.cwnd as usize
                         && conn_vars.inflight.len() < 10000
                         && !conn_vars.closing;
-                    let force_ack = conn_vars.ack_seqnos.len() >= 128;
+                    let force_ack = conn_vars.ack_seqnos.len() >= 32;
 
                     let ack_timer = conn_vars.delayed_ack_timer;
                     let ack_timer = async {
@@ -375,10 +375,10 @@ async fn relconn_actor(
                         stream_id,
                     })) => {
                         log::trace!("new data pkt with seqno={}", seqno);
-                        if conn_vars.delayed_ack_timer.is_none() {
-                            conn_vars.delayed_ack_timer =
-                                Instant::now().checked_add(Duration::from_millis(5));
-                        }
+                        // if conn_vars.delayed_ack_timer.is_none() {
+                        conn_vars.delayed_ack_timer =
+                            Instant::now().checked_add(Duration::from_millis(5));
+                        // }
                         if conn_vars.reorderer.insert(seqno, payload) {
                             conn_vars.ack_seqnos.insert(seqno);
                         }

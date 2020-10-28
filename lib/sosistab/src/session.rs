@@ -2,16 +2,12 @@ use crate::fec::{FrameDecoder, FrameEncoder};
 use crate::msg::DataFrame;
 use crate::runtime;
 use bytes::Bytes;
-use governor::{Quota, RateLimiter};
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
+use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     time::Instant,
-};
-use std::{
-    num::NonZeroU32,
-    sync::atomic::{AtomicU64, AtomicU8, Ordering},
 };
 use std::{sync::Arc, time::Duration};
 
@@ -211,8 +207,8 @@ async fn session_recv_loop(
     high_recv_frame_no: Arc<AtomicU64>,
     total_recv_frames: Arc<AtomicU64>,
 ) {
-    let decoder = smol::lock::Mutex::new(RunDecoder::default());
-    let seqnos = smol::lock::Mutex::new(VecDeque::new());
+    let decoder = smol::lock::RwLock::new(RunDecoder::default());
+    let seqnos = smol::lock::RwLock::new(VecDeque::new());
     // receive loop
     let recv_loop = async {
         let mut rp_filter = ReplayFilter::new(0);
@@ -227,9 +223,9 @@ async fn session_recv_loop(
                 continue;
             }
             {
-                let mut seqnos = seqnos.lock().await;
+                let mut seqnos = seqnos.write().await;
                 seqnos.push_back((Instant::now(), new_frame.frame_no));
-                if seqnos.len() > 10000 {
+                if seqnos.len() > 100000 {
                     seqnos.pop_front();
                 }
             }
@@ -237,7 +233,7 @@ async fn session_recv_loop(
             measured_loss.store(loss_to_u8(loss_calc.median), Ordering::Relaxed);
             high_recv_frame_no.fetch_max(new_frame.frame_no, Ordering::Relaxed);
             total_recv_frames.fetch_add(1, Ordering::Relaxed);
-            if let Some(output) = decoder.lock().await.input(
+            if let Some(output) = decoder.write().await.input(
                 new_frame.run_no,
                 new_frame.run_idx,
                 new_frame.data_shards,
@@ -254,7 +250,7 @@ async fn session_recv_loop(
     let stats_loop = async {
         loop {
             let req = infal(recv_statreq.recv()).await;
-            let decoder = decoder.lock().await;
+            let decoder = decoder.read().await;
             let response = SessionStats {
                 down_total: high_recv_frame_no.load(Ordering::Relaxed),
                 down_loss: 1.0
@@ -265,7 +261,7 @@ async fn session_recv_loop(
                     - (decoder.correct_count as f64 / decoder.total_count as f64).min(1.0),
                 down_redundant: decoder.total_parity_shards as f64
                     / decoder.total_data_shards as f64,
-                recent_seqnos: seqnos.lock().await.iter().cloned().collect(),
+                recent_seqnos: seqnos.read().await.iter().cloned().collect(),
             };
             infal(req.send(response)).await;
         }
@@ -373,6 +369,7 @@ fn loss_to_u8(loss: f64) -> u8 {
 struct LossCalculator {
     last_top_seqno: u64,
     last_total_seqno: u64,
+    last_time: Instant,
     loss_samples: VecDeque<f64>,
     median: f64,
 }
@@ -382,15 +379,25 @@ impl LossCalculator {
         LossCalculator {
             last_top_seqno: 0,
             last_total_seqno: 0,
+            last_time: Instant::now(),
             loss_samples: VecDeque::new(),
             median: 0.0,
         }
     }
 
     fn update_params(&mut self, top_seqno: u64, total_seqno: u64) {
-        if total_seqno > self.last_total_seqno + 100 && top_seqno > self.last_top_seqno + 100 {
+        let now = Instant::now();
+        if total_seqno > self.last_total_seqno + 100
+            && top_seqno > self.last_top_seqno + 100
+            && now.saturating_duration_since(self.last_time).as_millis() > 2000
+        {
             let delta_top = top_seqno.saturating_sub(self.last_top_seqno) as f64;
             let delta_total = total_seqno.saturating_sub(self.last_total_seqno) as f64;
+            log::debug!(
+                "updating loss calculator with {}/{}",
+                delta_total,
+                delta_top
+            );
             self.last_top_seqno = top_seqno;
             self.last_total_seqno = total_seqno;
             let loss_sample = 1.0 - delta_total / delta_top.max(delta_total);
@@ -403,7 +410,8 @@ impl LossCalculator {
                 lala.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
                 lala[lala.len() / 4]
             };
-            self.median = median
+            self.median = median;
+            self.last_time = now;
         }
         // self.median = (1.0 - total_seqno as f64 / top_seqno as f64).max(0.0);
     }
