@@ -1312,6 +1312,7 @@ dependencies = [
  "aioutils",
  "anyhow",
  "async-h1",
+ "async-net",
  "bincode",
  "binder_transport",
  "chrono",
@@ -1337,6 +1338,7 @@ dependencies = [
  "smol",
  "smol-timeout",
  "smolscale",
+ "socket2",
  "socksv5",
  "sosistab",
  "strsim 0.10.0",
@@ -1363,6 +1365,7 @@ dependencies = [
  "num_cpus",
  "once_cell",
  "rand 0.7.3",
+ "scopeguard",
  "serde",
  "smol",
  "smol-timeout",
@@ -3361,6 +3364,18 @@ dependencies = [
  "log",
  "pin-project-lite",
  "tokio",
+]
+
+[[package]]
+name = "tundevice"
+version = "0.1.0"
+dependencies = [
+ "blocking",
+ "bytes",
+ "cc",
+ "flume",
+ "log",
+ "smol",
 ]
 
 [[package]]

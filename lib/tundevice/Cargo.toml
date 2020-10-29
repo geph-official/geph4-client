@@ -11,6 +11,7 @@ blocking = "1.0.2"
 smol= "1.2.4"
 bytes= "0.5.6"
 flume = "0.9.1"
+log= "0.4.11"
 
 
 [build-dependencies]

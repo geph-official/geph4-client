@@ -3,7 +3,7 @@ use rusqlite::{Connection, OptionalExtension};
 use serde::{de::DeserializeOwned, Serialize};
 use std::path::{Path, PathBuf};
 
-/// A key-value database, backed by LMDB.
+/// A key-value database, backed by SQLite.
 #[derive(Debug)]
 pub struct KVDatabase {
     path: PathBuf,

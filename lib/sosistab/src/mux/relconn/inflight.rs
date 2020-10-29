@@ -6,8 +6,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::MSS;
-
 #[derive(Debug, Clone)]
 pub struct InflightEntry {
     seqno: Seqno,
@@ -111,16 +109,14 @@ impl Inflight {
                         self.inflight_count -= 1;
                         mempress::decr(1);
                         if seg.retrans == 0 {
-                            if let Message::Rel { payload, .. } = &seg.payload {
-                                if payload.len() == MSS {
-                                    // calculate rate
-                                    let data_acked = self.delivered - seg.delivered;
-                                    let ack_elapsed = self
-                                        .delivered_time
-                                        .saturating_duration_since(seg.delivered_time);
-                                    let rate_sample = data_acked as f64 / ack_elapsed.as_secs_f64();
-                                    self.rate.record_sample(rate_sample)
-                                }
+                            if let Message::Rel { .. } = &seg.payload {
+                                // calculate rate
+                                let data_acked = self.delivered - seg.delivered;
+                                let ack_elapsed = self
+                                    .delivered_time
+                                    .saturating_duration_since(seg.delivered_time);
+                                let rate_sample = data_acked as f64 / ack_elapsed.as_secs_f64();
+                                self.rate.record_sample(rate_sample)
                             }
                         }
                         seg.payload.clear_payload();

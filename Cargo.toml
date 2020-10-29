@@ -3,7 +3,7 @@
 members = [
     "geph4-binder",
     "geph4-exit",
-    # "lib/tundevice",
+    "lib/tundevice",
     "lib/mizaru",
     "lib/binder_transport",
     "lib/smolscale",

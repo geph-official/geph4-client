@@ -1,4 +1,9 @@
-use std::{net::SocketAddr, sync::Arc, time::Duration, time::SystemTime};
+use std::{
+    net::SocketAddr,
+    sync::{atomic::AtomicUsize, Arc},
+    time::Duration,
+    time::SystemTime,
+};
 
 use anyhow::Context;
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
@@ -16,6 +21,7 @@ pub async fn main_loop<'a>(
     signing_sk: ed25519_dalek::Keypair,
     sosistab_sk: x25519_dalek::StaticSecret,
 ) -> anyhow::Result<()> {
+    let session_count = AtomicUsize::new(0);
     let scope = smol::Executor::new();
     // control protocol listener
     let control_prot_listen = smol::net::TcpListener::bind("[::0]:28080").await?;
@@ -26,6 +32,7 @@ pub async fn main_loop<'a>(
             scope
                 .spawn(async {
                     let res = handle_control(
+                        &session_count,
                         &stat_client,
                         exit_hostname,
                         binder_client.clone(),
@@ -41,8 +48,8 @@ pub async fn main_loop<'a>(
                 .detach();
         }
     };
-    // future that governs the "self binder"
-    let self_binder_fut = async {
+    // future that governs the "self bridge"
+    let self_bridge_fut = async {
         let sosis_listener = sosistab::Listener::listen("[::0]:19831", sosistab_sk).await;
         log::info!("sosis_listener initialized");
         loop {
@@ -52,6 +59,7 @@ pub async fn main_loop<'a>(
                 .ok_or_else(|| anyhow::anyhow!("can't accept from sosistab"))?;
             scope
                 .spawn(handle_session(
+                    &session_count,
                     &stat_client,
                     exit_hostname,
                     binder_client.clone(),
@@ -60,13 +68,23 @@ pub async fn main_loop<'a>(
                 .detach();
         }
     };
+    // future that uploads gauge statistics
+    let gauge_fut = async {
+        let key = format!("session_count.{}", exit_hostname.replace(".", "-"));
+        loop {
+            let session_count = session_count.load(std::sync::atomic::Ordering::Relaxed);
+            stat_client.gauge(&key, session_count as f64);
+            smol::Timer::after(Duration::from_secs(1)).await;
+        }
+    };
     // race
     scope
-        .run(smol::future::race(control_prot_fut, self_binder_fut))
+        .run(smol::future::race(control_prot_fut, self_bridge_fut).or(gauge_fut))
         .await
 }
 
 async fn handle_control<'a>(
+    session_count: &'a AtomicUsize,
     stat_client: &'a statsd::Client,
     exit_hostname: &'a str,
     binder_client: Arc<dyn BinderClient>,
@@ -131,6 +149,7 @@ async fn handle_control<'a>(
                                         })?;
                                     scope
                                         .spawn(handle_session(
+                                            &session_count,
                                             &stat_client,
                                             exit_hostname,
                                             binder_client.clone(),
@@ -181,6 +200,7 @@ async fn handle_control<'a>(
 }
 
 async fn handle_session<'a>(
+    session_count: &'a AtomicUsize,
     stat_client: &'a statsd::Client,
     exit_hostname: &'a str,
     binder_client: Arc<dyn BinderClient>,
@@ -195,6 +215,10 @@ async fn handle_session<'a>(
             .await
             .ok_or_else(|| anyhow::anyhow!("authentication timeout"))??;
         log::info!("authenticated a new session");
+        session_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        scopeguard::defer!({
+            session_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+        });
         loop {
             let stream = sess
                 .accept_conn()

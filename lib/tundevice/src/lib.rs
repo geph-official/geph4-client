@@ -1,9 +1,9 @@
 use bytes::Bytes;
 use flume::{Receiver, Sender};
-use std::io::prelude::*;
 use std::os::unix::io::AsRawFd;
 use std::{ffi::CStr, process::Command};
 use std::{fs, io, os::raw::c_int};
+use std::{io::prelude::*, net::Ipv4Addr};
 use std::{net::IpAddr, os::raw::c_char};
 
 use fs::OpenOptions;
@@ -47,8 +47,8 @@ impl TunDevice {
         };
         // spawn two threads
         let mut fd1 = fd.try_clone().unwrap();
-        let (send_write, recv_write) = flume::bounded::<Bytes>(100);
-        let (send_read, recv_read) = flume::bounded::<Bytes>(100);
+        let (send_write, recv_write) = flume::bounded::<Bytes>(1000);
+        let (send_read, recv_read) = flume::bounded::<Bytes>(1000);
         let mut fd2 = fd.try_clone().unwrap();
         std::thread::spawn(move || {
             let mut buf = [0u8; 2048];
@@ -59,7 +59,7 @@ impl TunDevice {
                     .try_send(Bytes::copy_from_slice(&buf[..n]))
                     .is_err()
                 {
-                    eprintln!("overflowing tundevice")
+                    log::warn!("overflowing tundevice")
                 }
             }
             Some(())
@@ -82,7 +82,7 @@ impl TunDevice {
     }
 
     /// Assigns an IP address to the device.
-    pub fn assign_ip(&mut self, addr: IpAddr) {
+    pub fn assign_ip(&mut self, addr: Ipv4Addr) {
         assert!(std::env::consts::OS == "linux");
         // spawn ip tool
         Command::new("/usr/bin/env")
@@ -119,23 +119,35 @@ impl TunDevice {
             .ok()
     }
 
-    /// Route all traffic through this device.
+    /// Route all traffic through this device. Tries its best to ensure that the program's own traffic isn't diverted. On Linux, this is done very hackily by exempting everything from the users root and nobody.
     pub fn route_traffic(&mut self, gateway_ip: IpAddr) {
         assert!(std::env::consts::OS == "linux");
+        system("ip route flush table 814");
         Command::new("/usr/bin/env")
             .args(&[
-                "ip",
-                "route",
-                "add",
-                "default",
-                "via",
-                &gateway_ip.to_string(),
-                "dev",
-                &self.name,
+                "ip", "route", "add", "default",
+                // "via",
+                // &gateway_ip.to_string(),
+                "dev", &self.name, "table", "814",
             ])
             .output()
             .expect("cannot run route command");
+        system("iptables -t mangle -D OUTPUT -m owner ! --uid-owner root -j MARK --set-mark 1");
+        system("iptables -t mangle -D OUTPUT -m owner ! --uid-owner nobody -j MARK --set-mark 1");
+        system("iptables -t mangle -A OUTPUT -m owner ! --uid-owner root -j MARK --set-mark 1");
+        system("iptables -t mangle -A OUTPUT -m owner ! --uid-owner nobody -j MARK --set-mark 1");
+        system("ip rule delete fwmark 1 table 814");
+        system("ip rule add fwmark 1 table 814");
+        system("ip rule delete table main suppress_prefixlength 0");
+        system("ip rule add table main suppress_prefixlength 0");
     }
+}
+
+fn system(cmd: &str) {
+    Command::new("/bin/sh")
+        .args(&["-c", cmd])
+        .output()
+        .expect("cannot run iptables command");
 }
 
 #[cfg(test)]
@@ -143,13 +155,16 @@ mod tests {
     use super::*;
     use std::{thread, time::Duration};
 
-    // #[test]
-    // fn test_tun() {
-    //     let mut device = TunDevice::new_from_os("tun-test").unwrap();
-    //     device.assign_ip("100.64.64.10".parse().unwrap());
-    //     loop {
-    //         println!("{:?}", device.read_raw());
-    //     }
-    // }
+    #[test]
+    fn test_tun() {
+        smol::block_on(async move {
+            let mut device = TunDevice::new_from_os("tun-test").unwrap();
+            device.assign_ip("10.89.64.2".parse().unwrap());
+            device.route_traffic("10.89.64.1".parse().unwrap());
+            loop {
+                println!("{:?}", device.read_raw().await);
+            }
+        });
+    }
     // commented out because this whole crate requires rootish perms
 }
