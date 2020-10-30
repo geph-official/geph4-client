@@ -400,6 +400,10 @@ async fn relconn_actor(
                             }
                         }
                     }
+                    Ok(Evt::NewPkt(_)) => SteadyState {
+                        stream_id,
+                        conn_vars,
+                    },
                     Ok(Evt::NewWrite(bts)) => {
                         assert!(bts.len() <= MSS);
                         let seqno = conn_vars.next_free_seqno;
