@@ -102,8 +102,8 @@ pub async fn connect_custom(
     unimplemented!()
 }
 
-const SHARDS: u8 = 6;
-const RESET_MILLIS: u128 = 500;
+const SHARDS: u8 = 4;
+const RESET_MILLIS: u128 = 29000;
 
 async fn init_session(
     cookie: crypt::Cookie,

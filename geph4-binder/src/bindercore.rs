@@ -387,7 +387,7 @@ impl BinderCore {
         let mut txn: postgres::Transaction<'_> = client
             .transaction()
             .map_err(|_| BinderError::DatabaseFailed)?;
-        let query = "select bridge_address,sosistab_pubkey from routes where update_time > NOW() - interval '2 minute' and hostname=$1";
+        let query = "select bridge_address,sosistab_pubkey,bridge_group from routes where update_time > NOW() - interval '2 minute' and hostname=$1";
         let rows = txn
             .query(query, &[&exit_hostname])
             .map_err(|_| BinderError::DatabaseFailed)?;
@@ -399,16 +399,20 @@ impl BinderCore {
                 let sosistab_key: Vec<u8> = row.get(1);
                 let sosistab_key: [u8; 32] = sosistab_key.as_slice().try_into().unwrap();
                 let sosistab_key = x25519_dalek::PublicKey::from(sosistab_key);
-                BridgeDescriptor {
-                    endpoint: bridge_address,
-                    sosistab_key,
-                }
+                let group: String = row.get(2);
+                (
+                    BridgeDescriptor {
+                        endpoint: bridge_address,
+                        sosistab_key,
+                    },
+                    group,
+                )
             })
             .collect();
-        res.sort_by(|a, b| a.endpoint.cmp(&b.endpoint));
-        res.dedup_by(|a, b| a.endpoint == b.endpoint);
+        res.sort_by(|a, b| a.0.endpoint.cmp(&b.0.endpoint));
+        res.dedup_by(|a, b| a.1 == b.1);
         log::debug!("serving out {} bridges", res.len());
-        Ok(res)
+        Ok(res.into_iter().map(|v| v.0).collect())
     }
 }
 
