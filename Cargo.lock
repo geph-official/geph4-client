@@ -2965,6 +2965,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-dup",
+ "async-trait",
  "bincode",
  "blake3",
  "bloomfilter",
