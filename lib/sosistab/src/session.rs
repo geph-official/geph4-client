@@ -34,6 +34,7 @@ pub struct Session {
     pub(crate) send_tosend: Sender<Bytes>,
     recv_input: Receiver<Bytes>,
     get_stats: Sender<Sender<SessionStats>>,
+    send_next_deadline: Sender<Instant>,
     _dropper: Vec<Box<dyn FnOnce() + Send + Sync + 'static>>,
     _task: smol::Task<()>,
 }
@@ -44,11 +45,19 @@ impl Session {
         let (send_tosend, recv_tosend) = smol::channel::bounded(500);
         let (send_input, recv_input) = smol::channel::bounded(500);
         let (s, r) = smol::channel::unbounded();
-        let task = runtime::spawn(session_loop(cfg, recv_tosend, send_input, r));
+        let (send_next_deadline, recv_next_deadline) = smol::channel::unbounded();
+        let task = runtime::spawn(session_loop(
+            cfg,
+            recv_tosend,
+            send_input,
+            recv_next_deadline,
+            r,
+        ));
         Session {
             send_tosend,
             recv_input,
             get_stats: s,
+            send_next_deadline,
             _dropper: Vec::new(),
             _task: task,
         }
@@ -68,8 +77,8 @@ impl Session {
     }
 
     /// Waits until the next application input is decoded by the session.
-    pub async fn recv_bytes(&self) -> Bytes {
-        self.recv_input.recv().await.unwrap()
+    pub async fn recv_bytes(&self) -> Option<Bytes> {
+        self.recv_input.recv().await.ok()
     }
 
     /// Obtains current statistics.
@@ -77,6 +86,11 @@ impl Session {
         let (send, recv) = smol::channel::bounded(1);
         self.get_stats.send(send).await.unwrap();
         recv.recv().await.unwrap()
+    }
+
+    /// Sets the read deadline, possibly replacing the existing one. If the network is idle until that deadline, then the session dies.
+    pub fn set_deadline(&self, deadline: Instant) {
+        let _ = self.send_next_deadline.try_send(deadline);
     }
 }
 
@@ -94,8 +108,10 @@ async fn session_loop(
     cfg: SessionConfig,
     recv_tosend: Receiver<Bytes>,
     send_input: Sender<Bytes>,
+    recv_next_deadline: Receiver<Instant>,
     recv_statreq: Receiver<Sender<SessionStats>>,
 ) {
+    scopeguard::defer!(log::warn!("session_loop ending"));
     let measured_loss = Arc::new(AtomicU8::new(0));
     let high_recv_frame_no = Arc::new(AtomicU64::new(0));
     let total_recv_frames = Arc::new(AtomicU64::new(0));
@@ -111,6 +127,7 @@ async fn session_loop(
     let recv_task = runtime::spawn(session_recv_loop(
         cfg,
         send_input,
+        recv_next_deadline,
         recv_statreq,
         measured_loss,
         high_recv_frame_no,
@@ -125,7 +142,7 @@ async fn session_send_loop(
     measured_loss: Arc<AtomicU8>,
     high_recv_frame_no: Arc<AtomicU64>,
     total_recv_frames: Arc<AtomicU64>,
-) {
+) -> Option<()> {
     // let shaper = RateLimiter::direct_with_clock(
     //     Quota::per_second(NonZeroU32::new(10000u32).unwrap())
     //         .allow_burst(NonZeroU32::new(20).unwrap()),
@@ -202,11 +219,12 @@ async fn session_send_loop(
 async fn session_recv_loop(
     cfg: SessionConfig,
     send_input: Sender<Bytes>,
+    recv_next_deadline: Receiver<Instant>,
     recv_statreq: Receiver<Sender<SessionStats>>,
     measured_loss: Arc<AtomicU8>,
     high_recv_frame_no: Arc<AtomicU64>,
     total_recv_frames: Arc<AtomicU64>,
-) {
+) -> Option<()> {
     let decoder = smol::lock::RwLock::new(RunDecoder::default());
     let seqnos = smol::lock::RwLock::new(VecDeque::new());
     // receive loop
@@ -214,7 +232,14 @@ async fn session_recv_loop(
         let mut rp_filter = ReplayFilter::new(0);
         let mut loss_calc = LossCalculator::new();
         loop {
-            let new_frame = infal(cfg.recv_frame.recv()).await;
+            let next_deadline = async {
+                let dline = recv_next_deadline.recv().await.ok()?;
+                smol::Timer::at(dline).await;
+                None
+            };
+            let new_frame = async { cfg.recv_frame.recv().await.ok() }
+                .or(next_deadline)
+                .await?;
             if !rp_filter.add(new_frame.frame_no) {
                 log::trace!(
                     "recv_loop: replay filter dropping frame {}",

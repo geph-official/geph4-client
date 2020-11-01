@@ -170,7 +170,6 @@ async fn keepalive_actor_once(
         .await;
     let session = session?;
     let mux = sosistab::mux::Multiplex::new(session);
-    let (send_stop, recv_stop) = smol::channel::unbounded();
     let scope = smol::Executor::new();
     // now let's authenticate
     let token = ccache.get_auth_token().await?;
@@ -195,12 +194,12 @@ async fn keepalive_actor_once(
                     .await
                     .is_none()
                 {
-                    let _ = send_stop.send(anyhow::anyhow!("watchdog timed out")).await;
-                    return;
+                    log::warn!("watchdog conn didn't work!");
                 }
             }
         })
         .detach();
+    let (send_death, recv_death) = smol::channel::unbounded();
     scope
         .run(
             async {
@@ -210,35 +209,38 @@ async fn keepalive_actor_once(
                         .await
                         .context("cannot get socks5 connect request")?;
                     let mux = &mux;
+                    let send_death = send_death.clone();
                     let stats = stats.clone();
-                    let send_stop = send_stop.clone();
                     scope
                         .spawn(async move {
                             let start = Instant::now();
-                            let remote = (&mux)
-                                .open_conn(Some(conn_host))
-                                .timeout(Duration::from_secs(15))
-                                .await;
-                            if let Some(remote) = remote {
-                                let remote = remote.ok()?;
-                                log::debug!(
-                                    "opened connection in {} ms",
-                                    start.elapsed().as_millis()
-                                );
-                                stats.set_latency(start.elapsed().as_secs_f64() * 1000.0);
-                                conn_reply.send(remote).await.ok()?;
-                                Some(())
-                            } else {
-                                send_stop
-                                    .try_send(anyhow::anyhow!("normal connection timed out"))
-                                    .unwrap();
-                                Some(())
+                            mux.get_session().set_deadline(
+                                Instant::now().checked_add(Duration::from_secs(5)).unwrap(),
+                            );
+                            let remote = (&mux).open_conn(Some(conn_host)).await;
+                            match remote {
+                                Ok(remote) => {
+                                    log::debug!(
+                                        "opened connection in {} ms",
+                                        start.elapsed().as_millis()
+                                    );
+                                    stats.set_latency(start.elapsed().as_secs_f64() * 1000.0);
+                                    conn_reply.send(remote).await?;
+                                    Ok::<(), anyhow::Error>(())
+                                }
+                                Err(err) => {
+                                    send_death.send(err).await?;
+                                    Ok(())
+                                }
                             }
                         })
                         .detach();
                 }
             }
-            .or(async { Err(recv_stop.recv().await?) })
+            .or(async {
+                let e = recv_death.recv().await?;
+                anyhow::bail!(e)
+            })
             .or(async {
                 loop {
                     let stat_send = recv_get_stats.recv().await?;

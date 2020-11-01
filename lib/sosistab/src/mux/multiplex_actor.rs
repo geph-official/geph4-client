@@ -21,7 +21,10 @@ pub async fn multiplex(
     loop {
         // fires on receiving messages
         let recv_evt = async {
-            let msg = session.recv_bytes().await;
+            let msg = session
+                .recv_bytes()
+                .await
+                .ok_or_else(|| anyhow::anyhow!("underlying session is dead"))?;
             let msg = bincode::deserialize::<Message>(&msg);
             if let Ok(msg) = msg {
                 match msg {
@@ -139,8 +142,9 @@ pub async fn multiplex(
                             additional_data.clone(),
                         );
                         runtime::spawn(async move {
-                            let _ = recv_sig.recv().await;
-                            drop(result_chan.send(conn).await)
+                            recv_sig.recv().await.ok()?;
+                            result_chan.send(conn).await.ok()?;
+                            Some(())
                         })
                         .detach();
                         conn_tab.set_stream(stream_id, conn_back);

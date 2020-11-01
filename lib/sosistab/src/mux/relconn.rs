@@ -197,6 +197,7 @@ async fn relconn_actor(
                     .await?;
                 if success {
                     log::trace!("C={} SynSent got SYN-ACK", stream_id);
+                    result.send(()).await?;
                     SteadyState {
                         stream_id,
                         conn_vars: Box::new(ConnVars::default()),
