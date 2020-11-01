@@ -13,7 +13,7 @@ jobs:
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
       - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       - run: echo "export RUSTFLAGS='-C link-arg=-s'" >> $BASH_ENV
-        - run: cargo install cross
+      - run: cargo install cross
       - run: sh all_build.sh
       - run: sudo apt install python3-pip
       - run: sudo pip3 install --upgrade b2
