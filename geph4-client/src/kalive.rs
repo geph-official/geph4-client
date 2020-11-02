@@ -199,7 +199,7 @@ async fn keepalive_actor_once(
             }
         })
         .detach();
-    let (send_death, recv_death) = smol::channel::unbounded();
+    let (send_death, recv_death) = smol::channel::unbounded::<anyhow::Error>();
     scope
         .run(
             async {
@@ -226,14 +226,13 @@ async fn keepalive_actor_once(
                                     Ok::<(), anyhow::Error>(())
                                 }
                                 Err(err) => {
-                                    log::warn!("error: {}", err);
-                                    // send_death
-                                    //     .send(anyhow::anyhow!(
-                                    //         "conn open error {} in {}s",
-                                    //         err,
-                                    //         start.elapsed().as_secs_f64()
-                                    //     ))
-                                    //     .await?;
+                                    send_death
+                                        .send(anyhow::anyhow!(
+                                            "conn open error {} in {}s",
+                                            err,
+                                            start.elapsed().as_secs_f64()
+                                        ))
+                                        .await?;
                                     Ok(())
                                 }
                             }

@@ -167,7 +167,7 @@ pub async fn multiplex(
                         .await,
                 );
             })
-            .await;
+            .detach();
             Ok::<(), anyhow::Error>(())
         };
         // dead stuff
