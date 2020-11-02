@@ -215,7 +215,7 @@ async fn keepalive_actor_once(
                         .spawn(async move {
                             let start = Instant::now();
                             mux.get_session().set_deadline(
-                                Instant::now().checked_add(Duration::from_secs(5)).unwrap(),
+                                Instant::now().checked_add(Duration::from_secs(30)).unwrap(),
                             );
                             let remote = (&mux).open_conn(Some(conn_host)).await;
                             match remote {
