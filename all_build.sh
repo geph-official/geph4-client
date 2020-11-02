@@ -14,3 +14,4 @@ mv ~/repo/target/armv7-linux-androideabi/release/geph4-client ~/repo/OUTPUT/geph
 mv ~/repo/target/aarch64-linux-android/release/geph4-client ~/repo/OUTPUT/geph4-client-android-aarch64
 mv ~/repo/target/i686-pc-windows-gnu/release/geph4-client.exe ~/repo/OUTPUT/geph4-client-windows-i386.exe
 mv ~/repo/target/x86_64-apple-darwin/release/geph4-client ~/repo/OUTPUT/geph4-client-macos-amd64
+exit 0
