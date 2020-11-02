@@ -2975,6 +2975,7 @@ dependencies = [
  "constant_time_eq",
  "env_logger",
  "event-listener",
+ "flume",
  "governor",
  "hex",
  "indexmap",

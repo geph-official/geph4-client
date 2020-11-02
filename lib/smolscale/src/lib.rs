@@ -20,8 +20,8 @@ use std::{
     time::Duration,
 };
 
-const CHANGE_THRESH: u32 = 10;
-const MONITOR_MS: u64 = 10;
+const CHANGE_THRESH: u32 = 3;
+const MONITOR_MS: u64 = 5;
 
 static EXEC: async_executor::Executor<'static> = async_executor::Executor::new();
 
@@ -74,7 +74,7 @@ fn monitor_loop() {
             }
             overload_iters = 0;
             underload_iters += 1;
-            if underload_iters > CHANGE_THRESH {
+            if underload_iters > CHANGE_THRESH * 10 {
                 underload_iters = 0;
                 if running_threads > 1 {
                     UNDERLOAD.notify_additional_relaxed(1);

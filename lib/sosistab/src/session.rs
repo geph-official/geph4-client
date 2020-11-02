@@ -34,7 +34,7 @@ pub struct Session {
     pub(crate) send_tosend: Sender<Bytes>,
     recv_input: Receiver<Bytes>,
     get_stats: Sender<Sender<SessionStats>>,
-    send_next_deadline: Sender<Instant>,
+    send_next_deadline: flume::Sender<Instant>,
     _dropper: Vec<Box<dyn FnOnce() + Send + Sync + 'static>>,
     _task: smol::Task<()>,
 }
@@ -45,7 +45,7 @@ impl Session {
         let (send_tosend, recv_tosend) = smol::channel::bounded(500);
         let (send_input, recv_input) = smol::channel::bounded(500);
         let (s, r) = smol::channel::unbounded();
-        let (send_next_deadline, recv_next_deadline) = smol::channel::unbounded();
+        let (send_next_deadline, recv_next_deadline) = flume::bounded(0);
         let task = runtime::spawn(session_loop(
             cfg,
             recv_tosend,
@@ -89,8 +89,8 @@ impl Session {
     }
 
     /// Sets the read deadline, possibly replacing the existing one. If the network is idle until that deadline, then the session dies.
-    pub fn set_deadline(&self, deadline: Instant) {
-        let _ = self.send_next_deadline.try_send(deadline);
+    pub async fn set_deadline(&self, deadline: Instant) {
+        let _ = self.send_next_deadline.send_async(deadline).await;
     }
 }
 
@@ -108,7 +108,7 @@ async fn session_loop(
     cfg: SessionConfig,
     recv_tosend: Receiver<Bytes>,
     send_input: Sender<Bytes>,
-    recv_next_deadline: Receiver<Instant>,
+    recv_next_deadline: flume::Receiver<Instant>,
     recv_statreq: Receiver<Sender<SessionStats>>,
 ) {
     scopeguard::defer!(log::warn!("session_loop ending"));
@@ -219,7 +219,7 @@ async fn session_send_loop(
 async fn session_recv_loop(
     cfg: SessionConfig,
     send_input: Sender<Bytes>,
-    recv_next_deadline: Receiver<Instant>,
+    recv_next_deadline: flume::Receiver<Instant>,
     recv_statreq: Receiver<Sender<SessionStats>>,
     measured_loss: Arc<AtomicU8>,
     high_recv_frame_no: Arc<AtomicU64>,
@@ -233,7 +233,7 @@ async fn session_recv_loop(
         let mut loss_calc = LossCalculator::new();
         loop {
             let next_deadline = async {
-                let dline = recv_next_deadline.recv().await.ok()?;
+                let dline = recv_next_deadline.recv_async().await.ok()?;
                 smol::Timer::at(dline).await;
                 None
             };
