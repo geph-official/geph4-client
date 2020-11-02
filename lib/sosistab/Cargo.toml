@@ -13,8 +13,8 @@ edition = "2018"
 smol= "1.2.4"
 socket2= "0.3.15"
 x25519-dalek={ version = "1.1.0", features = ["serde"] }
-serde={ version = "1.0.116", features = ["derive"] }
-bytes={ version = "0.5.6", features = ["serde"] }
+serde={ version = "1.0.117", features = ["derive"] }
+bytes={ version = "0.6.0", features = ["serde"] }
 blake3= "0.3.7"
 c2-chacha= "0.2.4"
 rand={ version = "0.7.3", features = ["small_rng"] }
@@ -25,7 +25,7 @@ parking_lot= "0.11.0"
 governor= "0.3.1"
 probability= "0.17.0"
 log= "0.4.11"
-priority-queue= "1.0.1"
+priority-queue= "1.0.2"
 async-dup= "1.2.2"
 once_cell = "1.4.1"
 num_cpus= "1.13.0"
@@ -34,12 +34,12 @@ scopeguard= "1.1.0"
 reed-solomon-erasure= "4.0.2"
 indexmap= "1.6.0"
 bloomfilter = "1.0.3"
-concurrent-queue="1.2"
+concurrent-queue= "1.2.2"
 smolscale={path="../smolscale"}
-async-trait="0.1"
-flume="0.9"
+async-trait= "0.1.41"
+flume= "0.9.1"
 
 [dev-dependencies]
-env_logger= "0.7.1"
+env_logger= "0.8.1"
 hex= "0.4.2"
 socksv5= "0.2.0"

@@ -158,7 +158,8 @@ async fn client_backhaul_once(
     let up_crypter = Arc::new(crypt::StdAEAD::new(up_key.as_bytes()));
     let mut buf = [0u8; 2048];
 
-    let mut last_resume = Instant::now();
+    let mut last_remind = Instant::now();
+    let mut last_reset = Instant::now();
     let mut updated = false;
     let mut socket = runtime::new_udp_socket_bind(laddr_gen().ok()?).await.ok()?;
     // let mut _old_cleanup: Option<smol::Task<Option<()>>> = None;
@@ -196,12 +197,20 @@ async fn client_backhaul_once(
             }
             Some(Evt::Outgoing(bts)) => {
                 let now = Instant::now();
-                if now.saturating_duration_since(last_resume).as_millis() > REMIND_MILLIS
+                if now.saturating_duration_since(last_remind).as_millis() > REMIND_MILLIS
                     || !updated
                 {
+                    log::debug!(
+                        "REMIND {} to {} from {}...",
+                        shard_id,
+                        remote_addr,
+                        socket.local_addr().unwrap()
+                    );
+                    last_remind = now;
                     updated = true;
                     let g_encrypt = crypt::StdAEAD::new(&cookie.generate_c2s().next().unwrap());
-                    if now.saturating_duration_since(last_resume).as_millis() > RESET_MILLIS {
+                    if now.saturating_duration_since(last_reset).as_millis() > RESET_MILLIS {
+                        last_reset = now;
                         // also replace the UDP socket!
                         let old_socket = socket.clone();
                         let dn_crypter = dn_crypter.clone();
@@ -238,14 +247,13 @@ async fn client_backhaul_once(
                                 }
                             }
                         };
+                        log::debug!(
+                            "RESET {} to {} from {}...",
+                            shard_id,
+                            remote_addr,
+                            socket.local_addr().unwrap()
+                        );
                     }
-                    log::trace!(
-                        "resending resume token {} to {} from {}...",
-                        shard_id,
-                        remote_addr,
-                        socket.local_addr().unwrap()
-                    );
-                    last_resume = Instant::now();
                     drop(
                         socket
                             .send_to(

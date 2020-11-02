@@ -190,7 +190,7 @@ async fn keepalive_actor_once(
                 smol::Timer::after(Duration::from_secs(200)).await;
                 if mux
                     .open_conn(None)
-                    .timeout(Duration::from_secs(15))
+                    .timeout(Duration::from_secs(60))
                     .await
                     .is_none()
                 {

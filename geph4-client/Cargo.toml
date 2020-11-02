@@ -14,16 +14,16 @@ binder_transport = {path="../lib/binder_transport"}
 dirs = "3.0.1"
 ed25519-dalek={ version = "1.0.1", features = ["serde"] }
 flexi_logger = "0.16.1"
-futures-lite= "1.11.1"
+futures-lite= "1.11.2"
 hex = "0.4.2"
-tar="0.4"
-http-types = "2.6.0"
+tar= "0.4.30"
+http-types = "2.7.0"
 log = "0.4.11"
 mizaru={path="../lib/mizaru"}
 once_cell= "1.4.1"
 parking_lot = { version = "0.11.0", features = ["serde"] }
 rand= "0.7.3"
-regex= "1.4.1"
+regex= "1.4.2"
 rsa-fdh = "0.4.1"
 rusqlite={ version = "0.24.1", features = ["bundled" ] }
 scopeguard = "1.1.0"
@@ -39,8 +39,8 @@ structopt = "0.3.20"
 x25519-dalek={ version = "1.1.0", features = ["serde"] }
 chrono = "0.4.19"
 num_cpus= "1.13.0"
-async-net="1.5"
-socket2="0.3"
+async-net= "1.5.0"
+socket2= "0.3.15"
 
 smolscale={path="../lib/smolscale"}
 aioutils={path="../lib/aioutils"}

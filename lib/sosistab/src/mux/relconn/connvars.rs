@@ -89,7 +89,7 @@ impl ConnVars {
         self.slow_start = false;
         self.loss_rate = self.loss_rate * 0.99 + 0.01;
         let now = Instant::now();
-        if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() * 2 {
+        if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() {
             let bdp = self.inflight.bdp();
             self.cwnd = self.cwnd.min((self.cwnd * 0.5).max(bdp));
             log::debug!(
