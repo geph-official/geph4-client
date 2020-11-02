@@ -176,9 +176,9 @@ async fn relconn_actor(
                 tries,
                 result,
             } => {
-                let wait_interval = tries.pow(2) as u64;
-                log::trace!("C={} SynSent, tried {} times", stream_id, tries);
-                if wait_interval > MAX_WAIT_SECS {
+                let wait_interval = 500u64 * 2u64.pow(tries as u32);
+                log::debug!("C={} SynSent, tried {} times", stream_id, tries);
+                if tries > 5 {
                     anyhow::bail!("timeout")
                 }
                 let synack_evt = async {

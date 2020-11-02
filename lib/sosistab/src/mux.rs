@@ -74,10 +74,7 @@ impl Multiplex {
             .send((additional.clone(), send))
             .await
             .map_err(to_ioerror)?;
-        if let Ok(rc) = recv.recv().await {
-            return Ok(rc);
-        }
-        smol::future::pending().await
+        recv.recv().await.map_err(to_ioerror)
     }
 
     /// Accept a reliable conn from the other end.
