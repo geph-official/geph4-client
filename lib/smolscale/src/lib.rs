@@ -77,8 +77,9 @@ fn monitor_loop() {
 pub fn spawn<T: Send + 'static>(
     future: impl Future<Output = T> + Send + 'static,
 ) -> async_executor::Task<T> {
-    start_monitor();
-    EXEC.spawn(WrappedFuture::new(future))
+    // start_monitor();
+    // EXEC.spawn(WrappedFuture::new(future))
+    async_global_executor::spawn(future)
 }
 
 pin_project! {

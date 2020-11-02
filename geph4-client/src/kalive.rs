@@ -226,7 +226,13 @@ async fn keepalive_actor_once(
                                     Ok::<(), anyhow::Error>(())
                                 }
                                 Err(err) => {
-                                    send_death.send(err).await?;
+                                    send_death
+                                        .send(anyhow::anyhow!(
+                                            "conn open error {} in {}s",
+                                            err,
+                                            start.elapsed().as_secs_f64()
+                                        ))
+                                        .await?;
                                     Ok(())
                                 }
                             }

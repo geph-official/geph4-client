@@ -2954,6 +2954,7 @@ name = "smolscale"
 version = "0.1.0"
 dependencies = [
  "async-executor",
+ "async-global-executor",
  "async-io",
  "event-listener",
  "futures-lite",
