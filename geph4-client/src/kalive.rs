@@ -214,9 +214,11 @@ async fn keepalive_actor_once(
                     scope
                         .spawn(async move {
                             let start = Instant::now();
-                            mux.get_session().set_deadline(
-                                Instant::now().checked_add(Duration::from_secs(30)).unwrap(),
-                            );
+                            mux.get_session()
+                                .set_deadline(
+                                    Instant::now().checked_add(Duration::from_secs(30)).unwrap(),
+                                )
+                                .await;
                             let remote = (&mux).open_conn(Some(conn_host)).await;
                             match remote {
                                 Ok(remote) => {
