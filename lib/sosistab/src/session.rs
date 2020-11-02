@@ -237,8 +237,8 @@ async fn session_recv_loop(
                 smol::Timer::at(dline).await;
                 None
             };
-            let new_frame = next_deadline
-                .or(async { cfg.recv_frame.recv().await.ok() })
+            let new_frame = async { cfg.recv_frame.recv().await.ok() }
+                .or(next_deadline)
                 .await?;
             if !rp_filter.add(new_frame.frame_no) {
                 log::trace!(

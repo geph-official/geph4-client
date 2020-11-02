@@ -22,3 +22,4 @@ incremental=true
 [profile.release]
 panic = "abort"
 opt-level=3
+lto="thin"

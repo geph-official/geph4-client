@@ -77,7 +77,7 @@ impl Multiplex {
         if let Ok(rc) = recv.recv().await {
             return Ok(rc);
         }
-        Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "timeout"))
+        smol::future::pending().await
     }
 
     /// Accept a reliable conn from the other end.

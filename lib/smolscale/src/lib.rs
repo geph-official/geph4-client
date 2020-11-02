@@ -9,7 +9,6 @@
 //! This crate is heavily inspired by Stjepan Glavina's [previous work on async-std](https://async.rs/blog/stop-worrying-about-blocking-the-new-async-std-runtime/).
 
 use futures_lite::prelude::*;
-use futures_lite::Future;
 use once_cell::sync::OnceCell;
 use pin_project_lite::pin_project;
 use std::{
@@ -20,8 +19,8 @@ use std::{
     time::Duration,
 };
 
-const CHANGE_THRESH: u32 = 3;
-const MONITOR_MS: u64 = 5;
+//const CHANGE_THRESH: u32 = 10;
+const MONITOR_MS: u64 = 50;
 
 static EXEC: async_executor::Executor<'static> = async_executor::Executor::new();
 
@@ -30,8 +29,6 @@ static FBP_NONZERO: event_listener::Event = event_listener::Event::new();
 static POLL_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 static MONITOR: OnceCell<std::thread::JoinHandle<()>> = OnceCell::new();
-
-static UNDERLOAD: event_listener::Event = event_listener::Event::new();
 
 fn start_monitor() {
     MONITOR.get_or_init(|| {
@@ -46,20 +43,12 @@ fn monitor_loop() {
     fn start_thread() {
         std::thread::Builder::new()
             .name("sscale-wkr".into())
-            .spawn(|| {
-                let listener = UNDERLOAD.listen();
-                async_io::block_on(EXEC.run(futures_lite::future::pending::<()>()).or(async {
-                    listener.await;
-                }))
-            })
+            .spawn(|| async_io::block_on(EXEC.run(futures_lite::future::pending::<()>())))
             .unwrap();
     }
     start_thread();
 
     let mut running_threads: usize = 1;
-    let mut last_count: usize = 0;
-    let mut overload_iters = 0;
-    let mut underload_iters = 0;
     loop {
         std::thread::sleep(Duration::from_millis(MONITOR_MS));
         let fbp = loop {
@@ -72,28 +61,13 @@ fn monitor_loop() {
             if fbp > 0 {
                 break fbp;
             }
-            overload_iters = 0;
-            underload_iters += 1;
-            if underload_iters > CHANGE_THRESH * 10 {
-                underload_iters = 0;
-                if running_threads > 1 {
-                    UNDERLOAD.notify_additional_relaxed(1);
-                    running_threads -= 1;
-                }
-            }
             listener.wait();
         };
-        debug_assert!(fbp <= running_threads);
-        let new_count = POLL_COUNT.load(Ordering::Relaxed);
-        if FUTURES_BEING_POLLED.load(Ordering::Relaxed) == running_threads {
-            underload_iters = 0;
-            overload_iters += 1;
-            if new_count == last_count || overload_iters > CHANGE_THRESH {
-                start_thread();
-                running_threads += 1;
-            }
+        // let new_count = POLL_COUNT.load(Ordering::Relaxed);
+        if fbp == running_threads {
+            start_thread();
+            running_threads += 1;
         }
-        last_count = new_count;
     }
 }
 

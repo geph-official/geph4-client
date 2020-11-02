@@ -176,10 +176,10 @@ async fn relconn_actor(
                 tries,
                 result,
             } => {
-                let wait_interval = 2u64.saturating_pow(tries as u32);
+                let wait_interval = tries.pow(2) as u64;
                 log::trace!("C={} SynSent, tried {} times", stream_id, tries);
                 if wait_interval > MAX_WAIT_SECS {
-                    anyhow::bail!("timeout in SynSent");
+                    anyhow::bail!("timeout")
                 }
                 let synack_evt = async {
                     loop {
@@ -191,7 +191,7 @@ async fn relconn_actor(
                 };
                 let success = synack_evt
                     .or(async {
-                        smol::Timer::after(Duration::from_millis(wait_interval as u64 * 500)).await;
+                        smol::Timer::after(Duration::from_millis(wait_interval as u64)).await;
                         Ok(false)
                     })
                     .await?;
@@ -378,7 +378,7 @@ async fn relconn_actor(
                         log::trace!("new data pkt with seqno={}", seqno);
                         // if conn_vars.delayed_ack_timer.is_none() {
                         conn_vars.delayed_ack_timer =
-                            Instant::now().checked_add(Duration::from_millis(5));
+                            Instant::now().checked_add(Duration::from_millis(1));
                         // }
                         if conn_vars.reorderer.insert(seqno, payload) {
                             conn_vars.ack_seqnos.insert(seqno);

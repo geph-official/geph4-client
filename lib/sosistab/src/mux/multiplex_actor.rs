@@ -154,20 +154,18 @@ pub async fn multiplex(
                     }
                 };
                 log::trace!("conn open send {}", stream_id);
-                for _ in 0..2 {
-                    drop(
-                        glob_send
-                            .send(Message::Rel {
-                                kind: RelKind::Syn,
-                                stream_id,
-                                seqno: 0,
-                                payload: Bytes::copy_from_slice(
-                                    additional_data.clone().unwrap_or_default().as_bytes(),
-                                ),
-                            })
-                            .await,
-                    );
-                }
+                drop(
+                    glob_send
+                        .send(Message::Rel {
+                            kind: RelKind::Syn,
+                            stream_id,
+                            seqno: 0,
+                            payload: Bytes::copy_from_slice(
+                                additional_data.clone().unwrap_or_default().as_bytes(),
+                            ),
+                        })
+                        .await,
+                );
             })
             .await;
             Ok::<(), anyhow::Error>(())

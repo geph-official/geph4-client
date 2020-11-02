@@ -103,7 +103,8 @@ pub async fn connect_custom(
 }
 
 const SHARDS: u8 = 2;
-const RESET_MILLIS: u128 = 5000;
+const RESET_MILLIS: u128 = 25000;
+const REMIND_MILLIS: u128 = 1000;
 
 async fn init_session(
     cookie: crypt::Cookie,
@@ -195,53 +196,56 @@ async fn client_backhaul_once(
             }
             Some(Evt::Outgoing(bts)) => {
                 let now = Instant::now();
-                if now.saturating_duration_since(last_resume).as_millis() > RESET_MILLIS || !updated
+                if now.saturating_duration_since(last_resume).as_millis() > REMIND_MILLIS
+                    || !updated
                 {
                     updated = true;
-                    last_resume = Instant::now();
                     let g_encrypt = crypt::StdAEAD::new(&cookie.generate_c2s().next().unwrap());
-                    // also replace the UDP socket!
-                    let old_socket = socket.clone();
-                    let dn_crypter = dn_crypter.clone();
-                    let send_frame_in = send_frame_in.clone();
-                    // spawn a task to clean up the UDP socket
-                    let tata: smol::Task<Option<()>> = runtime::spawn(
-                        async move {
-                            loop {
-                                let (n, _) = old_socket.recv_from(&mut buf).await.ok()?;
-                                if let Some(plain) =
-                                    dn_crypter.pad_decrypt::<msg::DataFrame>(&buf[..n])
-                                {
-                                    log::trace!(
-                                        "shard {} decrypted UDP message with len {}",
-                                        shard_id,
-                                        n
-                                    );
-                                    drop(send_frame_in.send(plain).await)
+                    if now.saturating_duration_since(last_resume).as_millis() > RESET_MILLIS {
+                        // also replace the UDP socket!
+                        let old_socket = socket.clone();
+                        let dn_crypter = dn_crypter.clone();
+                        let send_frame_in = send_frame_in.clone();
+                        // spawn a task to clean up the UDP socket
+                        let tata: smol::Task<Option<()>> = runtime::spawn(
+                            async move {
+                                loop {
+                                    let (n, _) = old_socket.recv_from(&mut buf).await.ok()?;
+                                    if let Some(plain) =
+                                        dn_crypter.pad_decrypt::<msg::DataFrame>(&buf[..n])
+                                    {
+                                        log::trace!(
+                                            "shard {} decrypted UDP message with len {}",
+                                            shard_id,
+                                            n
+                                        );
+                                        drop(send_frame_in.send(plain).await)
+                                    }
                                 }
                             }
-                        }
-                        .or(async {
-                            smol::Timer::after(Duration::from_secs(5)).await;
-                            None
-                        }),
-                    );
-                    tata.detach();
-                    socket = loop {
-                        match runtime::new_udp_socket_bind(laddr_gen().ok()?).await {
-                            Ok(sock) => break sock,
-                            Err(err) => {
-                                log::warn!("error rebinding: {}", err);
-                                smol::Timer::after(Duration::from_secs(1)).await;
+                            .or(async {
+                                smol::Timer::after(Duration::from_secs(5)).await;
+                                None
+                            }),
+                        );
+                        tata.detach();
+                        socket = loop {
+                            match runtime::new_udp_socket_bind(laddr_gen().ok()?).await {
+                                Ok(sock) => break sock,
+                                Err(err) => {
+                                    log::warn!("error rebinding: {}", err);
+                                    smol::Timer::after(Duration::from_secs(1)).await;
+                                }
                             }
-                        }
-                    };
+                        };
+                    }
                     log::trace!(
                         "resending resume token {} to {} from {}...",
                         shard_id,
                         remote_addr,
                         socket.local_addr().unwrap()
                     );
+                    last_resume = Instant::now();
                     drop(
                         socket
                             .send_to(
