@@ -22,7 +22,9 @@ struct RootCtx {
     bridge_secret: String,
     signing_sk: ed25519_dalek::Keypair,
     sosistab_sk: x25519_dalek::StaticSecret,
+
     session_count: AtomicUsize,
+    conn_count: AtomicUsize,
 
     nursery: smolscale::Nursery,
 }
@@ -62,6 +64,7 @@ pub async fn main_loop<'a>(
         signing_sk,
         sosistab_sk,
         session_count: AtomicUsize::new(0),
+        conn_count: AtomicUsize::new(0),
         nursery: smolscale::Nursery::new(),
     });
     // control protocol listener
@@ -104,12 +107,15 @@ pub async fn main_loop<'a>(
     let gauge_fut = async {
         let key = format!("session_count.{}", exit_hostname.replace(".", "-"));
         let memkey = format!("bytes_allocated.{}", exit_hostname.replace(".", "-"));
+        let connkey = format!("conn_count.{}", exit_hostname.replace(".", "-"));
         loop {
             let session_count = ctx.session_count.load(std::sync::atomic::Ordering::Relaxed);
             stat_client.gauge(&key, session_count as f64);
             let memory_usage = ALLOCATOR.allocated();
             stat_client.gauge(&memkey, memory_usage as f64);
-            smol::Timer::after(Duration::from_secs(1)).await;
+            let conn_count = ctx.conn_count.load(std::sync::atomic::Ordering::Relaxed);
+            stat_client.gauge(&connkey, conn_count as f64);
+            smol::Timer::after(Duration::from_secs(5)).await;
         }
     };
     // race
@@ -232,8 +238,14 @@ async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
             .await
             .ok_or_else(|| anyhow::anyhow!("accept timeout"))??;
         let root = root.clone();
-        nhandle.spawn(OnError::Ignore, move |_| {
-            handle_proxy_stream(root.stat_client.clone(), root.exit_hostname.clone(), stream)
+        nhandle.spawn(OnError::Ignore, move |_| async move {
+            root.conn_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            scopeguard::defer!({
+                root.conn_count
+                    .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            });
+            handle_proxy_stream(root.stat_client.clone(), root.exit_hostname.clone(), stream).await
         });
     }
 }
