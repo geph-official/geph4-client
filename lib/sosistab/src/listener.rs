@@ -34,7 +34,7 @@ impl Listener {
         let (send, recv) = smol::channel::unbounded();
         let task = runtime::spawn(
             ListenerActor {
-                socket,
+                socket: Arc::new(socket),
                 cookie,
                 long_sk,
             }
@@ -85,7 +85,7 @@ impl RecentFilter {
 type ShardedAddrs = IndexMap<u8, SocketAddr>;
 
 struct ListenerActor {
-    socket: smol::net::UdpSocket,
+    socket: Arc<dyn Backhaul>,
     cookie: crypt::Cookie,
     long_sk: x25519_dalek::StaticSecret,
 }
@@ -107,17 +107,15 @@ impl ListenerActor {
 
         let socket = self.socket;
 
-        let mut buffer = [0u8; 2048];
-
         // two possible events
         enum Evt {
-            NewRecv((usize, SocketAddr)),
+            NewRecv((Bytes, SocketAddr)),
             DeadSess(Bytes),
         }
 
         loop {
             let event = smol::future::race(
-                async { Some(Evt::NewRecv(socket.recv_from(&mut buffer).await.ok()?)) },
+                async { Some(Evt::NewRecv(socket.recv_from().await.ok()?)) },
                 async { Some(Evt::DeadSess(recv_dead.recv().await.ok()?)) },
             );
             match event.await? {
@@ -125,19 +123,18 @@ impl ListenerActor {
                     log::trace!("removing existing session!");
                     session_table.delete(resume_token).await;
                 }
-                Evt::NewRecv((n, addr)) => {
-                    let buffer = &buffer[..n];
+                Evt::NewRecv((buffer, addr)) => {
                     // first we attempt to map this to an existing session
                     if let Some((sess, sess_crypt)) = session_table.lookup(addr) {
                         // try feeding it into the session
-                        if let Some(dframe) = sess_crypt.pad_decrypt::<msg::DataFrame>(buffer) {
+                        if let Some(dframe) = sess_crypt.pad_decrypt::<msg::DataFrame>(&buffer) {
                             drop(sess.send(dframe).await);
                             continue;
                         } else {
                             log::trace!("{} NOT associated with existing session", addr);
                         }
                     }
-                    if !curr_filter.check(buffer) {
+                    if !curr_filter.check(&buffer) {
                         log::warn!("discarding replay attempt with len {}", buffer.len());
                         continue;
                     }
@@ -145,7 +142,7 @@ impl ListenerActor {
                     let s2c_key = self.cookie.generate_s2c().next().unwrap();
                     for possible_key in self.cookie.generate_c2s() {
                         let crypter = crypt::StdAEAD::new(&possible_key);
-                        if let Some(handshake) = crypter.pad_decrypt::<msg::HandshakeFrame>(buffer)
+                        if let Some(handshake) = crypter.pad_decrypt::<msg::HandshakeFrame>(&buffer)
                         {
                             match handshake {
                                 ClientHello {
@@ -184,7 +181,7 @@ impl ListenerActor {
                                     };
                                     let reply =
                                         crypt::StdAEAD::new(&s2c_key).pad_encrypt(&reply, 1000);
-                                    socket.send_to(&reply, addr).await.ok()?;
+                                    socket.send_to(reply, addr).await.ok()?;
                                     log::trace!("replied to ClientHello from {}", addr);
                                 }
                                 ClientResume {
@@ -245,7 +242,7 @@ impl ListenerActor {
                                                                         drop(
                                                                             socket
                                                                                 .send_to(
-                                                                                    &enc,
+                                                                                    enc,
                                                                                     *remote_addr,
                                                                                 )
                                                                                 .await,

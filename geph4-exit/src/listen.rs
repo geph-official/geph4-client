@@ -11,6 +11,39 @@ use ed25519_dalek::Signer;
 use rand::prelude::*;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
+use smolscale::OnError;
+
+use crate::ALLOCATOR;
+/// the root context
+struct RootCtx {
+    stat_client: Arc<statsd::Client>,
+    exit_hostname: String,
+    binder_client: Arc<dyn BinderClient>,
+    bridge_secret: String,
+    signing_sk: ed25519_dalek::Keypair,
+    sosistab_sk: x25519_dalek::StaticSecret,
+    session_count: AtomicUsize,
+
+    nursery: smolscale::Nursery,
+}
+
+impl RootCtx {
+    fn new_sess(self: &Arc<Self>, sess: sosistab::Session) -> SessCtx {
+        SessCtx {
+            root: self.clone(),
+            sess,
+            nursery: smolscale::Nursery::new(),
+        }
+    }
+}
+
+/// per-session context
+struct SessCtx {
+    root: Arc<RootCtx>,
+    sess: sosistab::Session,
+
+    nursery: smolscale::Nursery,
+}
 
 /// the main listening loop
 pub async fn main_loop<'a>(
@@ -21,78 +54,75 @@ pub async fn main_loop<'a>(
     signing_sk: ed25519_dalek::Keypair,
     sosistab_sk: x25519_dalek::StaticSecret,
 ) -> anyhow::Result<()> {
-    let session_count = AtomicUsize::new(0);
-    let scope = smol::Executor::new();
+    let ctx = Arc::new(RootCtx {
+        stat_client: Arc::new(stat_client),
+        exit_hostname: exit_hostname.to_string(),
+        binder_client,
+        bridge_secret: bridge_secret.to_string(),
+        signing_sk,
+        sosistab_sk,
+        session_count: AtomicUsize::new(0),
+        nursery: smolscale::Nursery::new(),
+    });
     // control protocol listener
     let control_prot_listen = smol::net::TcpListener::bind("[::0]:28080").await?;
     // future that governs the control protocol
     let control_prot_fut = async {
         loop {
+            let ctx = ctx.clone();
+            let sp = ctx.nursery.handle();
             let (client, _) = control_prot_listen.accept().await?;
-            scope
-                .spawn(async {
-                    let res = handle_control(
-                        &session_count,
-                        &stat_client,
-                        exit_hostname,
-                        binder_client.clone(),
-                        client,
-                        bridge_secret,
-                        &signing_sk,
-                    )
-                    .await;
-                    if let Err(err) = res {
-                        log::warn!("handle_control exited with error {}", err)
-                    }
-                })
-                .detach();
+            let claddr = client.peer_addr()?;
+            sp.spawn(
+                OnError::ignore_with(move |e| {
+                    log::warn!("control protocol for {} died with {}", claddr, e)
+                }),
+                |_| handle_control(ctx, client),
+            );
         }
     };
     // future that governs the "self bridge"
+    let ctx1 = ctx.clone();
     let self_bridge_fut = async {
-        let sosis_listener = sosistab::Listener::listen("[::0]:19831", sosistab_sk).await;
+        let sosis_listener =
+            sosistab::Listener::listen("[::0]:19831", ctx1.sosistab_sk.clone()).await;
         log::info!("sosis_listener initialized");
         loop {
             let sess = sosis_listener
                 .accept_session()
                 .await
                 .ok_or_else(|| anyhow::anyhow!("can't accept from sosistab"))?;
-            scope
-                .spawn(handle_session(
-                    &session_count,
-                    &stat_client,
-                    exit_hostname,
-                    binder_client.clone(),
-                    sess,
-                ))
-                .detach();
+            let ctx1 = ctx1.clone();
+            let sp = ctx1.nursery.handle();
+            sp.spawn(OnError::Ignore, move |_| {
+                handle_session(ctx1.new_sess(sess))
+            });
         }
     };
     // future that uploads gauge statistics
+    let stat_client = ctx.stat_client.clone();
     let gauge_fut = async {
         let key = format!("session_count.{}", exit_hostname.replace(".", "-"));
+        let memkey = format!("bytes_allocated.{}", exit_hostname.replace(".", "-"));
         loop {
-            let session_count = session_count.load(std::sync::atomic::Ordering::Relaxed);
+            let session_count = ctx.session_count.load(std::sync::atomic::Ordering::Relaxed);
             stat_client.gauge(&key, session_count as f64);
+            let memory_usage = ALLOCATOR.allocated();
+            stat_client.gauge(&memkey, memory_usage as f64);
             smol::Timer::after(Duration::from_secs(1)).await;
         }
     };
     // race
-    scope
-        .run(smol::future::race(control_prot_fut, self_bridge_fut).or(gauge_fut))
+    smol::future::race(control_prot_fut, self_bridge_fut)
+        .or(gauge_fut)
         .await
 }
 
 async fn handle_control<'a>(
-    session_count: &'a AtomicUsize,
-    stat_client: &'a statsd::Client,
-    exit_hostname: &'a str,
-    binder_client: Arc<dyn BinderClient>,
+    ctx: Arc<RootCtx>,
     mut client: smol::net::TcpStream,
-    bridge_secret: &'a str,
-    signing_sk: &'a ed25519_dalek::Keypair,
 ) -> anyhow::Result<()> {
-    let bridge_secret = bridge_secret.as_bytes();
+    let bridge_secret = ctx.bridge_secret.as_bytes();
     // first, let's challenge the client to prove that they have the bridge secret
     let challenge_string: [u8; 32] = rand::thread_rng().gen();
     client
@@ -112,125 +142,100 @@ async fn handle_control<'a>(
     }
     // now we read their info
     let mut info: Option<(u16, x25519_dalek::PublicKey)> = None;
-    let mut _task: Option<smol::Task<anyhow::Result<()>>> = None;
-    let scope = smol::Executor::new();
-    scope
-        .run(async {
-            loop {
-                let (their_addr, their_group): (SocketAddr, String) =
-                    aioutils::read_pascalish(&mut client)
-                        .or(async {
-                            smol::Timer::after(Duration::from_secs(60)).await;
-                            anyhow::bail!("timeout")
-                        })
-                        .await?;
-                log::info!("bridge in group {} to forward {}", their_group, their_addr);
-                // create or recall binding
-                if info.is_none() {
-                    let binder_client = binder_client.clone();
-                    log::info!("redoing binding because info is none");
-                    let sosis_secret = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
-                    let sosis_listener =
-                        sosistab::Listener::listen("[::0]:0", sosis_secret.clone()).await;
-                    info = Some((
-                        sosis_listener.local_addr().port(),
-                        x25519_dalek::PublicKey::from(&sosis_secret),
-                    ));
-                    _task = Some(scope.spawn(async move {
-                        let scope = smol::Executor::new();
-                        let binder_client = binder_client.clone();
-                        scope
-                            .run(async {
-                                let binder_client = binder_client.clone();
-                                loop {
-                                    let sess =
-                                        sosis_listener.accept_session().await.ok_or_else(|| {
-                                            anyhow::anyhow!("can't accept from sosistab")
-                                        })?;
-                                    scope
-                                        .spawn(handle_session(
-                                            &session_count,
-                                            &stat_client,
-                                            exit_hostname,
-                                            binder_client.clone(),
-                                            sess,
-                                        ))
-                                        .detach();
-                                }
-                            })
+    loop {
+        let (their_addr, their_group): (SocketAddr, String) = aioutils::read_pascalish(&mut client)
+            .or(async {
+                smol::Timer::after(Duration::from_secs(60)).await;
+                anyhow::bail!("timeout")
+            })
+            .await?;
+        log::info!("bridge in group {} to forward {}", their_group, their_addr);
+        // create or recall binding
+        if info.is_none() {
+            let ctx = ctx.clone();
+            log::info!("redoing binding because info is none");
+            let sosis_secret = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
+            let sosis_listener = sosistab::Listener::listen("[::0]:0", sosis_secret.clone()).await;
+            info = Some((
+                sosis_listener.local_addr().port(),
+                x25519_dalek::PublicKey::from(&sosis_secret),
+            ));
+            ctx.nursery
+                .handle()
+                .spawn(OnError::Ignore, move |nursery| async move {
+                    loop {
+                        let sess = sosis_listener
+                            .accept_session()
                             .await
-                    }));
-                }
-                // send to the other side and then binder
-                let (port, sosistab_pk) = info.unwrap();
-                aioutils::write_pascalish(&mut client, &(port, sosistab_pk)).await?;
-                let route_unixtime = SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs();
-                let to_sign = bincode::serialize(&(
-                    sosistab_pk,
-                    their_addr,
-                    their_group.clone(),
-                    route_unixtime,
-                ))
+                            .ok_or_else(|| anyhow::anyhow!("could not accept sosis session"))?;
+                        let ctx = ctx.clone();
+                        nursery.spawn(OnError::Ignore, move |_| handle_session(ctx.new_sess(sess)));
+                    }
+                });
+        }
+        // send to the other side and then binder
+        let (port, sosistab_pk) = info.unwrap();
+        aioutils::write_pascalish(&mut client, &(port, sosistab_pk)).await?;
+        let route_unixtime = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let to_sign =
+            bincode::serialize(&(sosistab_pk, their_addr, their_group.clone(), route_unixtime))
                 .unwrap();
-                let exit_signature = signing_sk.sign(&to_sign);
-                let binder_client = binder_client.clone();
-                let exit_hostname = exit_hostname.to_string();
-                let resp = smol::unblock(move || {
-                    binder_client.request(
-                        BinderRequestData::AddBridgeRoute {
-                            sosistab_pubkey: sosistab_pk,
-                            bridge_address: their_addr,
-                            bridge_group: their_group,
-                            exit_hostname,
-                            route_unixtime,
-                            exit_signature,
-                        },
-                        Duration::from_secs(10),
-                    )
-                })
-                .await
-                .context("failed to go to binder")?;
-                assert_eq!(resp, BinderResponse::Okay);
-            }
+        let exit_signature = ctx.signing_sk.sign(&to_sign);
+        let binder_client = ctx.binder_client.clone();
+        let exit_hostname = ctx.exit_hostname.to_string();
+        let resp = smol::unblock(move || {
+            binder_client.request(
+                BinderRequestData::AddBridgeRoute {
+                    sosistab_pubkey: sosistab_pk,
+                    bridge_address: their_addr,
+                    bridge_group: their_group,
+                    exit_hostname,
+                    route_unixtime,
+                    exit_signature,
+                },
+                Duration::from_secs(10),
+            )
         })
         .await
+        .context("failed to go to binder")?;
+        assert_eq!(resp, BinderResponse::Okay);
+    }
 }
 
-async fn handle_session<'a>(
-    session_count: &'a AtomicUsize,
-    stat_client: &'a statsd::Client,
-    exit_hostname: &'a str,
-    binder_client: Arc<dyn BinderClient>,
-    sess: sosistab::Session,
-) -> anyhow::Result<()> {
+async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
     log::info!("authentication started...");
+    let SessCtx {
+        root,
+        sess,
+        nursery,
+    } = ctx;
     let sess = sosistab::mux::Multiplex::new(sess);
-    let scope = smol::Executor::new();
-    let handle_streams = async {
-        authenticate_sess(binder_client.clone(), &sess)
-            .timeout(Duration::from_secs(10))
+    let nhandle = nursery.handle();
+    authenticate_sess(root.binder_client.clone(), &sess)
+        .timeout(Duration::from_secs(10))
+        .await
+        .ok_or_else(|| anyhow::anyhow!("authentication timeout"))??;
+    log::info!("authenticated a new session");
+    root.session_count
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    scopeguard::defer!({
+        root.session_count
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    });
+    loop {
+        let stream = sess
+            .accept_conn()
+            .timeout(Duration::from_secs(600))
             .await
-            .ok_or_else(|| anyhow::anyhow!("authentication timeout"))??;
-        log::info!("authenticated a new session");
-        session_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        scopeguard::defer!({
-            session_count.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            .ok_or_else(|| anyhow::anyhow!("accept timeout"))??;
+        let root = root.clone();
+        nhandle.spawn(OnError::Ignore, move |_| {
+            handle_proxy_stream(root.stat_client.clone(), root.exit_hostname.clone(), stream)
         });
-        loop {
-            let stream = sess
-                .accept_conn()
-                .timeout(Duration::from_secs(600))
-                .await
-                .ok_or_else(|| anyhow::anyhow!("accept timeout"))??;
-            scope
-                .spawn(handle_proxy_stream(stat_client, exit_hostname, stream))
-                .detach();
-        }
-    };
-    scope.run(handle_streams).await
+    }
 }
 
 async fn authenticate_sess(
@@ -265,9 +270,9 @@ async fn authenticate_sess(
     Ok(())
 }
 
-async fn handle_proxy_stream<'a>(
-    stat_client: &'a statsd::Client,
-    exit_hostname: &'a str,
+async fn handle_proxy_stream(
+    stat_client: Arc<statsd::Client>,
+    exit_hostname: String,
     mut client: sosistab::mux::RelConn,
 ) -> anyhow::Result<()> {
     // read proxy request

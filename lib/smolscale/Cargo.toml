@@ -1,6 +1,6 @@
 [package]
 name = "smolscale"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2018"
 description="A global, auto-scaling, preemptive scheduler based on async-executor"
@@ -16,3 +16,7 @@ pin-project-lite = "0.1"
 scopeguard="1"
 event-listener="2"
 async-io="1"
+anyhow="1"
+async-channel="1"
+async-oneshot="0.4"
+slab="0.4"

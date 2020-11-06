@@ -4,7 +4,7 @@ use bytes::{Bytes, BytesMut};
 
 /// A trait that represents a datagram backhaul. This presents an interface similar to that of "PacketConn" in Go, and it is used to abstract over different kinds of datagram transports.
 #[async_trait::async_trait]
-pub trait Backhaul: Send + Sync + Clone {
+pub trait Backhaul: Send + Sync {
     /// Waits for the next datagram
     async fn recv_from(&self) -> io::Result<(Bytes, SocketAddr)>;
     /// Sends a datagram

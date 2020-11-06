@@ -267,6 +267,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-oneshot"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "50f4770cbbff928c30a991de67fb3976f44d8e3e202f8c79ef91b47006e04904"
+dependencies = [
+ "futures-micro",
+]
+
+[[package]]
 name = "async-process"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -564,6 +573,12 @@ name = "cache-padded"
 version = "1.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "631ae5198c9be5e753e5cc215e1bd73c2b466a3565173db433f52bb9d3e66dba"
+
+[[package]]
+name = "cap"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dfb342bc1e95bfb9b3eb80593701657580f1606df8c5563003e6fc1cd8f09ba1"
 
 [[package]]
 name = "cc"
@@ -1212,6 +1227,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures-micro"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "61e9325be55c5581082cd110294fa988c1f920bc573ec370ef201e33c469a95a"
+
+[[package]]
 name = "futures-sink"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1376,10 +1397,11 @@ dependencies = [
  "bincode",
  "binder_transport",
  "blake3",
+ "cap",
  "ed25519-dalek",
  "env_logger 0.7.1",
  "hex",
- "jemallocator-global",
+ "jemallocator",
  "log",
  "mizaru",
  "num_cpus",
@@ -1653,16 +1675,6 @@ checksum = "43ae63fcfc45e99ab3d1b29a46782ad679e98436c3169d15a167a1108a724b69"
 dependencies = [
  "jemalloc-sys",
  "libc",
-]
-
-[[package]]
-name = "jemallocator-global"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "991b61de8365c8b5707cf6cabbff98cfd6eaca9b851948b883efea408c7f581e"
-dependencies = [
- "cfg-if 0.1.10",
- "jemallocator",
 ]
 
 [[package]]
@@ -2951,15 +2963,19 @@ dependencies = [
 
 [[package]]
 name = "smolscale"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
+ "anyhow",
+ "async-channel",
  "async-executor",
  "async-io",
+ "async-oneshot",
  "event-listener",
  "futures-lite",
  "once_cell",
  "pin-project-lite",
  "scopeguard",
+ "slab",
 ]
 
 [[package]]

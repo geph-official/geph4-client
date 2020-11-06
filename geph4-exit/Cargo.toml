@@ -27,7 +27,8 @@ smolscale = {path="../lib/smolscale"}
 smol-timeout = "0.6.0"
 statsd = "0.14.0"
 num_cpus= "1.13.0"
-jemallocator-global="0.3"
+jemallocator = "0.3.0"
 scopeguard="1"
+cap="0.1"
 
 aioutils={path="../lib/aioutils"}

@@ -7,6 +7,8 @@
 //! Finally, this crate has seriously minimal dependencies, and will not add significantly to your compilation times.
 //!
 //! This crate is heavily inspired by Stjepan Glavina's [previous work on async-std](https://async.rs/blog/stop-worrying-about-blocking-the-new-async-std-runtime/).
+//!
+//! `smolscale` also includes `Nursery`, a helper for [structure concurrency](https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/) on the `smolscale` global executor.
 
 use futures_lite::prelude::*;
 use once_cell::sync::OnceCell;
@@ -18,15 +20,19 @@ use std::{
     task::{Context, Poll},
     time::Duration,
 };
+mod nursery;
+pub use nursery::*;
 
 //const CHANGE_THRESH: u32 = 10;
-const MONITOR_MS: u64 = 50;
+const MONITOR_MS: u64 = 5;
 
 static EXEC: async_executor::Executor<'static> = async_executor::Executor::new();
 
 static FUTURES_BEING_POLLED: AtomicUsize = AtomicUsize::new(0);
 static FBP_NONZERO: event_listener::Event = event_listener::Event::new();
 static POLL_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+static THREAD_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 static MONITOR: OnceCell<std::thread::JoinHandle<()>> = OnceCell::new();
 
@@ -40,15 +46,35 @@ fn start_monitor() {
 }
 
 fn monitor_loop() {
-    fn start_thread() {
+    fn start_thread(exitable: bool) {
+        THREAD_COUNT.fetch_add(1, Ordering::SeqCst);
         std::thread::Builder::new()
             .name("sscale-wkr".into())
-            .spawn(|| async_io::block_on(EXEC.run(futures_lite::future::pending::<()>())))
+            .spawn(move || {
+                async_io::block_on(async {
+                    scopeguard::defer!({
+                        THREAD_COUNT.fetch_sub(1, Ordering::SeqCst);
+                    });
+                    loop {
+                        let cont = async {
+                            EXEC.tick().await;
+                            true
+                        }
+                        .or(async {
+                            async_io::Timer::after(Duration::from_millis(500)).await;
+                            false
+                        });
+                        if !cont.await && exitable {
+                            return;
+                        }
+                    }
+                })
+            })
             .unwrap();
     }
-    start_thread();
+    start_thread(false);
 
-    let mut running_threads: usize = 1;
+    let mut consecutive_busy = 0;
     loop {
         std::thread::sleep(Duration::from_millis(MONITOR_MS));
         let fbp = loop {
@@ -61,12 +87,18 @@ fn monitor_loop() {
             if fbp > 0 {
                 break fbp;
             }
+            consecutive_busy = 0;
             listener.wait();
         };
-        // let new_count = POLL_COUNT.load(Ordering::Relaxed);
-        if fbp == running_threads {
-            start_thread();
-            running_threads += 1;
+        let running_threads = THREAD_COUNT.load(Ordering::SeqCst);
+        if fbp >= running_threads {
+            consecutive_busy += 1;
+            if consecutive_busy > 10 {
+                start_thread(true);
+                consecutive_busy = 0;
+            }
+        } else {
+            consecutive_busy = 0;
         }
     }
 }
