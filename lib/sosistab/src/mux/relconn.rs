@@ -30,7 +30,6 @@ pub struct RelConn {
     send_write: DArc<DMutex<BipeWriter>>,
     recv_read: DArc<DMutex<BipeReader>>,
     additional_info: Option<String>,
-    task_handle: Arc<smol::Task<anyhow::Result<()>>>,
 }
 
 impl RelConn {
@@ -43,7 +42,7 @@ impl RelConn {
         let (send_write, recv_write) = bipe::bipe(64 * 1024);
         let (send_read, recv_read) = bipe::bipe(10 * 1024 * 1024);
         let (send_wire_read, recv_wire_read) = smol::channel::bounded(1024);
-        let task_handle = runtime::spawn(relconn_actor(
+       runtime::spawn(relconn_actor(
             state,
             recv_write,
             send_read,
@@ -51,13 +50,12 @@ impl RelConn {
             output,
             additional_info.clone(),
             dropper,
-        ));
+        )).detach();
         (
             RelConn {
                 send_write: DArc::new(DMutex::new(send_write)),
                 recv_read: DArc::new(DMutex::new(recv_read)),
                 additional_info,
-                task_handle: Arc::new(task_handle),
             },
             RelConnBack { send_wire_read },
         )
