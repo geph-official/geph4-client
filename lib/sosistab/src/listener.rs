@@ -3,6 +3,7 @@ use crate::*;
 use bytes::Bytes;
 use indexmap::IndexMap;
 use msg::HandshakeFrame::*;
+use parking_lot::RwLock;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use smol::channel::{Receiver, Sender};
@@ -216,8 +217,7 @@ impl ListenerActor {
                                             let mut locked_addrs = IndexMap::new();
                                             locked_addrs.insert(shard_id, addr);
                                             // send for poll
-                                            let locked_addrs =
-                                                Arc::new(smol::lock::Mutex::new(locked_addrs));
+                                            let locked_addrs = Arc::new(RwLock::new(locked_addrs));
                                             let output_poller = {
                                                 let locked_addrs = locked_addrs.clone();
                                                 runtime::spawn(async move {
@@ -227,10 +227,9 @@ impl ListenerActor {
                                                             Ok(df) => {
                                                                 let enc =
                                                                     dn_aead.pad_encrypt(&df, 1000);
-                                                                let addrs =
-                                                                    locked_addrs.lock().await;
-                                                                assert!(!addrs.is_empty());
-                                                                loop {
+                                                                let remote_addr = loop {
+                                                                    let addrs = locked_addrs.read();
+                                                                    assert!(!addrs.is_empty());
                                                                     ctr = ctr.wrapping_add(1);
                                                                     if let Some((_, remote_addr)) =
                                                                         addrs.get_index(
@@ -239,17 +238,14 @@ impl ListenerActor {
                                                                                 as usize,
                                                                         )
                                                                     {
-                                                                        drop(
-                                                                            socket
-                                                                                .send_to(
-                                                                                    enc,
-                                                                                    *remote_addr,
-                                                                                )
-                                                                                .await,
-                                                                        );
-                                                                        break;
+                                                                        break *remote_addr;
                                                                     }
-                                                                }
+                                                                };
+                                                                drop(
+                                                                    socket
+                                                                        .send_to(enc, remote_addr)
+                                                                        .await,
+                                                                );
                                                             }
                                                             Err(_) => {
                                                                 smol::future::pending::<()>().await
@@ -259,7 +255,6 @@ impl ListenerActor {
                                                 })
                                             };
                                             let mut session = Session::new(SessionConfig {
-                                                latency: Duration::from_millis(5),
                                                 target_loss: 0.005,
                                                 send_frame: session_output_send,
                                                 recv_frame: session_input_recv,
@@ -326,7 +321,7 @@ impl TokenInfo {
 type SessEntry = (
     Sender<msg::DataFrame>,
     crypt::StdAEAD,
-    Arc<smol::lock::Mutex<ShardedAddrs>>,
+    Arc<RwLock<ShardedAddrs>>,
 );
 
 #[derive(Default)]
@@ -338,7 +333,7 @@ struct SessionTable {
 impl SessionTable {
     async fn rebind(&mut self, addr: SocketAddr, shard_id: u8, token: Bytes) -> bool {
         if let Some((_, _, addrs)) = self.token_to_sess.get(&token) {
-            let old = addrs.lock().await.insert(shard_id, addr);
+            let old = addrs.write().insert(shard_id, addr);
             log::trace!("binding {}=>{}", shard_id, addr);
             if let Some(old) = old {
                 self.addr_to_token.remove(&old);
@@ -352,7 +347,7 @@ impl SessionTable {
 
     async fn delete(&mut self, token: Bytes) {
         if let Some((_, _, lock_addrs)) = self.token_to_sess.remove(&token) {
-            for (_, addr) in lock_addrs.lock().await.iter() {
+            for (_, addr) in lock_addrs.read().iter() {
                 self.addr_to_token.remove(addr);
             }
         }
@@ -369,7 +364,7 @@ impl SessionTable {
         token: Bytes,
         sender: Sender<msg::DataFrame>,
         aead: crypt::StdAEAD,
-        locked_addrs: Arc<smol::lock::Mutex<ShardedAddrs>>,
+        locked_addrs: Arc<RwLock<ShardedAddrs>>,
     ) {
         self.token_to_sess
             .insert(token, (sender, aead, locked_addrs));

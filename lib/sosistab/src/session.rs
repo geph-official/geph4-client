@@ -11,6 +11,8 @@ use std::{
 };
 use std::{sync::Arc, time::Duration};
 
+const RELATIVE_TIMEOUT: Duration = Duration::from_millis(5);
+
 async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T {
     match fut.await {
         Ok(res) => res,
@@ -23,7 +25,6 @@ async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T
 
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
-    pub latency: Duration,
     pub target_loss: f64,
     pub send_frame: Sender<DataFrame>,
     pub recv_frame: Receiver<DataFrame>,
@@ -34,7 +35,6 @@ pub struct Session {
     pub(crate) send_tosend: Sender<Bytes>,
     recv_input: Receiver<Bytes>,
     get_stats: Sender<Sender<SessionStats>>,
-    send_next_deadline: flume::Sender<Instant>,
     _dropper: Vec<Box<dyn FnOnce() + Send + Sync + 'static>>,
     _task: smol::Task<()>,
 }
@@ -45,19 +45,11 @@ impl Session {
         let (send_tosend, recv_tosend) = smol::channel::bounded(500);
         let (send_input, recv_input) = smol::channel::bounded(500);
         let (s, r) = smol::channel::unbounded();
-        let (send_next_deadline, recv_next_deadline) = flume::bounded(0);
-        let task = runtime::spawn(session_loop(
-            cfg,
-            recv_tosend,
-            send_input,
-            recv_next_deadline,
-            r,
-        ));
+        let task = runtime::spawn(session_loop(cfg, recv_tosend, send_input, r));
         Session {
             send_tosend,
             recv_input,
             get_stats: s,
-            send_next_deadline,
             _dropper: Vec::new(),
             _task: task,
         }
@@ -87,11 +79,6 @@ impl Session {
         self.get_stats.send(send).await.unwrap();
         recv.recv().await.unwrap()
     }
-
-    /// Sets the read deadline, possibly replacing the existing one. If the network is idle until that deadline, then the session dies.
-    pub async fn set_deadline(&self, deadline: Instant) {
-        let _ = self.send_next_deadline.send_async(deadline).await;
-    }
 }
 
 /// Statistics of a single Sosistab session.
@@ -108,7 +95,6 @@ async fn session_loop(
     cfg: SessionConfig,
     recv_tosend: Receiver<Bytes>,
     send_input: Sender<Bytes>,
-    recv_next_deadline: flume::Receiver<Instant>,
     recv_statreq: Receiver<Sender<SessionStats>>,
 ) {
     scopeguard::defer!(log::warn!("session_loop ending"));
@@ -127,7 +113,6 @@ async fn session_loop(
     let recv_task = runtime::spawn(session_recv_loop(
         cfg,
         send_input,
-        recv_next_deadline,
         recv_statreq,
         measured_loss,
         high_recv_frame_no,
@@ -158,17 +143,17 @@ async fn session_send_loop(
             // get as much tosend as possible within the timeout
             // this lets us do it at maximum efficiency
             to_send.push(infal(recv_tosend.recv()).await);
-            let mut timeout = smol::Timer::after(cfg.latency);
+            let mut abs_timeout = smol::Timer::after(RELATIVE_TIMEOUT);
             loop {
-                let res = async {
-                    (&mut timeout).await;
+                let break_now = async {
+                    (&mut abs_timeout).await;
                     true
                 }
                 .or(async {
                     to_send.push(infal(recv_tosend.recv()).await);
                     false
                 });
-                if res.await || to_send.len() >= 16 {
+                if break_now.await || to_send.len() >= 32 {
                     break &to_send;
                 }
             }
@@ -219,7 +204,6 @@ async fn session_send_loop(
 async fn session_recv_loop(
     cfg: SessionConfig,
     send_input: Sender<Bytes>,
-    recv_next_deadline: flume::Receiver<Instant>,
     recv_statreq: Receiver<Sender<SessionStats>>,
     measured_loss: Arc<AtomicU8>,
     high_recv_frame_no: Arc<AtomicU64>,
@@ -232,14 +216,7 @@ async fn session_recv_loop(
         let mut rp_filter = ReplayFilter::new(0);
         let mut loss_calc = LossCalculator::new();
         loop {
-            let next_deadline = async {
-                let dline = recv_next_deadline.recv_async().await.ok()?;
-                smol::Timer::at(dline).await;
-                None
-            };
-            let new_frame = async { cfg.recv_frame.recv().await.ok() }
-                .or(next_deadline)
-                .await?;
+            let new_frame = async { cfg.recv_frame.recv().await.ok() }.await?;
             if !rp_filter.add(new_frame.frame_no) {
                 log::trace!(
                     "recv_loop: replay filter dropping frame {}",

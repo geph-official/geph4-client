@@ -36,7 +36,7 @@ impl StdAEAD {
         // chacha8 encryption
         let mut out_space = BytesMut::with_capacity(msg.len() + 24);
         out_space.extend_from_slice(msg);
-        let mut chacha = ChaCha12::new_var(&chacha_key, &[0; 8]).expect("can't make chacha8");
+        let mut chacha = ChaCha12::new_var(&chacha_key, &[0; 8]).expect("can't make chacha12");
         chacha.apply_keystream(&mut out_space[..msg.len()]);
         let mac = blake3::keyed_hash(&blake3_key, &out_space[..msg.len()]);
         // nonce
@@ -62,7 +62,7 @@ impl StdAEAD {
         // decrypt
         let mut out_space = BytesMut::with_capacity(msg.len());
         out_space.extend_from_slice(ciphertext);
-        let mut chacha = ChaCha12::new_var(&chacha_key, &[0; 8]).expect("can't make chacha8");
+        let mut chacha = ChaCha12::new_var(&chacha_key, &[0; 8]).expect("can't make chacha12");
         // check mac
         let calc_mac = blake3::keyed_hash(&blake3_key, &out_space);
         if !constant_time_eq::constant_time_eq(&calc_mac.as_bytes()[..8], mac) {

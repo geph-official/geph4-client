@@ -1,12 +1,12 @@
 use crate::*;
 use bytes::Bytes;
+use dashmap::DashMap;
 use mux::relconn::{RelConn, RelConnBack, RelConnState};
 use mux::structs::*;
 use rand::prelude::*;
 use smol::channel::{Receiver, Sender};
-use smol::lock::RwLock;
 use smol::prelude::*;
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 pub async fn multiplex(
     session: Arc<Session>,
@@ -15,7 +15,7 @@ pub async fn multiplex(
     conn_open_recv: Receiver<(Option<String>, Sender<RelConn>)>,
     conn_accept_send: Sender<RelConn>,
 ) -> anyhow::Result<()> {
-    let conn_tab = Arc::new(RwLock::new(ConnTable::default()));
+    let conn_tab = Arc::new(ConnTable::default());
     let (glob_send, glob_recv) = smol::channel::bounded(1000);
     let (dead_send, dead_recv) = smol::channel::unbounded();
     loop {
@@ -40,7 +40,6 @@ pub async fn multiplex(
                         payload,
                         ..
                     } => {
-                        let mut conn_tab = conn_tab.write().await;
                         if conn_tab.get_stream(stream_id).is_some() {
                             log::trace!("syn recv {} REACCEPT", stream_id);
                             session
@@ -77,9 +76,9 @@ pub async fn multiplex(
                     Message::Rel {
                         stream_id, kind, ..
                     } => {
-                        if let Some(handle) = conn_tab.read().await.get_stream(stream_id) {
+                        if let Some(handle) = conn_tab.get_stream(stream_id) {
                             log::trace!("handing over {:?} to {}", kind, stream_id);
-                            handle.process(msg).await
+                            handle.process(msg)
                         } else {
                             log::trace!("discarding {:?} to nonexistent {}", kind, stream_id);
                             if kind != RelKind::Rst {
@@ -125,7 +124,6 @@ pub async fn multiplex(
             let dead_send = dead_send.clone();
             runtime::spawn(async move {
                 let stream_id = {
-                    let mut conn_tab = conn_tab.write().await;
                     let stream_id = conn_tab.find_id();
                     if let Some(stream_id) = stream_id {
                         let (send_sig, recv_sig) = smol::channel::bounded(1);
@@ -174,7 +172,7 @@ pub async fn multiplex(
         let dead_evt = async {
             let lala = dead_recv.recv().await?;
             log::debug!("removing stream {} from table", lala);
-            conn_tab.write().await.del_stream(lala);
+            conn_tab.del_stream(lala);
             Ok(())
         };
         // await on them all
@@ -187,23 +185,24 @@ pub async fn multiplex(
 #[derive(Default)]
 struct ConnTable {
     /// Maps IDs to RelConn back handles.
-    sid_to_stream: HashMap<u16, RelConnBack>,
+    sid_to_stream: DashMap<u16, RelConnBack>,
 }
 
 impl ConnTable {
-    fn get_stream(&self, sid: u16) -> Option<&RelConnBack> {
-        self.sid_to_stream.get(&sid)
+    fn get_stream(&self, sid: u16) -> Option<RelConnBack> {
+        let x = self.sid_to_stream.get(&sid)?;
+        Some(x.clone())
     }
 
-    fn set_stream(&mut self, id: u16, handle: RelConnBack) {
+    fn set_stream(&self, id: u16, handle: RelConnBack) {
         self.sid_to_stream.insert(id, handle);
     }
 
-    fn del_stream(&mut self, id: u16) {
+    fn del_stream(&self, id: u16) {
         self.sid_to_stream.remove(&id);
     }
 
-    fn find_id(&mut self) -> Option<u16> {
+    fn find_id(&self) -> Option<u16> {
         if self.sid_to_stream.len() >= 65535 {
             log::warn!("ran out of descriptors ({})", self.sid_to_stream.len());
             return None;

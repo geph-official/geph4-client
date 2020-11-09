@@ -254,7 +254,7 @@ async fn handle_socks5(
     s5client: smol::net::TcpStream,
     keepalive: &Keepalive,
 ) -> anyhow::Result<()> {
-    let s5client = debuffer(s5client);
+    // let s5client = debuffer(s5client);
     stats.incr_open_conns();
     defer!(stats.decr_open_conns());
     use socksv5::v5::*;
@@ -295,7 +295,7 @@ async fn handle_http(
     hclient: smol::net::TcpStream,
     keepalive: &Keepalive,
 ) -> anyhow::Result<()> {
-    let hclient = debuffer(hclient);
+    // let hclient = debuffer(hclient);
     stats.incr_open_conns();
     defer!(stats.decr_open_conns());
     // Rely on "squid" remotely
@@ -310,13 +310,13 @@ async fn handle_http(
     Ok(())
 }
 
-/// Smallify the buffers for a TCP connection
-fn debuffer(conn: async_net::TcpStream) -> async_net::TcpStream {
-    let conn: Arc<smol::Async<std::net::TcpStream>> = conn.into();
-    let conn: std::net::TcpStream = conn.get_ref().try_clone().unwrap();
-    let conn: socket2::Socket = conn.into();
-    conn.set_nodelay(true).unwrap();
-    conn.set_recv_buffer_size(163840).unwrap();
-    conn.set_send_buffer_size(163840).unwrap();
-    smol::Async::new(conn.into_tcp_stream()).unwrap().into()
-}
+// /// Smallify the buffers for a TCP connection
+// fn debuffer(conn: async_net::TcpStream) -> async_net::TcpStream {
+//     let conn: Arc<smol::Async<std::net::TcpStream>> = conn.into();
+//     let conn: std::net::TcpStream = conn.get_ref().try_clone().unwrap();
+//     let conn: socket2::Socket = conn.into();
+//     conn.set_nodelay(true).unwrap();
+//     conn.set_recv_buffer_size(163840).unwrap();
+//     conn.set_send_buffer_size(163840).unwrap();
+//     smol::Async::new(conn.into_tcp_stream()).unwrap().into()
+// }

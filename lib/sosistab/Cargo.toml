@@ -37,7 +37,8 @@ bloomfilter = "1.0.3"
 concurrent-queue= "1.2.2"
 smolscale={path="../smolscale"}
 async-trait= "0.1.41"
-flume= "0.9.1"
+dashmap="3"
+smol-timeout="0.6"
 
 [dev-dependencies]
 env_logger= "0.8.1"

@@ -30,6 +30,7 @@ pub struct RelConn {
     send_write: DArc<DMutex<BipeWriter>>,
     recv_read: DArc<DMutex<BipeReader>>,
     additional_info: Option<String>,
+    task_handle: Arc<smol::Task<anyhow::Result<()>>>,
 }
 
 impl RelConn {
@@ -40,9 +41,9 @@ impl RelConn {
         additional_info: Option<String>,
     ) -> (Self, RelConnBack) {
         let (send_write, recv_write) = bipe::bipe(64 * 1024);
-        let (send_read, recv_read) = bipe::bipe(512 * 1024);
-        let (send_wire_read, recv_wire_read) = smol::channel::bounded(16);
-        runtime::spawn(relconn_actor(
+        let (send_read, recv_read) = bipe::bipe(10 * 1024 * 1024);
+        let (send_wire_read, recv_wire_read) = smol::channel::bounded(1024);
+        let task_handle = runtime::spawn(relconn_actor(
             state,
             recv_write,
             send_read,
@@ -50,13 +51,13 @@ impl RelConn {
             output,
             additional_info.clone(),
             dropper,
-        ))
-        .detach();
+        ));
         (
             RelConn {
                 send_write: DArc::new(DMutex::new(send_write)),
                 recv_read: DArc::new(DMutex::new(recv_read)),
                 additional_info,
+                task_handle: Arc::new(task_handle),
             },
             RelConnBack { send_wire_read },
         )
@@ -376,10 +377,10 @@ async fn relconn_actor(
                         stream_id,
                     })) => {
                         log::trace!("new data pkt with seqno={}", seqno);
-                        // if conn_vars.delayed_ack_timer.is_none() {
-                        conn_vars.delayed_ack_timer =
-                            Instant::now().checked_add(Duration::from_millis(1));
-                        // }
+                        if conn_vars.delayed_ack_timer.is_none() {
+                            conn_vars.delayed_ack_timer =
+                                Instant::now().checked_add(Duration::from_millis(5));
+                        }
                         if conn_vars.reorderer.insert(seqno, payload) {
                             conn_vars.ack_seqnos.insert(seqno);
                         }
@@ -487,12 +488,13 @@ async fn relconn_actor(
     }
 }
 
+#[derive(Clone)]
 pub(crate) struct RelConnBack {
     send_wire_read: Sender<Message>,
 }
 
 impl RelConnBack {
-    pub async fn process(&self, input: Message) {
-        drop(self.send_wire_read.send(input).await)
+    pub fn process(&self, input: Message) {
+        drop(self.send_wire_read.try_send(input))
     }
 }
