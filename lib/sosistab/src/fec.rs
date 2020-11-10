@@ -145,6 +145,7 @@ impl FrameDecoder {
     pub fn decode(&mut self, pkt: &[u8], pkt_idx: usize) -> Option<Vec<Bytes>> {
         // if we don't have parity shards, don't touch anything
         if self.parity_shards == 0 {
+            self.done = true;
             return Some(vec![post_decode(Bytes::copy_from_slice(pkt))?]);
         }
         if self.space.is_empty() {

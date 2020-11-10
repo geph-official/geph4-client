@@ -42,7 +42,7 @@ impl RelConn {
         let (send_write, recv_write) = bipe::bipe(64 * 1024);
         let (send_read, recv_read) = bipe::bipe(10 * 1024 * 1024);
         let (send_wire_read, recv_wire_read) = smol::channel::bounded(1024);
-       runtime::spawn(relconn_actor(
+        runtime::spawn(relconn_actor(
             state,
             recv_write,
             send_read,
@@ -50,7 +50,8 @@ impl RelConn {
             output,
             additional_info.clone(),
             dropper,
-        )).detach();
+        ))
+        .detach();
         (
             RelConn {
                 send_write: DArc::new(DMutex::new(send_write)),
@@ -151,7 +152,7 @@ async fn relconn_actor(
         smol::future::yield_now().await;
     };
     let mut fragments: VecDeque<Bytes> = VecDeque::new();
-    let limiter = Arc::new(VarRateLimit::new());
+    let limiter = Arc::new(smol::lock::Mutex::new(VarRateLimit::new()));
     let implied_rate = Arc::new(AtomicU32::new(100));
     loop {
         state = match state {
@@ -262,13 +263,21 @@ async fn relconn_actor(
                                 };
                                 if let Some(to_write) = to_write {
                                     fragments.push_back(to_write);
-                                    limiter.wait(implied_rate.load(Ordering::Relaxed)).await;
+                                    limiter
+                                        .lock()
+                                        .await
+                                        .wait(implied_rate.load(Ordering::Relaxed))
+                                        .await;
                                     Ok(Evt::NewWrite(fragments.pop_front().unwrap()))
                                 } else {
                                     Ok(Evt::Closing)
                                 }
                             } else {
-                                limiter.wait(implied_rate.load(Ordering::Relaxed)).await;
+                                limiter
+                                    .lock()
+                                    .await
+                                    .wait(implied_rate.load(Ordering::Relaxed))
+                                    .await;
                                 Ok::<Evt, anyhow::Error>(Evt::NewWrite(
                                     fragments.pop_front().unwrap(),
                                 ))

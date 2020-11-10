@@ -101,20 +101,22 @@ impl<T: Clone> Reorderer<T> {
 }
 
 pub struct VarRateLimit {
-    next_time: smol::lock::Mutex<Instant>,
+    next_time: Instant,
+    timer: smol::Timer,
 }
 
 impl VarRateLimit {
     pub fn new() -> Self {
         Self {
-            next_time: smol::lock::Mutex::new(Instant::now()),
+            next_time: Instant::now(),
+            timer: smol::Timer::at(Instant::now()),
         }
     }
 
-    pub async fn wait(&self, speed: u32) {
-        let mut next_time = self.next_time.lock().await;
-        smol::Timer::at(*next_time).await;
-        *next_time = Instant::now()
+    pub async fn wait(&mut self, speed: u32) {
+        self.timer.set_at(self.next_time);
+        (&mut self.timer).await;
+        self.next_time = Instant::now()
             .checked_add(Duration::from_micros(1_000_000 / (speed.max(100)) as u64))
             .expect("time OOB")
     }

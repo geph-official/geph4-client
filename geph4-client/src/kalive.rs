@@ -217,9 +217,13 @@ async fn keepalive_actor_once(
                             let remote = (&mux).open_conn(Some(conn_host)).await;
                             match remote {
                                 Ok(remote) => {
+                                    let sess_stats = mux.get_session().get_stats().await;
                                     log::debug!(
-                                        "opened connection in {} ms",
-                                        start.elapsed().as_millis()
+                                        "opened connection in {} ms; loss = {:.2}% => {:.2}%; overhead = {:.2}%",
+                                        start.elapsed().as_millis(),
+                                        sess_stats.down_loss * 100.0,
+                                        sess_stats.down_recovered_loss * 100.0,
+                                        sess_stats.down_redundant * 100.0,
                                     );
                                     stats.set_latency(start.elapsed().as_secs_f64() * 1000.0);
                                     conn_reply.send(remote).await?;

@@ -215,8 +215,16 @@ async fn session_recv_loop(
     let recv_loop = async {
         let mut rp_filter = ReplayFilter::new(0);
         let mut loss_calc = LossCalculator::new();
+        let mut timer = smol::Timer::after(Duration::from_secs(600));
         loop {
-            let new_frame = async { cfg.recv_frame.recv().await.ok() }.await?;
+            let timer_ref = &mut timer;
+            let new_frame = async { cfg.recv_frame.recv().await.ok() }
+                .or(async {
+                    timer_ref.await;
+                    None
+                })
+                .await?;
+            timer.set_after(Duration::from_secs(600));
             if !rp_filter.add(new_frame.frame_no) {
                 log::trace!(
                     "recv_loop: replay filter dropping frame {}",
@@ -246,6 +254,7 @@ async fn session_recv_loop(
                     let _ = send_input.send(item).await;
                 }
             }
+            smol::future::yield_now().await;
         }
     };
     // stats loop
@@ -266,6 +275,7 @@ async fn session_recv_loop(
                 recent_seqnos: seqnos.read().await.iter().cloned().collect(),
             };
             infal(req.send(response)).await;
+            smol::future::yield_now().await;
         }
     };
     smol::future::race(stats_loop, recv_loop).await
@@ -296,10 +306,12 @@ impl RunDecoder {
             if run_no > self.top_run {
                 self.top_run = run_no;
                 // advance bottom
-                while self.top_run - self.bottom_run > 10 {
+                while self.top_run - self.bottom_run > 100 {
                     if let Some(dec) = self.decoders.remove(&self.bottom_run) {
-                        self.total_count += (dec.good_pkts() + dec.lost_pkts()) as u64;
-                        self.correct_count += dec.good_pkts() as u64
+                        if dec.good_pkts() + dec.lost_pkts() > 1 {
+                            self.total_count += (dec.good_pkts() + dec.lost_pkts()) as u64;
+                            self.correct_count += dec.good_pkts() as u64
+                        }
                     }
                     self.bottom_run += 1;
                 }
