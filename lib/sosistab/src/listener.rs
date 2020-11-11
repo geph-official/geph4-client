@@ -115,6 +115,7 @@ impl ListenerActor {
         }
 
         loop {
+            smol::future::yield_now().await;
             let event = smol::future::race(
                 async { Some(Evt::NewRecv(socket.recv_from().await.ok()?)) },
                 async { Some(Evt::DeadSess(recv_dead.recv().await.ok()?)) },
@@ -255,7 +256,7 @@ impl ListenerActor {
                                                 })
                                             };
                                             let mut session = Session::new(SessionConfig {
-                                                target_loss: 0.005,
+                                                target_loss: 0.05,
                                                 send_frame: session_output_send,
                                                 recv_frame: session_input_recv,
                                             });

@@ -155,6 +155,7 @@ async fn relconn_actor(
     let limiter = Arc::new(smol::lock::Mutex::new(VarRateLimit::new()));
     let implied_rate = Arc::new(AtomicU32::new(100));
     loop {
+        smol::future::yield_now().await;
         state = match state {
             SynReceived { stream_id } => {
                 log::trace!("C={} SynReceived, sending SYN-ACK", stream_id);

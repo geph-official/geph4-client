@@ -2,12 +2,16 @@ use crate::fec::{FrameDecoder, FrameEncoder};
 use crate::msg::DataFrame;
 use crate::runtime;
 use bytes::Bytes;
+use governor::{Quota, RateLimiter};
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
-use std::sync::atomic::{AtomicU64, AtomicU8, Ordering};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     time::Instant,
+};
+use std::{
+    num::NonZeroU32,
+    sync::atomic::{AtomicU64, AtomicU8, Ordering},
 };
 use std::{sync::Arc, time::Duration};
 
@@ -128,15 +132,17 @@ async fn session_send_loop(
     high_recv_frame_no: Arc<AtomicU64>,
     total_recv_frames: Arc<AtomicU64>,
 ) -> Option<()> {
-    // let shaper = RateLimiter::direct_with_clock(
-    //     Quota::per_second(NonZeroU32::new(10000u32).unwrap())
-    //         .allow_burst(NonZeroU32::new(20).unwrap()),
-    //     &governor::clock::MonotonicClock::default(),
-    // );
+    let shaper = RateLimiter::direct_with_clock(
+        Quota::per_second(NonZeroU32::new(10000u32).unwrap())
+            .allow_burst(NonZeroU32::new(20).unwrap()),
+        &governor::clock::MonotonicClock::default(),
+    );
     let mut frame_no = 0u64;
     let mut run_no = 0u64;
     let mut to_send = Vec::new();
+    let mut timer = smol::Timer::after(Duration::from_secs(100));
     loop {
+        smol::future::yield_now().await;
         // obtain a vector of bytes to send
         let to_send = {
             to_send.clear();
@@ -190,11 +196,11 @@ async fn session_send_loop(
             // } else {
             //     shaper.until_ready().await;
             // }
-            // while let Err(e) = shaper.check() {
-            //     let instant = e.earliest_possible();
-            //     smol::Timer::at(instant).await;
-            // }
-            // shaper.until_ready().await;
+            while let Err(e) = shaper.check() {
+                timer.set_at(e.earliest_possible());
+                (&mut timer).await;
+            }
+            shaper.until_ready().await;
             frame_no += 1;
         }
         run_no += 1;

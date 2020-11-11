@@ -19,6 +19,7 @@ pub async fn multiplex(
     let (glob_send, glob_recv) = smol::channel::bounded(1000);
     let (dead_send, dead_recv) = smol::channel::unbounded();
     loop {
+        smol::future::yield_now().await;
         // fires on receiving messages
         let recv_evt = async {
             let msg = session

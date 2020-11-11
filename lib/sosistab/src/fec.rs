@@ -41,6 +41,12 @@ impl FrameEncoder {
         for r in parity_shard_space.iter_mut() {
             padded_pkts.push(r);
         }
+        log::debug!(
+            "{:.1}% => {}/{}",
+            measured_loss as f64 / 256.0,
+            data_shards,
+            parity_shards
+        );
         if parity_shards > 0 {
             let encoder = self
                 .rs_encoders
@@ -111,6 +117,7 @@ fn new_rs_decoder(data_shards: usize, parity_shards: usize) -> &'static galois_8
 
 impl FrameDecoder {
     pub fn new(data_shards: usize, parity_shards: usize) -> Self {
+        log::debug!("decoding with {}/{}", data_shards, parity_shards);
         FrameDecoder {
             data_shards,
             parity_shards,
