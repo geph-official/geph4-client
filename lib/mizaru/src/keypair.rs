@@ -4,7 +4,7 @@ use rsa_fdh::blind;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    sync::{atomic::AtomicU64, atomic::Ordering, Arc},
+    sync::{atomic::AtomicU64, atomic::Ordering},
     time::SystemTime,
 };
 
@@ -20,9 +20,9 @@ pub fn time_to_epoch(time: SystemTime) -> usize {
 /// A Mizaru private key. Consists of a vast number of RSA private keys, one for every day, for the 65536 days after the Unix epoch. This supports serde so that you can save this to disk.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct SecretKey {
-    rsa_keys: Arc<Vec<RSAPrivateKey>>,
+    rsa_keys: im::Vector<RSAPrivateKey>,
     // all the intermediate layers of the merkle tree
-    merkle_tree: Arc<Vec<Vec<[u8; 32]>>>,
+    merkle_tree: im::Vector<im::Vector<[u8; 32]>>,
 }
 
 impl SecretKey {
@@ -30,7 +30,7 @@ impl SecretKey {
     pub fn generate() -> Self {
         let count = AtomicU64::new(0);
         // first we generate the massive number of rsa keys
-        let rsa_keys: Vec<RSAPrivateKey> = (0..KEY_COUNT)
+        let rsa_keys: im::Vector<RSAPrivateKey> = (0..KEY_COUNT)
             .into_par_iter()
             .map(|_| {
                 let mut rng = rand::rngs::OsRng {};
@@ -38,13 +38,14 @@ impl SecretKey {
                 eprintln!("generated {}/{} keys", count, KEY_COUNT);
                 RSAPrivateKey::new(&mut rng, KEY_BITS).expect("can't generate RSA key")
             })
-            .collect();
+            .collect::<Vec<_>>()
+            .into();
         // then, we populate the merkle tree level by level
-        let merkle_tree_first: Vec<[u8; 32]> = rsa_keys
+        let merkle_tree_first: im::Vector<[u8; 32]> = rsa_keys
             .iter()
             .map(|v| Sha256::digest(&bincode::serialize(&v.to_public_key()).unwrap()).into())
             .collect();
-        let mut merkle_tree = vec![merkle_tree_first];
+        let mut merkle_tree = im::vector![merkle_tree_first];
         while merkle_tree.last().unwrap().len() > 1 {
             // "decimate" the merkle tree level to make the next
             let last = merkle_tree.last().unwrap();
@@ -55,12 +56,12 @@ impl SecretKey {
                     Sha256::digest(&v).into()
                 })
                 .collect();
-            merkle_tree.push(new)
+            merkle_tree.push_back(new)
         }
         // return the value
         SecretKey {
-            rsa_keys: Arc::new(rsa_keys),
-            merkle_tree: Arc::new(merkle_tree),
+            rsa_keys,
+            merkle_tree,
         }
     }
 

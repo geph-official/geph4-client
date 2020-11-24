@@ -2,20 +2,19 @@ use crate::*;
 use bytes::Bytes;
 use smol::channel::{Receiver, Sender};
 use std::sync::Arc;
-mod mempress;
 mod multiplex_actor;
 mod relconn;
 mod structs;
 pub use relconn::RelConn;
 
 /// A multiplex session over a sosistab session, implementing both reliable "streams" and unreliable messages.
-#[derive(Clone)]
 pub struct Multiplex {
     urel_send: Sender<Bytes>,
     urel_recv: Receiver<Bytes>,
     conn_open: Sender<(Option<String>, Sender<RelConn>)>,
     conn_accept: Receiver<RelConn>,
     sess_ref: Arc<Session>,
+    _task: smol::Task<()>,
 }
 
 fn to_ioerror<T: Into<Box<dyn std::error::Error + Send + Sync>>>(val: T) -> std::io::Error {
@@ -31,7 +30,7 @@ impl Multiplex {
         let (conn_accept_send, conn_accept) = smol::channel::bounded(100);
         let session = Arc::new(session);
         let sess_cloned = session.clone();
-        runtime::spawn(async move {
+        let _task = runtime::spawn(async move {
             let retval = multiplex_actor::multiplex(
                 sess_cloned,
                 urel_send_recv,
@@ -41,14 +40,14 @@ impl Multiplex {
             )
             .await;
             log::debug!("multiplex actor returned {:?}", retval);
-        })
-        .detach();
+        });
         Multiplex {
             urel_send,
             urel_recv,
             conn_open,
             conn_accept,
             sess_ref: session,
+            _task,
         }
     }
 

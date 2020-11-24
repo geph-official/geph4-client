@@ -1,4 +1,4 @@
-use crate::mux::{mempress, structs::*};
+use crate::mux::structs::*;
 use std::{
     cmp::Reverse,
     collections::BTreeSet,
@@ -28,12 +28,6 @@ pub struct Inflight {
 
     delivered: u64,
     delivered_time: Instant,
-}
-
-impl Drop for Inflight {
-    fn drop(&mut self) {
-        mempress::decr(self.inflight_count);
-    }
 }
 
 impl Inflight {
@@ -107,7 +101,6 @@ impl Inflight {
                         toret = true;
                         seg.acked = true;
                         self.inflight_count -= 1;
-                        mempress::decr(1);
                         if seg.retrans == 0 {
                             if let Message::Rel { .. } = &seg.payload {
                                 // calculate rate
@@ -149,7 +142,6 @@ impl Inflight {
                 delivered: self.delivered,
                 delivered_time: self.delivered_time,
             });
-            mempress::incr(1);
             self.inflight_count += 1;
         }
         self.times.push(seqno, Reverse(Instant::now() + rto));

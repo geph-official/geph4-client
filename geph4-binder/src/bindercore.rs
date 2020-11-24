@@ -3,6 +3,7 @@ use native_tls::{Certificate, TlsConnector};
 use parking_lot::Mutex;
 use postgres_native_tls::MakeTlsConnector;
 use r2d2_postgres::PostgresConnectionManager;
+use rand::prelude::*;
 use std::{
     collections::HashMap,
     convert::TryFrom,
@@ -388,9 +389,10 @@ impl BinderCore {
             .transaction()
             .map_err(|_| BinderError::DatabaseFailed)?;
         let query = "select bridge_address,sosistab_pubkey,bridge_group from routes where update_time > NOW() - interval '2 minute' and hostname=$1";
-        let rows = txn
+        let mut rows = txn
             .query(query, &[&exit_hostname])
             .map_err(|_| BinderError::DatabaseFailed)?;
+        rows.shuffle(&mut rand::thread_rng());
         let mut res: Vec<_> = rows
             .into_iter()
             .map(|row| {
@@ -409,7 +411,7 @@ impl BinderCore {
                 )
             })
             .collect();
-        res.sort_by(|a, b| a.0.endpoint.cmp(&b.0.endpoint));
+        res.sort_by(|a, b| a.1.cmp(&b.1));
         res.dedup_by(|a, b| a.1 == b.1);
         log::debug!("serving out {} bridges", res.len());
         Ok(res.into_iter().map(|v| v.0).collect())

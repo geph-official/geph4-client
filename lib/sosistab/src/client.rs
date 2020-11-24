@@ -1,6 +1,5 @@
 use crate::*;
 use bytes::Bytes;
-use rand::prelude::*;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use std::net::SocketAddr;
@@ -103,7 +102,7 @@ pub async fn connect_custom(
     unimplemented!()
 }
 
-const SHARDS: u8 = 2;
+const SHARDS: u8 = 6;
 const RESET_MILLIS: u128 = 5000;
 const REMIND_MILLIS: u128 = 1000;
 

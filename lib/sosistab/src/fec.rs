@@ -1,8 +1,10 @@
+use arc_swap::ArcSwap;
 use bytes::{Bytes, BytesMut};
+use once_cell::sync::Lazy;
 use probability::distribution::Distribution;
 use reed_solomon_erasure::galois_8;
-use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::Arc;
 /// A forward error correction encoder. Retains internal state for memoization, memory pooling etc.
 #[derive(Debug)]
 pub struct FrameEncoder {
@@ -94,25 +96,24 @@ pub struct FrameDecoder {
     space: Vec<Vec<u8>>,
     present: Vec<bool>,
     present_count: usize,
-    rs_decoder: Option<&'static galois_8::ReedSolomon>,
+    rs_decoder: Option<Arc<galois_8::ReedSolomon>>,
     done: bool,
 }
 
-thread_local! {
-    static DECODER_CACHE: RefCell<HashMap<(usize, usize), &'static galois_8::ReedSolomon>> = RefCell::new(HashMap::new());
-}
+type DataParity = (usize, usize);
+static DECODER_CACHE: Lazy<ArcSwap<im::HashMap<DataParity, Arc<galois_8::ReedSolomon>>>> =
+    Lazy::new(|| ArcSwap::new(Arc::new(im::HashMap::new())));
 
-fn new_rs_decoder(data_shards: usize, parity_shards: usize) -> &'static galois_8::ReedSolomon {
-    DECODER_CACHE.with(|val| {
-        let mut map = val.borrow_mut();
-        if let Some(rs) = map.get(&(data_shards, parity_shards)) {
-            *rs
-        } else {
-            let noo = Box::new(galois_8::ReedSolomon::new(data_shards, parity_shards).unwrap());
-            map.insert((data_shards, parity_shards), Box::leak(noo));
-            map.get(&(data_shards, parity_shards)).unwrap()
-        }
-    })
+fn new_rs_decoder(data_shards: usize, parity_shards: usize) -> Arc<galois_8::ReedSolomon> {
+    let dec_cache = DECODER_CACHE.load();
+    if let Some(rs) = dec_cache.get(&(data_shards, parity_shards)) {
+        rs.clone()
+    } else {
+        let decoder = Arc::new(galois_8::ReedSolomon::new(data_shards, parity_shards).unwrap());
+        let new_cache = dec_cache.update((data_shards, parity_shards), decoder.clone());
+        DECODER_CACHE.store(Arc::new(new_cache));
+        decoder
+    }
 }
 
 impl FrameDecoder {

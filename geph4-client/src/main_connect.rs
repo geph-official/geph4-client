@@ -254,6 +254,7 @@ async fn handle_socks5(
     s5client: smol::net::TcpStream,
     keepalive: &Keepalive,
 ) -> anyhow::Result<()> {
+    s5client.set_nodelay(true)?;
     // let s5client = debuffer(s5client);
     stats.incr_open_conns();
     defer!(stats.decr_open_conns());
@@ -295,6 +296,7 @@ async fn handle_http(
     hclient: smol::net::TcpStream,
     keepalive: &Keepalive,
 ) -> anyhow::Result<()> {
+    hclient.set_nodelay(true)?;
     // let hclient = debuffer(hclient);
     stats.incr_open_conns();
     defer!(stats.decr_open_conns());

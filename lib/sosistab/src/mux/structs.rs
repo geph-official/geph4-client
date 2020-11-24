@@ -1,8 +1,6 @@
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeMap, time::Duration, time::Instant};
-
-use super::mempress;
+use std::collections::BTreeMap;
 
 /// A sequence number.
 pub type Seqno = u64;
@@ -29,15 +27,6 @@ impl Message {
     }
 }
 
-// impl Message {
-//     pub fn seqno(&self) -> Seqno {
-//         match self {
-//             Message::Rel { seqno, .. } => *seqno,
-//             _ => 0,
-//         }
-//     }
-// }
-
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum RelKind {
     Syn,
@@ -63,20 +52,11 @@ impl<T: Clone> Default for Reorderer<T> {
         }
     }
 }
-
-impl<T: Clone> Drop for Reorderer<T> {
-    fn drop(&mut self) {
-        mempress::decr(self.pkts.len());
-    }
-}
-
 impl<T: Clone> Reorderer<T> {
     pub fn insert(&mut self, seq: Seqno, item: T) -> bool {
         if seq >= self.min && seq <= self.min + 20000 {
             if self.pkts.insert(seq, item).is_some() {
                 log::trace!("spurious retransmission of {} received", seq);
-            } else {
-                mempress::incr(1);
             }
             // self.pkts.insert(seq, item);
             true
@@ -89,7 +69,6 @@ impl<T: Clone> Reorderer<T> {
         let mut output = Vec::with_capacity(self.pkts.len());
         for idx in self.min.. {
             if let Some(item) = self.pkts.remove(&idx) {
-                mempress::decr(1);
                 output.push(item.clone());
                 self.min = idx + 1;
             } else {
@@ -98,32 +77,4 @@ impl<T: Clone> Reorderer<T> {
         }
         output
     }
-}
-
-pub struct VarRateLimit {
-    next_time: Instant,
-    timer: smol::Timer,
-}
-
-impl VarRateLimit {
-    pub fn new() -> Self {
-        Self {
-            next_time: Instant::now(),
-            timer: smol::Timer::at(Instant::now()),
-        }
-    }
-
-    pub async fn wait(&mut self, speed: u32) {
-        self.timer.set_at(self.next_time);
-        (&mut self.timer).await;
-        self.next_time = Instant::now()
-            .checked_add(Duration::from_micros(1_000_000 / (speed.max(100)) as u64))
-            .expect("time OOB")
-    }
-
-    // pub async fn wait(&self, speed: u32) {
-    //     while !self.check(speed.max(DIVIDER_FRAC * 2)) {
-    //         smol::Timer::after(Duration::from_millis(1)).await;
-    //     }
-    // }
 }

@@ -26,15 +26,20 @@ struct RootCtx {
     session_count: AtomicUsize,
     conn_count: AtomicUsize,
 
-    nursery: smolscale::Nursery,
+    free_limit: u32,
+
+    nursery: smolscale::NurseryHandle,
 }
 
 impl RootCtx {
     fn new_sess(self: &Arc<Self>, sess: sosistab::Session) -> SessCtx {
+        let new_nurs = smolscale::Nursery::new();
+        let new_hand = new_nurs.handle();
+        self.nursery.spawn(OnError::Ignore, |_| new_nurs.wait());
         SessCtx {
             root: self.clone(),
             sess,
-            nursery: smolscale::Nursery::new(),
+            nursery: new_hand,
         }
     }
 }
@@ -44,7 +49,7 @@ struct SessCtx {
     root: Arc<RootCtx>,
     sess: sosistab::Session,
 
-    nursery: smolscale::Nursery,
+    nursery: smolscale::NurseryHandle,
 }
 
 /// the main listening loop
@@ -55,7 +60,9 @@ pub async fn main_loop<'a>(
     bridge_secret: &'a str,
     signing_sk: ed25519_dalek::Keypair,
     sosistab_sk: x25519_dalek::StaticSecret,
+    free_limit: u32,
 ) -> anyhow::Result<()> {
+    let nursery = smolscale::Nursery::new();
     let ctx = Arc::new(RootCtx {
         stat_client: Arc::new(stat_client),
         exit_hostname: exit_hostname.to_string(),
@@ -65,7 +72,8 @@ pub async fn main_loop<'a>(
         sosistab_sk,
         session_count: AtomicUsize::new(0),
         conn_count: AtomicUsize::new(0),
-        nursery: smolscale::Nursery::new(),
+        free_limit,
+        nursery: nursery.handle(),
     });
     // control protocol listener
     let control_prot_listen = smol::net::TcpListener::bind("[::0]:28080").await?;
@@ -73,12 +81,12 @@ pub async fn main_loop<'a>(
     let control_prot_fut = async {
         loop {
             let ctx = ctx.clone();
-            let sp = ctx.nursery.handle();
+            let sp = ctx.nursery.clone();
             let (client, _) = control_prot_listen.accept().await?;
             let claddr = client.peer_addr()?;
             sp.spawn(
                 OnError::ignore_with(move |e| {
-                    log::warn!("control protocol for {} died with {}", claddr, e)
+                    log::warn!("control protocol for {} died with {:?}", claddr, e)
                 }),
                 |_| handle_control(ctx, client),
             );
@@ -89,14 +97,14 @@ pub async fn main_loop<'a>(
     let self_bridge_fut = async {
         let sosis_listener =
             sosistab::Listener::listen("[::0]:19831", ctx1.sosistab_sk.clone()).await;
-        log::info!("sosis_listener initialized");
+        log::debug!("sosis_listener initialized");
         loop {
             let sess = sosis_listener
                 .accept_session()
                 .await
                 .ok_or_else(|| anyhow::anyhow!("can't accept from sosistab"))?;
             let ctx1 = ctx1.clone();
-            let sp = ctx1.nursery.handle();
+            let sp = ctx1.nursery.clone();
             sp.spawn(OnError::Ignore, move |_| {
                 handle_session(ctx1.new_sess(sess))
             });
@@ -121,6 +129,7 @@ pub async fn main_loop<'a>(
     // race
     smol::future::race(control_prot_fut, self_bridge_fut)
         .or(gauge_fut)
+        .or(nursery.wait())
         .await
 }
 
@@ -155,11 +164,11 @@ async fn handle_control<'a>(
                 anyhow::bail!("timeout")
             })
             .await?;
-        log::info!("bridge in group {} to forward {}", their_group, their_addr);
+        log::debug!("bridge in group {} to forward {}", their_group, their_addr);
         // create or recall binding
         if info.is_none() {
             let ctx = ctx.clone();
-            log::info!("redoing binding because info is none");
+            log::debug!("redoing binding because info is none");
             let sosis_secret = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
             let sosis_listener = sosistab::Listener::listen("[::0]:0", sosis_secret.clone()).await;
             info = Some((
@@ -167,7 +176,7 @@ async fn handle_control<'a>(
                 x25519_dalek::PublicKey::from(&sosis_secret),
             ));
             ctx.nursery
-                .handle()
+                .clone()
                 .spawn(OnError::Ignore, move |nursery| async move {
                     loop {
                         let sess = sosis_listener
@@ -202,7 +211,7 @@ async fn handle_control<'a>(
                     route_unixtime,
                     exit_signature,
                 },
-                Duration::from_secs(10),
+                Duration::from_secs(30),
             )
         })
         .await
@@ -212,19 +221,21 @@ async fn handle_control<'a>(
 }
 
 async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
-    log::info!("authentication started...");
     let SessCtx {
         root,
         sess,
         nursery,
     } = ctx;
     let sess = sosistab::mux::Multiplex::new(sess);
-    let nhandle = nursery.handle();
-    authenticate_sess(root.binder_client.clone(), &sess)
+    let nhandle = nursery.clone();
+    let is_plus = authenticate_sess(root.binder_client.clone(), &sess)
         .timeout(Duration::from_secs(10))
         .await
         .ok_or_else(|| anyhow::anyhow!("authentication timeout"))??;
-    log::info!("authenticated a new session");
+    log::info!("authenticated a new session (is_plus = {})", is_plus);
+    if !is_plus {
+        sess.get_session().set_ratelimit(root.free_limit);
+    }
     root.session_count
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     scopeguard::defer!({
@@ -253,7 +264,7 @@ async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
 async fn authenticate_sess(
     binder_client: Arc<dyn BinderClient>,
     sess: &sosistab::mux::Multiplex,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<bool> {
     let mut stream = sess.accept_conn().await?;
     log::debug!("authenticating session...");
     // wait for a message containing a blinded signature
@@ -262,15 +273,16 @@ async fn authenticate_sess(
     if (auth_sig.epoch as i32 - mizaru::time_to_epoch(SystemTime::now()) as i32).abs() > 2 {
         anyhow::bail!("outdated authentication token")
     }
+    let is_plus = level != "free";
     // validate it through the binder
     let res = smol::unblock(move || {
         binder_client.request(
             BinderRequestData::Validate {
-                level,
+                level: level.clone(),
                 unblinded_digest: auth_tok,
                 unblinded_signature: auth_sig,
             },
-            Duration::from_secs(10),
+            Duration::from_secs(30),
         )
     })
     .await?;
@@ -279,7 +291,7 @@ async fn authenticate_sess(
     }
     // send response
     aioutils::write_pascalish(&mut stream, &1u8).await?;
-    Ok(())
+    Ok(is_plus)
 }
 
 async fn handle_proxy_stream(
@@ -292,7 +304,7 @@ async fn handle_proxy_stream(
         Some(s) => s.to_string(),
         None => aioutils::read_pascalish(&mut client).await?,
     };
-    log::info!("proxying {}", to_prox);
+    log::debug!("proxying {}", to_prox);
     let remote = smol::net::TcpStream::connect(&to_prox)
         .or(async {
             smol::Timer::after(Duration::from_secs(10)).await;
@@ -310,6 +322,7 @@ async fn handle_proxy_stream(
             }
         }
     }
+    remote.set_nodelay(true)?;
     let key = format!("exit_usage.{}", exit_hostname.replace(".", "-"));
     // copy the streams
     smol::future::race(

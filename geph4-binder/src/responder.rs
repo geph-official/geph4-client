@@ -1,13 +1,16 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::bindercore::BinderCore;
 use binder_transport::{BinderError, BinderRequestData, BinderResponse, BinderServer};
 /// Retry an action indefinitely when the database errors out
 fn db_retry<T>(action: impl Fn() -> Result<T, BinderError>) -> Result<T, BinderError> {
-    for _ in 1.. {
+    for retries in 1.. {
         match action() {
             Err(BinderError::DatabaseFailed) => {
-                std::thread::sleep(Duration::from_secs(1));
+                if retries > 10 {
+                    return Err(BinderError::DatabaseFailed);
+                }
+                std::thread::sleep(Duration::from_millis(rand::random::<u64>() % 100));
             }
             x => return x,
         }
@@ -19,11 +22,7 @@ fn db_retry<T>(action: impl Fn() -> Result<T, BinderError>) -> Result<T, BinderE
 pub fn handle_requests(serv: impl BinderServer, core: &BinderCore) {
     easy_parallel::Parallel::new()
         .each(0..64, |worker_id| loop {
-            if let Err(e) = {
-                let v = handle_request_once(&serv, core);
-                log::debug!("handling request on {}", worker_id);
-                v
-            } {
+            if let Err(e) = { handle_request_once(&serv, core) } {
                 log::warn!("worker {} restarting ({})", worker_id, e)
             }
         })
@@ -32,6 +31,7 @@ pub fn handle_requests(serv: impl BinderServer, core: &BinderCore) {
 
 fn handle_request_once(serv: &impl BinderServer, core: &BinderCore) -> anyhow::Result<()> {
     let req = serv.next_request()?;
+    let start = Instant::now();
     let res = match &req.request_data {
         // password change request
         BinderRequestData::ChangePassword {
@@ -131,6 +131,7 @@ fn handle_request_once(serv: &impl BinderServer, core: &BinderCore) -> anyhow::R
             Ok(BinderResponse::GetBridgesResp(resp))
         }),
     };
+    log::debug!("response in {} ms", start.elapsed().as_millis());
     req.respond(res);
     Ok(())
 }

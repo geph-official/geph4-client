@@ -2,7 +2,7 @@ use std::{collections::BTreeSet, collections::VecDeque, time::Instant};
 
 use bytes::Bytes;
 
-use crate::mux::{mempress, structs::*};
+use crate::mux::structs::*;
 
 use super::inflight::Inflight;
 
@@ -73,10 +73,6 @@ impl ConnVars {
             self.last_flight = now
         }
         self.loss_rate *= 0.99;
-        if mempress::is_pressured() {
-            self.congestion_loss();
-            return;
-        }
         if self.slow_start && self.cwnd < self.ssthresh {
             self.cwnd += 1.0
         } else {

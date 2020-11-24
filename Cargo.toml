@@ -9,13 +9,14 @@ members = [
     "lib/smolscale",
     "lib/aioutils",
     "lib/sosistab",
+    "lib/warpfront",
     "geph4-client",
     "geph4-bridge"
 ] 
 
 
 [profile.dev]
-opt-level=1
+opt-level=2
 lto="off"
 incremental=true
 

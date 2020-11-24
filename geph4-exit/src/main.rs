@@ -3,13 +3,12 @@ use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
 use cap::Cap;
 use env_logger::Env;
-use jemallocator::Jemalloc;
 use std::os::unix::fs::PermissionsExt;
 use structopt::StructOpt;
 
 mod listen;
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, StructOpt, Clone)]
 struct Opt {
     #[structopt(long, default_value = "https://binder-v4.geph.io")]
     /// HTTP address of the binder
@@ -37,10 +36,14 @@ struct Opt {
     /// Hostname of this exit.
     #[structopt(long)]
     exit_hostname: String,
+
+    /// Speed limit for free users, in KB/s.
+    #[structopt(long, default_value = "300")]
+    free_limit: u32,
 }
 
 #[global_allocator]
-pub static ALLOCATOR: Cap<Jemalloc> = Cap::new(Jemalloc, usize::max_value());
+pub static ALLOCATOR: Cap<std::alloc::System> = Cap::new(std::alloc::System, usize::max_value());
 
 fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
@@ -111,6 +114,7 @@ fn main() -> anyhow::Result<()> {
             &opt.bridge_secret,
             signing_sk,
             sosistab_sk,
+            opt.free_limit,
         )
         .await?;
         Ok(())

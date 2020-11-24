@@ -40,17 +40,38 @@ pub async fn copy_with_stats(
     mut writer: impl AsyncWrite + Unpin,
     mut on_write: impl FnMut(usize),
 ) -> std::io::Result<()> {
-    let mut buffer = [0u8; 32 * 1024];
+    let mut buffer = vec![0u8; 1024];
     loop {
-        let n = reader
-            .read(&mut buffer)
-            .timeout(Duration::from_secs(600))
-            .await
-            .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out"))??;
+        // first read into the small buffer
+        let n = {
+            if buffer.len() == 1024 {
+                reader
+                    .read(&mut buffer)
+                    .timeout(Duration::from_secs(1200))
+                    .await
+                    .ok_or_else(|| {
+                        std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out")
+                    })??
+            } else if let Some(n) = reader
+                .read(&mut buffer)
+                .timeout(Duration::from_secs(10))
+                .await
+            {
+                n?
+            } else {
+                // shrink the buffer
+                buffer = vec![0u8; 1024];
+                continue;
+            }
+        };
         if n == 0 {
             return Ok(());
         }
         on_write(n);
         writer.write_all(&buffer[..n]).await?;
+        if buffer.len() < 64 * 1024 {
+            // grow buffer
+            buffer.extend((0..1024).map(|_| 0u8));
+        }
     }
 }

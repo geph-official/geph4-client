@@ -4,9 +4,10 @@ use async_dup::Mutex as DMutex;
 use bipe::{BipeReader, BipeWriter};
 use bytes::{Bytes, BytesMut};
 use connvars::ConnVars;
-use mux::structs::{Message, RelKind, Seqno, VarRateLimit};
+use mux::structs::{Message, RelKind, Seqno};
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
+use smol_timeout::TimeoutExt;
 use std::{
     collections::BTreeSet,
     collections::VecDeque,
@@ -40,25 +41,34 @@ impl RelConn {
         additional_info: Option<String>,
     ) -> (Self, RelConnBack) {
         let (send_write, recv_write) = bipe::bipe(64 * 1024);
-        let (send_read, recv_read) = bipe::bipe(10 * 1024 * 1024);
-        let (send_wire_read, recv_wire_read) = smol::channel::bounded(1024);
-        runtime::spawn(relconn_actor(
-            state,
-            recv_write,
-            send_read,
-            recv_wire_read,
-            output,
-            additional_info.clone(),
-            dropper,
-        ))
-        .detach();
+        let (send_read, recv_read) = bipe::bipe(1024 * 1024);
+        let (send_wire_read, recv_wire_read) = smol::channel::bounded(10);
+        let aic = additional_info.clone();
+        let _task = runtime::spawn(async move {
+            if let Err(e) = relconn_actor(
+                state,
+                recv_write,
+                send_read,
+                recv_wire_read,
+                output,
+                aic,
+                dropper,
+            )
+            .await
+            {
+                log::debug!("relconn_actor died: {}", e)
+            }
+        });
         (
             RelConn {
                 send_write: DArc::new(DMutex::new(send_write)),
                 recv_read: DArc::new(DMutex::new(recv_read)),
                 additional_info,
             },
-            RelConnBack { send_wire_read },
+            RelConnBack {
+                send_wire_read,
+                _task: Arc::new(_task),
+            },
         )
     }
 
@@ -290,7 +300,7 @@ async fn relconn_actor(
                     let new_pkt = async {
                         Ok::<Evt, anyhow::Error>(Evt::NewPkt(recv_wire_read.recv().await?))
                     };
-                    ack_timer.or(rto_timeout.or(new_write.or(new_pkt))).await
+                    new_pkt.or(ack_timer.or(rto_timeout.or(new_write))).await
                 };
                 match event {
                     Ok(Evt::Closing) => {
@@ -499,10 +509,20 @@ async fn relconn_actor(
 #[derive(Clone)]
 pub(crate) struct RelConnBack {
     send_wire_read: Sender<Message>,
+    _task: Arc<smol::Task<()>>,
 }
 
 impl RelConnBack {
-    pub fn process(&self, input: Message) {
-        drop(self.send_wire_read.try_send(input))
+    pub async fn process(&self, input: Message) {
+        let res = self
+            .send_wire_read
+            .send(input)
+            .timeout(Duration::from_millis(100))
+            .await;
+        match res {
+            None => log::error!("packet processing took more than 100ms?!"),
+            Some(Err(e)) => log::trace!("relconn failed to accept pkt: {}", e),
+            _ => (),
+        }
     }
 }

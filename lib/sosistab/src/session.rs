@@ -1,21 +1,18 @@
-use crate::fec::{FrameDecoder, FrameEncoder};
 use crate::msg::DataFrame;
 use crate::runtime;
+use crate::{
+    fec::{FrameDecoder, FrameEncoder},
+    VarRateLimit,
+};
 use bytes::Bytes;
-use governor::{Quota, RateLimiter};
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
+use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     time::Instant,
 };
-use std::{
-    num::NonZeroU32,
-    sync::atomic::{AtomicU64, AtomicU8, Ordering},
-};
 use std::{sync::Arc, time::Duration};
-
-const RELATIVE_TIMEOUT: Duration = Duration::from_millis(5);
 
 async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T {
     match fut.await {
@@ -37,6 +34,7 @@ pub struct SessionConfig {
 /// Representation of an isolated session that deals only in DataFrames and abstracts away all I/O concerns. It's the user's responsibility to poll the session. Otherwise, it might not make progress and will drop packets.
 pub struct Session {
     pub(crate) send_tosend: Sender<Bytes>,
+    rate_limit: Arc<AtomicU32>,
     recv_input: Receiver<Bytes>,
     get_stats: Sender<Sender<SessionStats>>,
     _dropper: Vec<Box<dyn FnOnce() + Send + Sync + 'static>>,
@@ -46,13 +44,21 @@ pub struct Session {
 impl Session {
     /// Creates a tuple of a Session and also a channel with which stuff is fed into the session.
     pub fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = smol::channel::bounded(500);
-        let (send_input, recv_input) = smol::channel::bounded(500);
+        let (send_tosend, recv_tosend) = smol::channel::bounded(100);
+        let (send_input, recv_input) = smol::channel::bounded(100);
         let (s, r) = smol::channel::unbounded();
-        let task = runtime::spawn(session_loop(cfg, recv_tosend, send_input, r));
+        let rate_limit = Arc::new(AtomicU32::new(20000));
+        let task = runtime::spawn(session_loop(
+            cfg,
+            recv_tosend,
+            send_input,
+            rate_limit.clone(),
+            r,
+        ));
         Session {
             send_tosend,
             recv_input,
+            rate_limit,
             get_stats: s,
             _dropper: Vec::new(),
             _task: task,
@@ -83,6 +89,11 @@ impl Session {
         self.get_stats.send(send).await.unwrap();
         recv.recv().await.unwrap()
     }
+
+    /// Sets the rate limit, in packets per second.
+    pub fn set_ratelimit(&self, pps: u32) {
+        self.rate_limit.store(pps, Ordering::Relaxed);
+    }
 }
 
 /// Statistics of a single Sosistab session.
@@ -99,9 +110,9 @@ async fn session_loop(
     cfg: SessionConfig,
     recv_tosend: Receiver<Bytes>,
     send_input: Sender<Bytes>,
+    rate_limit: Arc<AtomicU32>,
     recv_statreq: Receiver<Sender<SessionStats>>,
 ) {
-    scopeguard::defer!(log::warn!("session_loop ending"));
     let measured_loss = Arc::new(AtomicU8::new(0));
     let high_recv_frame_no = Arc::new(AtomicU64::new(0));
     let total_recv_frames = Arc::new(AtomicU64::new(0));
@@ -109,6 +120,7 @@ async fn session_loop(
     // sending loop
     let send_task = runtime::spawn(session_send_loop(
         cfg.clone(),
+        rate_limit,
         recv_tosend.clone(),
         measured_loss.clone(),
         high_recv_frame_no.clone(),
@@ -127,20 +139,28 @@ async fn session_loop(
 
 async fn session_send_loop(
     cfg: SessionConfig,
+    rate_limit: Arc<AtomicU32>,
     recv_tosend: Receiver<Bytes>,
     measured_loss: Arc<AtomicU8>,
     high_recv_frame_no: Arc<AtomicU64>,
     total_recv_frames: Arc<AtomicU64>,
 ) -> Option<()> {
-    let shaper = RateLimiter::direct_with_clock(
-        Quota::per_second(NonZeroU32::new(10000u32).unwrap())
-            .allow_burst(NonZeroU32::new(20).unwrap()),
-        &governor::clock::MonotonicClock::default(),
-    );
+    let mut shaper = VarRateLimit::new();
+
+    fn get_timeout(loss: u8) -> Duration {
+        let loss = loss as u64;
+        // if loss is zero, then we return zero
+        if loss == 0 {
+            Duration::from_secs(0)
+        } else {
+            // around 50 ms for full loss
+            Duration::from_millis(loss * loss / 1500 + 5)
+        }
+    }
+
     let mut frame_no = 0u64;
     let mut run_no = 0u64;
     let mut to_send = Vec::new();
-    let mut timer = smol::Timer::after(Duration::from_secs(100));
     loop {
         smol::future::yield_now().await;
         // obtain a vector of bytes to send
@@ -149,7 +169,8 @@ async fn session_send_loop(
             // get as much tosend as possible within the timeout
             // this lets us do it at maximum efficiency
             to_send.push(infal(recv_tosend.recv()).await);
-            let mut abs_timeout = smol::Timer::after(RELATIVE_TIMEOUT);
+            let mut abs_timeout =
+                smol::Timer::after(get_timeout(measured_loss.load(Ordering::Relaxed)));
             loop {
                 let break_now = async {
                     (&mut abs_timeout).await;
@@ -159,7 +180,7 @@ async fn session_send_loop(
                     to_send.push(infal(recv_tosend.recv()).await);
                     false
                 });
-                if break_now.await || to_send.len() >= 32 {
+                if break_now.await || to_send.len() >= 64 {
                     break &to_send;
                 }
             }
@@ -189,18 +210,7 @@ async fn session_send_loop(
                     })
                     .await,
             );
-            // every 10000 frames, we send 1000 frames slowly. this keeps the loss estimator accurate
-            // let frame_cycle = frame_no % 10000;
-            // if frame_cycle >= 9000 {
-            //     let _ = shaper.until_n_ready(NonZeroU32::new(5).unwrap()).await;
-            // } else {
-            //     shaper.until_ready().await;
-            // }
-            while let Err(e) = shaper.check() {
-                timer.set_at(e.earliest_possible());
-                (&mut timer).await;
-            }
-            shaper.until_ready().await;
+            shaper.wait(rate_limit.load(Ordering::Relaxed)).await;
             frame_no += 1;
         }
         run_no += 1;

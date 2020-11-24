@@ -9,8 +9,8 @@ use serde::{Deserialize, Serialize};
 use smol::channel::{Receiver, Sender};
 use smol::net::AsyncToSocketAddrs;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::{net::SocketAddr, time::Instant};
-use std::{sync::Arc, time::Duration};
 
 pub struct Listener {
     accepted: Receiver<Session>,
