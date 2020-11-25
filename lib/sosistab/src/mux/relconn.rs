@@ -42,7 +42,7 @@ impl RelConn {
     ) -> (Self, RelConnBack) {
         let (send_write, recv_write) = bipe::bipe(64 * 1024);
         let (send_read, recv_read) = bipe::bipe(1024 * 1024);
-        let (send_wire_read, recv_wire_read) = smol::channel::bounded(10);
+        let (send_wire_read, recv_wire_read) = smol::channel::bounded(1024);
         let aic = additional_info.clone();
         let _task = runtime::spawn(async move {
             if let Err(e) = relconn_actor(
@@ -513,16 +513,10 @@ pub(crate) struct RelConnBack {
 }
 
 impl RelConnBack {
-    pub async fn process(&self, input: Message) {
-        let res = self
-            .send_wire_read
-            .send(input)
-            .timeout(Duration::from_millis(100))
-            .await;
-        match res {
-            None => log::error!("packet processing took more than 100ms?!"),
-            Some(Err(e)) => log::trace!("relconn failed to accept pkt: {}", e),
-            _ => (),
+    pub fn process(&self, input: Message) {
+        let res = self.send_wire_read.try_send(input);
+        if let Err(e) = res {
+            log::trace!("relconn failed to accept pkt: {}", e)
         }
     }
 }
