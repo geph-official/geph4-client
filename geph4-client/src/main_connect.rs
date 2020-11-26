@@ -1,8 +1,6 @@
-use crate::stats::GLOBAL_LOGGER;
 use crate::{cache::ClientCache, kalive::Keepalive, stats::StatCollector, AuthOpt, CommonOpt};
+use crate::{china, stats::GLOBAL_LOGGER};
 use chrono::prelude::*;
-use once_cell::sync::Lazy;
-use regex::{Regex, RegexBuilder};
 use scopeguard::defer;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
@@ -32,12 +30,12 @@ pub struct ConnectOpt {
     /// where to listen for proxied DNS requests. Optional.
     dns_listen: Option<SocketAddr>,
 
-    #[structopt(long, default_value = "sg-sgp-test-01.exits.geph.io")]
+    #[structopt(long, default_value = "us-hio-01.exits.geph.io")]
     /// which exit server to connect to. If there isn't an exact match, the exit server with the most similar hostname is picked.
     exit_server: String,
 
     #[structopt(long)]
-    /// whether or not to exclude PRC domains in the PAC file served
+    /// whether or not to exclude PRC domains
     exclude_prc: bool,
 }
 
@@ -101,22 +99,6 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         })
         .await
 }
-
-static PRC_LIST: Lazy<Regex> = Lazy::new(|| {
-    let ss = include_str!("chinalist.txt");
-    let proto_regex = ss
-        .split('\n')
-        .filter(|v| v.len() > 1)
-        .map(|v| v.to_string())
-        .collect::<Vec<String>>()
-        .join("|");
-    let proto_regex = format!("({})$", proto_regex);
-    RegexBuilder::new(&proto_regex)
-        .size_limit(1_000_000_000)
-        .build()
-        .unwrap()
-});
-
 use std::io::prelude::*;
 
 /// Handle a request for stats
@@ -267,10 +249,17 @@ async fn handle_socks5(
     write_auth_method(s5client.clone(), SocksV5AuthMethod::Noauth).await?;
     let request = read_request(s5client.clone()).await?;
     let port = request.port;
+    let v4addr: Option<Ipv4Addr>;
     let addr: String = match &request.host {
-        SocksV5Host::Domain(dom) => format!("{}:{}", String::from_utf8_lossy(&dom), request.port),
+        SocksV5Host::Domain(dom) => {
+            v4addr = String::from_utf8_lossy(&dom).parse().ok();
+            format!("{}:{}", String::from_utf8_lossy(&dom), request.port)
+        }
         SocksV5Host::Ipv4(v4) => SocketAddr::V4(SocketAddrV4::new(
-            Ipv4Addr::new(v4[0], v4[1], v4[2], v4[3]),
+            {
+                v4addr = Some(Ipv4Addr::new(v4[0], v4[1], v4[2], v4[3]));
+                v4addr.unwrap()
+            },
             request.port,
         ))
         .to_string(),
@@ -283,7 +272,9 @@ async fn handle_socks5(
         port,
     )
     .await?;
-    let must_direct = exclude_prc && PRC_LIST.is_match(addr.split(':').next().unwrap());
+    let must_direct = exclude_prc
+        && (china::is_chinese_host(addr.split(':').next().unwrap())
+            || v4addr.map(china::is_chinese_ip).unwrap_or(false));
     if must_direct {
         log::debug!("bypassing {}", addr);
         let conn = smol::net::TcpStream::connect(&addr).await?;

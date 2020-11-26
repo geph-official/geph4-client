@@ -1,6 +1,6 @@
 [package]
 name = "geph4-client"
-version = "0.399.12"
+version = "0.399.13"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2018"
 
@@ -43,3 +43,4 @@ async-net= "1.5.0"
 socket2= "0.3.15"
 smolscale={path="../lib/smolscale"}
 aioutils={path="../lib/aioutils"}
+treebitmap="0.4"

@@ -14,6 +14,7 @@ use prelude::*;
 mod prelude;
 mod stats;
 
+mod china;
 mod main_binderproxy;
 mod main_connect;
 mod main_sync;

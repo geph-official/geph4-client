@@ -1,10 +1,9 @@
-use arc_swap::ArcSwap;
 use bytes::{Bytes, BytesMut};
 use once_cell::sync::Lazy;
 use probability::distribution::Distribution;
 use reed_solomon_erasure::galois_8;
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::convert::TryInto;
+use std::{collections::HashMap, sync::Arc};
 /// A forward error correction encoder. Retains internal state for memoization, memory pooling etc.
 #[derive(Debug)]
 pub struct FrameEncoder {
@@ -100,20 +99,28 @@ pub struct FrameDecoder {
     done: bool,
 }
 
-type DataParity = (usize, usize);
-static DECODER_CACHE: Lazy<ArcSwap<im::HashMap<DataParity, Arc<galois_8::ReedSolomon>>>> =
-    Lazy::new(|| ArcSwap::new(Arc::new(im::HashMap::new())));
+static DECODER_CACHE: Lazy<[[Option<Arc<galois_8::ReedSolomon>>; 32]; 32]> = Lazy::new(|| {
+    log::warn!("initializing decoder cache");
+    (1..=32)
+        .map(|i| {
+            let vv: Vec<_> = (1..=32)
+                .map(|j| galois_8::ReedSolomon::new(i, j).ok().map(Arc::new))
+                .collect();
+            vv.try_into().unwrap()
+        })
+        .collect::<Vec<_>>()
+        .try_into()
+        .unwrap()
+});
 
 fn new_rs_decoder(data_shards: usize, parity_shards: usize) -> Arc<galois_8::ReedSolomon> {
-    let dec_cache = DECODER_CACHE.load();
-    if let Some(rs) = dec_cache.get(&(data_shards, parity_shards)) {
-        rs.clone()
-    } else {
-        let decoder = Arc::new(galois_8::ReedSolomon::new(data_shards, parity_shards).unwrap());
-        let new_cache = dec_cache.update((data_shards, parity_shards), decoder.clone());
-        DECODER_CACHE.store(Arc::new(new_cache));
-        decoder
+    if data_shards > 32 || parity_shards > 32 {
+        return Arc::new(galois_8::ReedSolomon::new(data_shards, parity_shards).unwrap());
     }
+    DECODER_CACHE[data_shards - 1][parity_shards - 1]
+        .as_ref()
+        .unwrap()
+        .clone()
 }
 
 impl FrameDecoder {

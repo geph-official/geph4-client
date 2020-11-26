@@ -141,12 +141,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4d25d88fd6b8041580a654f9d0c581a047baee2b3efee13275f2fc392fc75034"
 
 [[package]]
-name = "arc-swap"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0688b520bcc7498f6ca8fa006e8031d353e3fd4f51bd4a50fb03cc4230b28bd2"
-
-[[package]]
 name = "arrayref"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1404,7 +1398,7 @@ dependencies = [
 
 [[package]]
 name = "geph4-client"
-version = "0.399.12"
+version = "0.399.13"
 dependencies = [
  "aioutils",
  "anyhow",
@@ -1441,6 +1435,7 @@ dependencies = [
  "strsim 0.10.0",
  "structopt",
  "tar",
+ "treebitmap",
  "x25519-dalek",
 ]
 
@@ -3000,7 +2995,7 @@ version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3e12110bc539e657a646068aaf5eb5b63af9d0c1f7b29c97113fad80e15f035"
 dependencies = [
- "arc-swap 0.4.7",
+ "arc-swap",
  "libc",
 ]
 
@@ -3140,7 +3135,6 @@ name = "sosistab"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "arc-swap 1.0.0",
  "async-dup",
  "async-trait",
  "bincode",
@@ -3557,6 +3551,12 @@ dependencies = [
  "pin-project-lite",
  "tokio",
 ]
+
+[[package]]
+name = "treebitmap"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6bf423939ac9ccf4083788879b883a7149176586f9cf8b0fb1fd88b66ad692b5"
 
 [[package]]
 name = "tundevice"
