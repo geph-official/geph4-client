@@ -1,6 +1,8 @@
 use crate::stats::GLOBAL_LOGGER;
 use crate::{cache::ClientCache, kalive::Keepalive, stats::StatCollector, AuthOpt, CommonOpt};
 use chrono::prelude::*;
+use once_cell::sync::Lazy;
+use regex::{Regex, RegexBuilder};
 use scopeguard::defer;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
@@ -22,11 +24,6 @@ pub struct ConnectOpt {
     #[structopt(long, default_value = "127.0.0.1:9909")]
     /// where to listen for SOCKS5 connections
     socks5_listen: SocketAddr,
-
-    #[structopt(long, default_value = "127.0.0.1:9910")]
-    /// where to listen for HTTP proxy connections
-    http_listen: SocketAddr,
-
     #[structopt(long, default_value = "127.0.0.1:9809")]
     /// where to listen for REST-based local connections
     stats_listen: SocketAddr,
@@ -40,8 +37,8 @@ pub struct ConnectOpt {
     exit_server: String,
 
     #[structopt(long)]
-    /// whether or not to collect detailed profiling statistics
-    pprof: bool,
+    /// whether or not to exclude PRC domains in the PAC file served
+    exclude_prc: bool,
 }
 
 pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
@@ -59,7 +56,6 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     // enter the socks5 loop
     let socks5_listener = smol::net::TcpListener::bind(opt.socks5_listen).await?;
     let stat_listener = smol::net::TcpListener::bind(opt.stats_listen).await?;
-    let http_listener = smol::net::TcpListener::bind(opt.http_listen).await?;
     let scollect = stat_collector.clone();
     // scope
     let scope = smol::Executor::new();
@@ -88,30 +84,38 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
             })
             .await
     });
-    let _http: smol::Task<anyhow::Result<()>> = scope.spawn(async {
-        let my_scope = smol::Executor::new();
-        my_scope
-            .run(async {
-                loop {
-                    let (http_client, _) = http_listener.accept().await?;
-                    my_scope
-                        .spawn(handle_http(stat_collector.clone(), http_client, &keepalive))
-                        .detach();
-                }
-            })
-            .await
-    });
+    let exclude_prc = opt.exclude_prc;
     scope
         .run(async {
             loop {
                 let (s5client, _) = socks5_listener.accept().await?;
                 scope
-                    .spawn(handle_socks5(stat_collector.clone(), s5client, &keepalive))
+                    .spawn(handle_socks5(
+                        stat_collector.clone(),
+                        s5client,
+                        &keepalive,
+                        exclude_prc,
+                    ))
                     .detach()
             }
         })
         .await
 }
+
+static PRC_LIST: Lazy<Regex> = Lazy::new(|| {
+    let ss = include_str!("chinalist.txt");
+    let proto_regex = ss
+        .split('\n')
+        .filter(|v| v.len() > 1)
+        .map(|v| v.to_string())
+        .collect::<Vec<String>>()
+        .join("|");
+    let proto_regex = format!("({})$", proto_regex);
+    RegexBuilder::new(&proto_regex)
+        .size_limit(1_000_000_000)
+        .build()
+        .unwrap()
+});
 
 use std::io::prelude::*;
 
@@ -253,9 +257,9 @@ async fn handle_socks5(
     stats: Arc<StatCollector>,
     s5client: smol::net::TcpStream,
     keepalive: &Keepalive,
+    exclude_prc: bool,
 ) -> anyhow::Result<()> {
     s5client.set_nodelay(true)?;
-    // let s5client = debuffer(s5client);
     stats.incr_open_conns();
     defer!(stats.decr_open_conns());
     use socksv5::v5::*;
@@ -279,36 +283,25 @@ async fn handle_socks5(
         port,
     )
     .await?;
-    let conn = keepalive.connect(&addr).await?;
-    smol::future::race(
-        aioutils::copy_with_stats(conn.clone(), s5client.clone(), |n| {
-            stats.incr_total_rx(n as u64)
-        }),
-        aioutils::copy_with_stats(s5client, conn, |n| stats.incr_total_tx(n as u64)),
-    )
-    .await?;
-    Ok(())
-}
-
-/// Handle a HTTP client from localhost.
-async fn handle_http(
-    stats: Arc<StatCollector>,
-    hclient: smol::net::TcpStream,
-    keepalive: &Keepalive,
-) -> anyhow::Result<()> {
-    hclient.set_nodelay(true)?;
-    // let hclient = debuffer(hclient);
-    stats.incr_open_conns();
-    defer!(stats.decr_open_conns());
-    // Rely on "squid" remotely
-    let conn = keepalive.connect("127.0.0.1:3128").await?;
-    smol::future::race(
-        aioutils::copy_with_stats(conn.clone(), hclient.clone(), |n| {
-            stats.incr_total_rx(n as u64)
-        }),
-        aioutils::copy_with_stats(hclient, conn, |n| stats.incr_total_tx(n as u64)),
-    )
-    .await?;
+    let must_direct = exclude_prc && PRC_LIST.is_match(addr.split(':').next().unwrap());
+    if must_direct {
+        log::debug!("bypassing {}", addr);
+        let conn = smol::net::TcpStream::connect(&addr).await?;
+        smol::future::race(
+            aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| ()),
+            aioutils::copy_with_stats(s5client.clone(), conn.clone(), |_| ()),
+        )
+        .await?;
+    } else {
+        let conn = keepalive.connect(&addr).await?;
+        smol::future::race(
+            aioutils::copy_with_stats(conn.clone(), s5client.clone(), |n| {
+                stats.incr_total_rx(n as u64)
+            }),
+            aioutils::copy_with_stats(s5client, conn, |n| stats.incr_total_tx(n as u64)),
+        )
+        .await?;
+    }
     Ok(())
 }
 

@@ -7,7 +7,6 @@ use connvars::ConnVars;
 use mux::structs::{Message, RelKind, Seqno};
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
-use smol_timeout::TimeoutExt;
 use std::{
     collections::BTreeSet,
     collections::VecDeque,

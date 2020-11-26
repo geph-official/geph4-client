@@ -41,6 +41,5 @@ chrono = "0.4.19"
 num_cpus= "1.13.0"
 async-net= "1.5.0"
 socket2= "0.3.15"
-
 smolscale={path="../lib/smolscale"}
 aioutils={path="../lib/aioutils"}
