@@ -28,6 +28,13 @@ smol-timeout = "0.6.0"
 statsd = "0.14.0"
 num_cpus= "1.13.0"
 scopeguard="1"
+parking_lot="0.11"
 cap="0.1"
+tundevice={path="../lib/tundevice"}
+cidr="0.1"
+bytes="0.6"
+lru="0.6"
+pnet_packet="0.27"
  
 aioutils={path="../lib/aioutils"}
+vpn_structs={path="../lib/vpn_structs"}

@@ -3,7 +3,7 @@ use std::{convert::TryInto, path::PathBuf};
 pub fn str_to_path(src: &str) -> PathBuf {
     // if it's auto then generate
     if src == "auto" {
-        let mut config_dir = dirs::config_dir().unwrap();
+        let mut config_dir = std::env::temp_dir();
         config_dir.push("geph4-credentials.db");
         config_dir
     } else {

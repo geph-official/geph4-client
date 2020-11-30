@@ -1,9 +1,9 @@
 use bytes::Bytes;
 use flume::{Receiver, Sender};
+use std::io::prelude::*;
 use std::os::unix::io::AsRawFd;
 use std::{ffi::CStr, process::Command};
 use std::{fs, io, os::raw::c_int};
-use std::{io::prelude::*, net::Ipv4Addr};
 use std::{net::IpAddr, os::raw::c_char};
 
 use fs::OpenOptions;
@@ -50,28 +50,35 @@ impl TunDevice {
         let (send_write, recv_write) = flume::bounded::<Bytes>(1000);
         let (send_read, recv_read) = flume::bounded::<Bytes>(1000);
         let mut fd2 = fd.try_clone().unwrap();
-        std::thread::spawn(move || {
-            let mut buf = [0u8; 2048];
-            for _ in 0.. {
-                let n = fd1.read(&mut buf).ok()?;
-                // send_read.try_send(Bytes::copy_from_slice(&buf[..n]))
-                if send_read
-                    .try_send(Bytes::copy_from_slice(&buf[..n]))
-                    .is_err()
-                {
-                    log::warn!("overflowing tundevice")
+        std::thread::Builder::new()
+            .name("tun-read".into())
+            .spawn(move || {
+                let mut buf = [0u8; 2048];
+                for _ in 0.. {
+                    let n = fd1.read(&mut buf).ok().unwrap();
+                    // send_read.try_send(Bytes::copy_from_slice(&buf[..n]))
+                    if send_read
+                        .try_send(Bytes::copy_from_slice(&buf[..n]))
+                        .is_err()
+                    {
+                        log::warn!("overflowing tundevice")
+                    }
                 }
-            }
-            Some(())
-        });
-        std::thread::spawn(move || {
-            for _ in 0.. {
-                let bts = recv_write.recv().ok()?;
-                fd2.write(&bts).ok()?;
-                fd2.flush().ok()?;
-            }
-            Some(())
-        });
+                Some(())
+            })
+            .unwrap();
+        std::thread::Builder::new()
+            .name("tun-write".into())
+            .spawn(move || {
+                for _ in 0.. {
+                    let bts = recv_write.recv().ok()?;
+                    let _ = fd2.write_all(&bts);
+                    let _ = fd2.flush();
+                }
+                Some(())
+            })
+            .unwrap();
+        log::warn!("TUN DEVICE INITIALIZED {:#?}", fd);
         // return the device
         Ok(TunDevice {
             fd,
@@ -82,7 +89,7 @@ impl TunDevice {
     }
 
     /// Assigns an IP address to the device.
-    pub fn assign_ip(&mut self, addr: Ipv4Addr) {
+    pub fn assign_ip(&self, cidr_str: &str) {
         assert!(std::env::consts::OS == "linux");
         // spawn ip tool
         Command::new("/usr/bin/env")
@@ -90,14 +97,7 @@ impl TunDevice {
             .output()
             .expect("cannot bring up interface!");
         Command::new("/usr/bin/env")
-            .args(&[
-                "ip",
-                "addr",
-                "add",
-                &format!("{}/24", addr.to_string()),
-                "dev",
-                &self.name,
-            ])
+            .args(&["ip", "addr", "add", cidr_str, "dev", &self.name])
             .output()
             .expect("cannot assign IP to interface!");
         Command::new("/usr/bin/env")
@@ -112,11 +112,8 @@ impl TunDevice {
     }
 
     /// Writes a packet.
-    pub async fn write_raw(&self, to_write: &[u8]) -> Option<()> {
-        self.send_write
-            .send_async(Bytes::copy_from_slice(to_write))
-            .await
-            .ok()
+    pub async fn write_raw(&self, to_write: Bytes) -> Option<()> {
+        self.send_write.send_async(to_write).await.ok()
     }
 
     /// Route all traffic through this device. Tries its best to ensure that the program's own traffic isn't diverted. On Linux, this is done very hackily by exempting everything from the users root and nobody.

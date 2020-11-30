@@ -7,6 +7,7 @@ use std::os::unix::fs::PermissionsExt;
 use structopt::StructOpt;
 
 mod listen;
+mod vpn;
 
 #[derive(Debug, StructOpt, Clone)]
 struct Opt {
@@ -48,7 +49,7 @@ pub static ALLOCATOR: Cap<std::alloc::System> = Cap::new(std::alloc::System, usi
 fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let stat_client = statsd::Client::new(opt.statsd_addr, "geph4")?;
-    env_logger::from_env(Env::default().default_filter_or("geph4_exit=info,warn")).init();
+    env_logger::from_env(Env::default().default_filter_or("geph4_exit=debug,warn")).init();
     smol::future::block_on(smolscale::spawn(async move {
         log::info!("geph4-exit starting...");
         // read or generate key

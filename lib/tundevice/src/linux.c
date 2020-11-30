@@ -22,8 +22,8 @@
 int tun_setup(int fd, unsigned char *name) {
 	struct ifreq ifr;
 	memset(&ifr, 0, sizeof ifr);
-    ifr.ifr_flags = IFF_TUN;
-
+    ifr.ifr_flags = IFF_TUN | IFF_NO_PI;
+ 
 
 	// Leave one for terminating '\0'. No idea if it is needed, didn't find
 	// it in the docs, but assuming the worst.

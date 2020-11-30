@@ -2,10 +2,9 @@ use std::collections::HashSet;
 
 use async_net::Ipv4Addr;
 use once_cell::sync::Lazy;
-use regex::{Regex, RegexBuilder};
 use treebitmap::IpLookupTable;
 
-/// Regex that matches all Chinese domains.
+/// List of all Chinese domains.
 static DOMAINS: Lazy<HashSet<String>> = Lazy::new(|| {
     let ss = include_str!("china-domains.txt");
     ss.split('\n')

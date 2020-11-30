@@ -8,8 +8,10 @@ members = [
     "lib/binder_transport",
     "lib/smolscale",
     "lib/aioutils",
+    "lib/vpn_structs",
     "lib/sosistab",
     "lib/warpfront",
+    "geph4-vpn-helper",
     "geph4-client",
     "geph4-bridge"
 ] 

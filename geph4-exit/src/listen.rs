@@ -13,7 +13,7 @@ use smol::prelude::*;
 use smol_timeout::TimeoutExt;
 use smolscale::OnError;
 
-use crate::ALLOCATOR;
+use crate::{vpn::handle_vpn_session, ALLOCATOR};
 /// the root context
 struct RootCtx {
     stat_client: Arc<statsd::Client>,
@@ -242,23 +242,29 @@ async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
         root.session_count
             .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     });
-    loop {
-        let stream = sess
-            .accept_conn()
-            .timeout(Duration::from_secs(600))
-            .await
-            .ok_or_else(|| anyhow::anyhow!("accept timeout"))??;
-        let root = root.clone();
-        nhandle.spawn(OnError::Ignore, move |_| async move {
-            root.conn_count
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            scopeguard::defer!({
+
+    let proxy_loop = async {
+        loop {
+            let stream = sess
+                .accept_conn()
+                .timeout(Duration::from_secs(600))
+                .await
+                .ok_or_else(|| anyhow::anyhow!("accept timeout"))??;
+            let root = root.clone();
+            nhandle.spawn(OnError::Ignore, move |_| async move {
                 root.conn_count
-                    .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                scopeguard::defer!({
+                    root.conn_count
+                        .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                });
+                handle_proxy_stream(root.stat_client.clone(), root.exit_hostname.clone(), stream)
+                    .await
             });
-            handle_proxy_stream(root.stat_client.clone(), root.exit_hostname.clone(), stream).await
-        });
-    }
+        }
+    };
+    let vpn_loop = handle_vpn_session(&sess);
+    smol::future::race(proxy_loop, vpn_loop).await
 }
 
 async fn authenticate_sess(

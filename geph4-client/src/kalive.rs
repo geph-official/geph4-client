@@ -1,11 +1,18 @@
 use crate::cache::ClientCache;
 use crate::stats::StatCollector;
 use anyhow::Context;
+use governor::Quota;
+use pnet_packet::{
+    ipv4::Ipv4Packet,
+    tcp::{TcpFlags, TcpPacket},
+    Packet,
+};
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
-use std::time::Duration;
+use std::{num::NonZeroU32, time::Duration};
 use std::{sync::Arc, time::Instant};
+use vpn_structs::StdioMsg;
 
 /// An "actor" that keeps a client session alive.
 pub struct Keepalive {
@@ -20,6 +27,7 @@ impl Keepalive {
         stats: Arc<StatCollector>,
         exit_host: &str,
         use_bridges: bool,
+        stdio_vpn: bool,
         ccache: Arc<ClientCache>,
     ) -> Self {
         let (send, recv) = smol::channel::unbounded();
@@ -31,6 +39,7 @@ impl Keepalive {
                 stats,
                 exit_host.to_string(),
                 use_bridges,
+                stdio_vpn,
                 ccache,
                 recv,
                 recv_stats,
@@ -59,6 +68,7 @@ async fn keepalive_actor(
     stats: Arc<StatCollector>,
     exit_host: String,
     use_bridges: bool,
+    stdio_vpn: bool,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::mux::RelConn>)>,
     recv_get_stats: Receiver<Sender<sosistab::SessionStats>>,
@@ -68,6 +78,7 @@ async fn keepalive_actor(
             stats.clone(),
             exit_host.clone(),
             use_bridges,
+            stdio_vpn,
             ccache.clone(),
             recv_socks5_conn.clone(),
             recv_get_stats.clone(),
@@ -84,6 +95,7 @@ async fn keepalive_actor_once(
     stats: Arc<StatCollector>,
     exit_host: String,
     use_bridges: bool,
+    stdio_vpn: bool,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::mux::RelConn>)>,
     recv_get_stats: Receiver<Sender<sosistab::SessionStats>>,
@@ -199,6 +211,12 @@ async fn keepalive_actor_once(
             }
         })
         .detach();
+
+    // VPN mode
+    if stdio_vpn {
+        scope.spawn(run_vpn(&mux)).detach();
+    }
+
     let (send_death, recv_death) = smol::channel::unbounded::<anyhow::Error>();
     scope
         .run(
@@ -285,4 +303,80 @@ async fn authenticate_session(
     .await?;
     let _: u8 = aioutils::read_pascalish(&mut auth_conn).await?;
     Ok(())
+}
+
+/// runs a vpn session
+async fn run_vpn(mux: &sosistab::mux::Multiplex) -> anyhow::Result<()> {
+    let mut stdin = smol::Unblock::new(std::io::stdin());
+    let mut stdout = smol::Unblock::new(std::io::stdout());
+    // first we negotiate the vpn
+    let client_id: u128 = rand::random();
+    log::info!("negotiating VPN with client id {}...", client_id);
+    let client_ip = loop {
+        let hello = vpn_structs::Message::ClientHello { client_id };
+        mux.send_urel(bincode::serialize(&hello)?.into()).await?;
+        let resp = mux.recv_urel().timeout(Duration::from_secs(1)).await;
+        if let Some(resp) = resp {
+            let resp = resp?;
+            let resp: vpn_structs::Message = bincode::deserialize(&resp)?;
+            match resp {
+                vpn_structs::Message::ServerHello { client_ip, .. } => break client_ip,
+                _ => continue,
+            }
+        }
+    };
+    log::info!("negotiated IP address {}!", client_ip);
+    let msg = StdioMsg {
+        verb: 1,
+        body: format!("{}/10", client_ip).as_bytes().to_vec().into(),
+    };
+    msg.write(&mut stdout).await?;
+    stdout.flush().await?;
+
+    let vpn_up_fut = async {
+        let ack_rate_limit =
+            governor::RateLimiter::direct(Quota::per_second(NonZeroU32::new(500u32).unwrap()));
+        loop {
+            let msg = StdioMsg::read(&mut stdin).await?;
+            // ACK decimation
+            if ack_decimate(&msg.body).is_some() && ack_rate_limit.check().is_err() {
+                continue;
+            }
+            drop(
+                mux.send_urel(
+                    bincode::serialize(&vpn_structs::Message::Payload(msg.body))
+                        .unwrap()
+                        .into(),
+                )
+                .await,
+            );
+        }
+    };
+    let vpn_down_fut = async {
+        loop {
+            let bts = mux.recv_urel().await?;
+            if let vpn_structs::Message::Payload(bts) = bincode::deserialize(&bts)? {
+                let msg = StdioMsg { verb: 0, body: bts };
+                msg.write(&mut stdout).await?;
+                stdout.flush().await?
+            }
+        }
+    };
+    smol::future::race(vpn_up_fut, vpn_down_fut).await
+}
+
+/// returns ok if it's an ack that needs to be decimated
+fn ack_decimate(bts: &[u8]) -> Option<()> {
+    let parsed = Ipv4Packet::new(bts)?;
+    let parsed = TcpPacket::new(parsed.payload())?;
+    let flags = parsed.get_flags();
+    if flags & TcpFlags::ACK != 0
+        && flags & TcpFlags::SYN == 0
+        && parsed.payload().is_empty()
+        && rand::random()
+    {
+        Some(())
+    } else {
+        None
+    }
 }

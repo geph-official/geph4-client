@@ -37,6 +37,10 @@ pub struct ConnectOpt {
     #[structopt(long)]
     /// whether or not to exclude PRC domains
     exclude_prc: bool,
+
+    #[structopt(long)]
+    /// whether or not to wait for VPN commands on stdio
+    stdio_vpn: bool,
 }
 
 pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
@@ -49,6 +53,7 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         stat_collector.clone(),
         &opt.exit_server,
         opt.use_bridges,
+        opt.stdio_vpn,
         Arc::new(client_cache),
     );
     // enter the socks5 loop
@@ -58,6 +63,7 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     // scope
     let scope = smol::Executor::new();
     if let Some(dns_listen) = opt.dns_listen {
+        log::debug!("starting dns...");
         scope.spawn(dns_loop(dns_listen, &keepalive)).detach();
     }
     let _stat: smol::Task<anyhow::Result<()>> = scope.spawn(async {
@@ -181,6 +187,7 @@ async fn dns_loop(addr: SocketAddr, keepalive: &Keepalive) -> anyhow::Result<()>
     let dns_timeout = Duration::from_secs(1);
     scope
         .run(async {
+            log::debug!("DNS loop started");
             loop {
                 let (n, c_addr) = socket.recv_from(&mut buf).await?;
                 let buff = buf[..n].to_vec();
@@ -195,7 +202,7 @@ async fn dns_loop(addr: SocketAddr, keepalive: &Keepalive) -> anyhow::Result<()>
                                 match lala {
                                     Ok(v) => v,
                                     _ => keepalive
-                                        .connect("ordns.he.net:53")
+                                        .connect("9.9.9.9:53")
                                         .timeout(dns_timeout)
                                         .await?
                                         .ok()?,
@@ -221,9 +228,8 @@ async fn dns_loop(addr: SocketAddr, keepalive: &Keepalive) -> anyhow::Result<()>
                             send_conn.send(conn).await.ok()?;
                             Some(())
                         };
-                        for i in 0u32..5 {
+                        for _ in 0u32..5 {
                             if fut().await.is_some() {
-                                log::debug!("DNS request succeeded on try {}", i);
                                 return;
                             }
                         }
