@@ -137,7 +137,6 @@ pub async fn handle_vpn_session(
                                 continue;
                             }
                             if port_whitelist && !crate::lists::WHITE_PORTS.contains(&port) {
-                                log::warn!("blocking port {}", port);
                                 continue;
                             }
                         }
