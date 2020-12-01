@@ -11,12 +11,70 @@ static RAW_TUN: Lazy<TunDevice> = Lazy::new(|| {
     TunDevice::new_from_os("tun-geph").expect("could not initiate 'tun-geph' tun device!")
 });
 
+async fn run_sh(sh_str: &str) {
+    let child = smol::process::Command::new("/usr/bin/env")
+        .arg("sh")
+        .arg("-c")
+        .arg(sh_str)
+        .spawn()
+        .unwrap();
+    child.output().await.unwrap();
+}
+
+async fn setup_iptables() {
+    Lazy::force(&RAW_TUN);
+    let to_run = r"
+    # mark the owner
+    iptables -D OUTPUT -t mangle -m owner ! --uid-owner nobody -j MARK --set-mark 8964
+    iptables -A OUTPUT -t mangle -m owner ! --uid-owner nobody -j MARK --set-mark 8964
+    # set up routing tables
+    ip route flush table 8964
+    ip route add default dev tun-geph table 8964
+    ip rule del fwmark 8964 table 8964
+    ip rule add fwmark 8964 table 8964
+    # mangle
+    iptables -t nat -D POSTROUTING -o tun-geph -j MASQUERADE
+    iptables -t nat -A POSTROUTING -o tun-geph -j MASQUERADE
+    # redirect DNS
+    iptables -t nat -D OUTPUT -p udp --dport 53 -j DNAT -m owner ! --uid-owner nobody --to 127.0.0.1:15353
+    iptables -t nat -D OUTPUT -p tcp --dport 53 -j DNAT -m owner ! --uid-owner nobody --to 127.0.0.1:15353
+    iptables -t nat -A OUTPUT -p udp --dport 53 -j DNAT -m owner ! --uid-owner nobody --to 127.0.0.1:15353
+    iptables -t nat -A OUTPUT -p tcp --dport 53 -j DNAT -m owner ! --uid-owner nobody --to 127.0.0.1:15353
+    # clamp MTU
+    iptables -t mangle -D OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
+    iptables -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
+    ";
+    run_sh(to_run).await;
+}
+
+async fn clear_iptables() {
+    let to_run = r"
+    # mark the owner
+    iptables -D OUTPUT -t mangle -m owner ! --uid-owner nobody -j MARK --set-mark 8964
+    # set up routing tables
+    ip rule del fwmark 8964 table 8964
+    ip route flush table 8964
+    # mangle
+    iptables -t nat -D POSTROUTING -o tun-geph -j MASQUERADE
+    # redirect DNS
+    iptables -t nat -D OUTPUT -p udp --dport 53 -j DNAT -m owner ! --uid-owner nobody --to 127.0.0.1:15353
+    iptables -t nat -D OUTPUT -p tcp --dport 53 -j DNAT -m owner ! --uid-owner nobody --to 127.0.0.1:15353
+    # clamp MTU
+    iptables -t mangle -D OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
+    ";
+    run_sh(to_run).await;
+}
+
 fn main() {
     // escalate to root unconditionally
     nix::unistd::setuid(nix::unistd::Uid::from_raw(0))
         .expect("must be run with root privileges or setuid root");
     smol::block_on(async move {
+        clear_iptables().await;
         let args: Vec<String> = std::env::args().skip(1).collect();
+        if args.is_empty() {
+            return;
+        }
         let mut child = smol::process::Command::new("/usr/bin/env")
             .arg("su")
             .arg("nobody")
@@ -47,7 +105,10 @@ fn main() {
                 let msg = StdioMsg::read(&mut child_output).await.unwrap();
                 match msg.verb {
                     0 => RAW_TUN.write_raw(msg.body).await.unwrap(),
-                    1 => RAW_TUN.assign_ip(&String::from_utf8_lossy(&msg.body)),
+                    1 => {
+                        RAW_TUN.assign_ip(&String::from_utf8_lossy(&msg.body));
+                        setup_iptables().await;
+                    }
                     _ => log::warn!("invalid verb kind: {}", msg.verb),
                 }
             }

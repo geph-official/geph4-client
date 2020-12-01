@@ -7,6 +7,7 @@ use std::os::unix::fs::PermissionsExt;
 use structopt::StructOpt;
 
 mod listen;
+mod lists;
 mod vpn;
 
 #[derive(Debug, StructOpt, Clone)]
@@ -39,8 +40,12 @@ struct Opt {
     exit_hostname: String,
 
     /// Speed limit for free users, in KB/s.
-    #[structopt(long, default_value = "300")]
+    #[structopt(long, default_value = "200")]
     free_limit: u32,
+
+    /// Whether or not to use port whitelist.
+    #[structopt(long)]
+    port_whitelist: bool,
 }
 
 #[global_allocator]
@@ -51,6 +56,7 @@ fn main() -> anyhow::Result<()> {
     let stat_client = statsd::Client::new(opt.statsd_addr, "geph4")?;
     env_logger::from_env(Env::default().default_filter_or("geph4_exit=debug,warn")).init();
     smol::future::block_on(smolscale::spawn(async move {
+        smolscale::spawn(vpn::transparent_proxy_helper()).detach();
         log::info!("geph4-exit starting...");
         // read or generate key
         let signing_sk = {
@@ -116,6 +122,7 @@ fn main() -> anyhow::Result<()> {
             signing_sk,
             sosistab_sk,
             opt.free_limit,
+            opt.port_whitelist,
         )
         .await?;
         Ok(())

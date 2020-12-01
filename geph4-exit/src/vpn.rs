@@ -1,25 +1,89 @@
-use std::{collections::HashSet, net::Ipv4Addr, ops::Deref, sync::Arc};
+use std::{collections::HashSet, net::Ipv4Addr, ops::Deref, sync::Arc, time::Duration};
 
 use bytes::Bytes;
 use cidr::{Cidr, Ipv4Cidr};
+use libc::{c_void, SOL_IP, SO_ORIGINAL_DST};
 use lru::LruCache;
 use once_cell::sync::Lazy;
+use os_socketaddr::OsSocketAddr;
 use parking_lot::{Mutex, RwLock};
-use pnet_packet::ipv4::Ipv4Packet;
+use pnet_packet::{
+    ip::{IpNextHeaderProtocol, IpNextHeaderProtocols},
+    ipv4::Ipv4Packet,
+    tcp::TcpPacket,
+    udp::UdpPacket,
+    Packet,
+};
 use smol::channel::Sender;
+use smol_timeout::TimeoutExt;
+use std::os::unix::io::AsRawFd;
 use tundevice::TunDevice;
 use vpn_structs::Message;
 
+/// Runs the transparent proxy helper
+pub async fn transparent_proxy_helper() -> anyhow::Result<()> {
+    // always run on port 10000
+    let listener = smol::net::TcpListener::bind("0.0.0.0:10000").await.unwrap();
+    loop {
+        let (client, _) = listener.accept().await.unwrap();
+        smolscale::spawn(async move {
+            client.set_nodelay(true).ok()?;
+            let client_fd = client.as_raw_fd();
+            let original_dest = unsafe {
+                let raw_addr = OsSocketAddr::new();
+                if libc::getsockopt(
+                    client_fd,
+                    SOL_IP,
+                    SO_ORIGINAL_DST,
+                    raw_addr.as_ptr() as *mut c_void,
+                    (&mut std::mem::size_of::<libc::sockaddr>()) as *mut usize as *mut u32,
+                ) != 0
+                {
+                    log::warn!("cannot get SO_ORIGINAL_DST, aborting");
+                    return None;
+                };
+                let lala = raw_addr.into_addr();
+                if let Some(lala) = lala {
+                    lala
+                } else {
+                    log::warn!("SO_ORIGINAL_DST is not an IP address, aborting");
+                    return None;
+                }
+            };
+            let remote = smol::net::TcpStream::connect(original_dest)
+                .timeout(Duration::from_secs(60))
+                .await?
+                .ok()?;
+            remote.set_nodelay(true).ok()?;
+            smol::future::race(
+                aioutils::copy_with_stats(remote.clone(), client.clone(), |_| ()),
+                aioutils::copy_with_stats(client.clone(), remote.clone(), |_| ()),
+            )
+            .await
+            .ok()?;
+            Some(())
+        })
+        .detach();
+    }
+}
+
 /// Handles a VPN session
-pub async fn handle_vpn_session(mux: &sosistab::mux::Multiplex) -> anyhow::Result<()> {
+pub async fn handle_vpn_session(
+    mux: &sosistab::mux::Multiplex,
+    exit_hostname: String,
+    stat_client: Arc<statsd::Client>,
+    port_whitelist: bool,
+) -> anyhow::Result<()> {
     Lazy::force(&INCOMING_PKT_HANDLER);
     log::debug!("handle_vpn_session entered");
     scopeguard::defer!(log::debug!("handle_vpn_session exited"));
     let assigned_ip: Lazy<AssignedIpv4Addr> = Lazy::new(|| IpAddrAssigner::global().assign());
     let (send_down, recv_down) = smol::channel::bounded(10);
+    let key = format!("exit_usage.{}", exit_hostname.replace(".", "-"));
     let down_loop = async {
         loop {
             let bts: Bytes = recv_down.recv().await?;
+            stat_client.sampled_count(&key, bts.len() as f64, 0.1);
             let pkt = Ipv4Packet::new(&bts).expect("don't send me invalid IPv4 packets!");
             assert_eq!(pkt.get_destination(), assigned_ip.addr());
             let msg = Message::Payload(bts);
@@ -44,20 +108,43 @@ pub async fn handle_vpn_session(mux: &sosistab::mux::Multiplex) -> anyhow::Resul
                     .await?;
                 }
                 Message::Payload(bts) => {
+                    stat_client.sampled_count(&key, bts.len() as f64, 0.1);
                     let pkt = Ipv4Packet::new(&bts);
                     if let Some(pkt) = pkt {
-                        if pkt.get_source() != assigned_ip.addr() {
-                            log::warn!(
-                                "filtering bad source IP {} (not {})",
-                                pkt.get_source(),
-                                assigned_ip.addr()
-                            );
-                        } else {
-                            RAW_TUN.write_raw(bts).await;
-                            INCOMING_MAP
-                                .write()
-                                .put(assigned_ip.addr(), send_down.clone());
+                        // source must be correct and destination must not be banned
+                        if pkt.get_source() != assigned_ip.addr()
+                            || pkt.get_destination().is_loopback()
+                            || pkt.get_destination().is_private()
+                            || pkt.get_destination().is_unspecified()
+                            || pkt.get_destination().is_broadcast()
+                        {
+                            continue;
                         }
+                        // must not be blacklisted
+                        let port = {
+                            match pkt.get_next_level_protocol() {
+                                IpNextHeaderProtocols::Tcp => {
+                                    TcpPacket::new(&pkt.payload()).map(|v| v.get_destination())
+                                }
+                                IpNextHeaderProtocols::Udp => {
+                                    UdpPacket::new(&pkt.payload()).map(|v| v.get_destination())
+                                }
+                                _ => None,
+                            }
+                        };
+                        if let Some(port) = port {
+                            if crate::lists::BLACK_PORTS.contains(&port) {
+                                continue;
+                            }
+                            if port_whitelist && !crate::lists::WHITE_PORTS.contains(&port) {
+                                log::warn!("blocking port {}", port);
+                                continue;
+                            }
+                        }
+                        RAW_TUN.write_raw(bts).await;
+                        INCOMING_MAP
+                            .write()
+                            .put(assigned_ip.addr(), send_down.clone());
                     }
                 }
                 _ => anyhow::bail!("message in invalid context"),

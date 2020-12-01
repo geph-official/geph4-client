@@ -27,6 +27,7 @@ struct RootCtx {
     conn_count: AtomicUsize,
 
     free_limit: u32,
+    port_whitelist: bool,
 
     nursery: smolscale::NurseryHandle,
 }
@@ -53,6 +54,7 @@ struct SessCtx {
 }
 
 /// the main listening loop
+#[allow(clippy::clippy::too_many_arguments)]
 pub async fn main_loop<'a>(
     stat_client: statsd::Client,
     exit_hostname: &'a str,
@@ -61,6 +63,7 @@ pub async fn main_loop<'a>(
     signing_sk: ed25519_dalek::Keypair,
     sosistab_sk: x25519_dalek::StaticSecret,
     free_limit: u32,
+    port_whitelist: bool,
 ) -> anyhow::Result<()> {
     let nursery = smolscale::Nursery::new();
     let ctx = Arc::new(RootCtx {
@@ -73,6 +76,7 @@ pub async fn main_loop<'a>(
         session_count: AtomicUsize::new(0),
         conn_count: AtomicUsize::new(0),
         free_limit,
+        port_whitelist,
         nursery: nursery.handle(),
     });
     // control protocol listener
@@ -258,12 +262,22 @@ async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
                     root.conn_count
                         .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                 });
-                handle_proxy_stream(root.stat_client.clone(), root.exit_hostname.clone(), stream)
-                    .await
+                handle_proxy_stream(
+                    root.stat_client.clone(),
+                    root.exit_hostname.clone(),
+                    root.port_whitelist,
+                    stream,
+                )
+                .await
             });
         }
     };
-    let vpn_loop = handle_vpn_session(&sess);
+    let vpn_loop = handle_vpn_session(
+        &sess,
+        root.exit_hostname.clone(),
+        root.stat_client.clone(),
+        root.port_whitelist,
+    );
     smol::future::race(proxy_loop, vpn_loop).await
 }
 
@@ -303,6 +317,7 @@ async fn authenticate_sess(
 async fn handle_proxy_stream(
     stat_client: Arc<statsd::Client>,
     exit_hostname: String,
+    port_whitelist: bool,
     mut client: sosistab::mux::RelConn,
 ) -> anyhow::Result<()> {
     // read proxy request
@@ -328,15 +343,22 @@ async fn handle_proxy_stream(
             }
         }
     }
+    if crate::lists::BLACK_PORTS.contains(&remote.peer_addr()?.port()) {
+        anyhow::bail!("port blacklisted")
+    }
+    if port_whitelist && !crate::lists::WHITE_PORTS.contains(&remote.peer_addr()?.port()) {
+        anyhow::bail!("port not whitelisted")
+    }
+
     remote.set_nodelay(true)?;
     let key = format!("exit_usage.{}", exit_hostname.replace(".", "-"));
     // copy the streams
     smol::future::race(
         aioutils::copy_with_stats(remote.clone(), client.clone(), |n| {
-            stat_client.sampled_count(&key, n as f64, 0.5);
+            stat_client.sampled_count(&key, n as f64, 0.1);
         }),
         aioutils::copy_with_stats(client, remote, |n| {
-            stat_client.sampled_count(&key, n as f64, 0.5);
+            stat_client.sampled_count(&key, n as f64, 0.1);
         }),
     )
     .await?;

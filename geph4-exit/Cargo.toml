@@ -38,3 +38,6 @@ pnet_packet="0.27"
  
 aioutils={path="../lib/aioutils"}
 vpn_structs={path="../lib/vpn_structs"}
+
+libc="0.2.80"
+os_socketaddr="0.1"

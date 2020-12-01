@@ -1479,11 +1479,13 @@ dependencies = [
  "ed25519-dalek",
  "env_logger 0.7.1",
  "hex",
+ "libc",
  "log 0.4.11",
  "lru",
  "mizaru",
  "num_cpus",
  "once_cell",
+ "os_socketaddr",
  "parking_lot 0.11.0",
  "pnet_packet",
  "rand 0.7.3",
@@ -1822,9 +1824,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.79"
+version = "0.2.80"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2448f6066e80e3bfc792e9c98bf705b4b0fc6e8ef5b43e5889aff0eaa9c58743"
+checksum = "4d58d1b70b004888f764dfbf6a26a3b0342a1632d33968e4a179d8011c760614"
 
 [[package]]
 name = "libm"
@@ -2211,6 +2213,15 @@ dependencies = [
  "openssl-src",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "os_socketaddr"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b068288f84b61b6d396037a7c60774dd602df2af04acd0772d9c7c1fff302057"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
