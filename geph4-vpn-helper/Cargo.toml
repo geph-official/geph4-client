@@ -13,3 +13,4 @@ vpn_structs={path="../lib/vpn_structs"}
 tundevice={path="../lib/tundevice"}
 once_cell="1"
 log="0.4"
+nix="0.19"

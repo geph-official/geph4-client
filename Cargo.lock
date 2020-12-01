@@ -1506,6 +1506,7 @@ version = "0.1.0"
 dependencies = [
  "env_logger 0.8.1",
  "log 0.4.11",
+ "nix",
  "once_cell",
  "smol",
  "tundevice",
@@ -2046,6 +2047,18 @@ dependencies = [
  "cfg-if 0.1.10",
  "libc",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "nix"
+version = "0.19.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b2ccba0cfe4fdf15982d1674c69b1fd80bad427d293849982668dfe454bd61f2"
+dependencies = [
+ "bitflags 1.2.1",
+ "cc",
+ "cfg-if 1.0.0",
+ "libc",
 ]
 
 [[package]]

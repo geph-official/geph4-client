@@ -12,6 +12,9 @@ static RAW_TUN: Lazy<TunDevice> = Lazy::new(|| {
 });
 
 fn main() {
+    // escalate to root unconditionally
+    nix::unistd::setuid(nix::unistd::Uid::from_raw(0))
+        .expect("must be run with root privileges or setuid root");
     smol::block_on(async move {
         let args: Vec<String> = std::env::args().skip(1).collect();
         let mut child = smol::process::Command::new("/usr/bin/env")
