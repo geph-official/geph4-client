@@ -1,6 +1,6 @@
 use std::{net::SocketAddr, sync::Arc};
 
-use crate::CommonOpt;
+use crate::{CommonOpt, GEXEC};
 use binder_transport::{BinderClient, BinderError, BinderRequestData, BinderResponse};
 use http_types::{Request, Response};
 use serde::{Deserialize, Serialize};
@@ -36,11 +36,12 @@ pub async fn main_binderproxy(opt: BinderProxyOpt) -> anyhow::Result<()> {
     loop {
         let (client, _) = listener.accept().await?;
         let binder_client = binder_client.clone();
-        smolscale::spawn(async_h1::accept(client, move |req| {
-            let binder_client = binder_client.clone();
-            smol::unblock(move || dbg_err(handle_req(binder_client, req)))
-        }))
-        .detach();
+        GEXEC
+            .spawn(async_h1::accept(client, move |req| {
+                let binder_client = binder_client.clone();
+                smol::unblock(move || dbg_err(handle_req(binder_client, req)))
+            }))
+            .detach();
     }
 }
 

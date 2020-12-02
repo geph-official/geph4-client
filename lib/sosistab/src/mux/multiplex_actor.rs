@@ -32,7 +32,7 @@ pub async fn multiplex(
                     // unreliable
                     Message::Urel(bts) => {
                         log::trace!("urel recv {}B", bts.len());
-                        drop(urel_recv_send.send(bts).await);
+                        drop(urel_recv_send.try_send(bts));
                     }
                     // connection opening
                     Message::Rel {
@@ -178,7 +178,7 @@ pub async fn multiplex(
         };
         // await on them all
         recv_evt
-            .or(send_evt.or(urel_send_evt.or(conn_open_evt.or(dead_evt))))
+            .or(urel_send_evt.or(send_evt.or(conn_open_evt.or(dead_evt))))
             .await?;
     }
 }

@@ -42,7 +42,6 @@ chrono = "0.4.19"
 num_cpus= "1.13.0"
 async-net= "1.5.0"
 socket2= "0.3.17"
-smolscale={path="../lib/smolscale"}
 aioutils={path="../lib/aioutils"}
 treebitmap= "0.4.0"
 pnet_packet= "0.27.2"

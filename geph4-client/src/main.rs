@@ -25,7 +25,10 @@ enum Opt {
     BinderProxy(main_binderproxy::BinderProxyOpt),
 }
 
+pub static GEXEC: smol::Executor<'static> = smol::Executor::new();
+
 fn main() -> anyhow::Result<()> {
+    sosistab::runtime::set_smol_executor(&GEXEC);
     // the logging function
     fn logger(
         write: &mut dyn Write,
@@ -79,7 +82,7 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
-    smol::future::block_on(smolscale::spawn(async move {
+    smol::block_on(GEXEC.run(async move {
         match opt {
             Opt::Connect(opt) => loop {
                 if let Err(err) = main_connect::main_connect(opt.clone()).await {

@@ -1,5 +1,5 @@
-use crate::cache::ClientCache;
 use crate::stats::StatCollector;
+use crate::{cache::ClientCache, GEXEC};
 use anyhow::Context;
 use governor::Quota;
 use pnet_packet::{
@@ -35,7 +35,7 @@ impl Keepalive {
         Keepalive {
             open_socks5_conn: send,
             get_stats: send_stats,
-            _task: smolscale::spawn(keepalive_actor(
+            _task: GEXEC.spawn(keepalive_actor(
                 stats,
                 exit_host.to_string(),
                 use_bridges,
@@ -128,7 +128,7 @@ async fn keepalive_actor_once(
             .into_iter()
             .map(|desc| {
                 let send = send.clone();
-                smolscale::spawn(async move {
+                GEXEC.spawn(async move {
                     log::debug!("connecting through {}...", desc.endpoint);
                     drop(
                         send.send((
