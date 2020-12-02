@@ -22,13 +22,6 @@ impl StatCollector {
         *self.total_tx.lock() += bytes
     }
 
-    pub fn incr_open_conns(&self) {
-        *self.open_conns.lock() += 1
-    }
-    pub fn decr_open_conns(&self) {
-        *self.open_conns.lock() -= 1
-    }
-
     pub fn set_latency(&self, ms: f64) {
         let mut old = self.open_latency.lock();
         if *old > 0.1 {

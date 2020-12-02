@@ -1,10 +1,10 @@
 use bytes::Bytes;
 use flume::{Receiver, Sender};
 use std::io::prelude::*;
+use std::os::raw::c_char;
 use std::os::unix::io::AsRawFd;
 use std::{ffi::CStr, process::Command};
 use std::{fs, io, os::raw::c_int};
-use std::{net::IpAddr, os::raw::c_char};
 
 use fs::OpenOptions;
 extern "C" {
@@ -115,36 +115,6 @@ impl TunDevice {
     pub async fn write_raw(&self, to_write: Bytes) -> Option<()> {
         self.send_write.send_async(to_write).await.ok()
     }
-
-    /// Route all traffic through this device. Tries its best to ensure that the program's own traffic isn't diverted. On Linux, this is done very hackily by exempting everything from the users root and nobody.
-    pub fn route_traffic(&mut self, gateway_ip: IpAddr) {
-        assert!(std::env::consts::OS == "linux");
-        system("ip route flush table 814");
-        Command::new("/usr/bin/env")
-            .args(&[
-                "ip", "route", "add", "default",
-                // "via",
-                // &gateway_ip.to_string(),
-                "dev", &self.name, "table", "814",
-            ])
-            .output()
-            .expect("cannot run route command");
-        system("iptables -t mangle -D OUTPUT -m owner ! --uid-owner root -j MARK --set-mark 1");
-        system("iptables -t mangle -D OUTPUT -m owner ! --uid-owner nobody -j MARK --set-mark 1");
-        system("iptables -t mangle -A OUTPUT -m owner ! --uid-owner root -j MARK --set-mark 1");
-        system("iptables -t mangle -A OUTPUT -m owner ! --uid-owner nobody -j MARK --set-mark 1");
-        system("ip rule delete fwmark 1 table 814");
-        system("ip rule add fwmark 1 table 814");
-        system("ip rule delete table main suppress_prefixlength 0");
-        system("ip rule add table main suppress_prefixlength 0");
-    }
-}
-
-fn system(cmd: &str) {
-    Command::new("/bin/sh")
-        .args(&["-c", cmd])
-        .output()
-        .expect("cannot run iptables command");
 }
 
 #[cfg(test)]

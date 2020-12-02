@@ -214,7 +214,7 @@ async fn keepalive_actor_once(
 
     // VPN mode
     if stdio_vpn {
-        scope.spawn(run_vpn(&mux)).detach();
+        scope.spawn(run_vpn(stats.clone(), &mux)).detach();
     }
 
     let (send_death, recv_death) = smol::channel::unbounded::<anyhow::Error>();
@@ -228,7 +228,6 @@ async fn keepalive_actor_once(
                         .context("cannot get socks5 connect request")?;
                     let mux = &mux;
                     let send_death = send_death.clone();
-                    let stats = stats.clone();
                     scope
                         .spawn(async move {
                             let start = Instant::now();
@@ -243,7 +242,6 @@ async fn keepalive_actor_once(
                                         sess_stats.down_recovered_loss * 100.0,
                                         sess_stats.down_redundant * 100.0,
                                     );
-                                    stats.set_latency(start.elapsed().as_secs_f64() * 1000.0);
                                     conn_reply.send(remote).await?;
                                     Ok::<(), anyhow::Error>(())
                                 }
@@ -306,7 +304,7 @@ async fn authenticate_session(
 }
 
 /// runs a vpn session
-async fn run_vpn(mux: &sosistab::mux::Multiplex) -> anyhow::Result<()> {
+async fn run_vpn(stats: Arc<StatCollector>, mux: &sosistab::mux::Multiplex) -> anyhow::Result<()> {
     let mut stdin = smol::Unblock::new(std::io::stdin());
     let mut stdout = smol::Unblock::new(std::io::stdout());
     // first we negotiate the vpn
@@ -342,6 +340,7 @@ async fn run_vpn(mux: &sosistab::mux::Multiplex) -> anyhow::Result<()> {
             if ack_decimate(&msg.body).is_some() && ack_rate_limit.check().is_err() {
                 continue;
             }
+            stats.incr_total_tx(msg.body.len() as u64);
             drop(
                 mux.send_urel(
                     bincode::serialize(&vpn_structs::Message::Payload(msg.body))
@@ -353,14 +352,27 @@ async fn run_vpn(mux: &sosistab::mux::Multiplex) -> anyhow::Result<()> {
         }
     };
     let vpn_down_fut = async {
-        loop {
+        for count in 0u64.. {
+            if count % 1000 == 0 {
+                let sess_stats = mux.get_session().get_stats().await;
+                log::debug!(
+                    "VPN received {} pkts; ping {} ms; loss = {:.2}% => {:.2}%; overhead = {:.2}%",
+                    count,
+                    sess_stats.ping.as_millis(),
+                    sess_stats.down_loss * 100.0,
+                    sess_stats.down_recovered_loss * 100.0,
+                    sess_stats.down_redundant * 100.0,
+                );
+            }
             let bts = mux.recv_urel().await?;
             if let vpn_structs::Message::Payload(bts) = bincode::deserialize(&bts)? {
+                stats.incr_total_rx(bts.len() as u64);
                 let msg = StdioMsg { verb: 0, body: bts };
                 msg.write(&mut stdout).await?;
                 stdout.flush().await?
             }
         }
+        unreachable!()
     };
     smol::future::race(vpn_up_fut, vpn_down_fut).await
 }

@@ -44,10 +44,10 @@ pub struct Session {
 impl Session {
     /// Creates a tuple of a Session and also a channel with which stuff is fed into the session.
     pub fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = smol::channel::bounded(100);
-        let (send_input, recv_input) = smol::channel::bounded(100);
+        let (send_tosend, recv_tosend) = smol::channel::bounded(300);
+        let (send_input, recv_input) = smol::channel::bounded(300);
         let (s, r) = smol::channel::unbounded();
-        let rate_limit = Arc::new(AtomicU32::new(20000));
+        let rate_limit = Arc::new(AtomicU32::new(100000));
         let task = runtime::spawn(session_loop(
             cfg,
             recv_tosend,
@@ -104,6 +104,7 @@ pub struct SessionStats {
     pub down_recovered_loss: f64,
     pub down_redundant: f64,
     pub recent_seqnos: Vec<(Instant, u64)>,
+    pub ping: Duration,
 }
 
 async fn session_loop(
@@ -116,27 +117,35 @@ async fn session_loop(
     let measured_loss = Arc::new(AtomicU8::new(0));
     let high_recv_frame_no = Arc::new(AtomicU64::new(0));
     let total_recv_frames = Arc::new(AtomicU64::new(0));
+    let shaper = smol::lock::Mutex::new(VarRateLimit::new());
+    let pinger = smol::lock::Mutex::new(PingCalc::default());
 
     // sending loop
-    let send_task = runtime::spawn(session_send_loop(
+    let send_task = session_send_loop(
         cfg.clone(),
-        rate_limit,
+        rate_limit.clone(),
         recv_tosend.clone(),
         measured_loss.clone(),
         high_recv_frame_no.clone(),
         total_recv_frames.clone(),
-    ));
-    let recv_task = runtime::spawn(session_recv_loop(
+        &shaper,
+        &pinger,
+    );
+    let recv_task = session_recv_loop(
         cfg,
+        rate_limit.clone(),
         send_input,
         recv_statreq,
         measured_loss,
         high_recv_frame_no,
         total_recv_frames,
-    ));
+        &shaper,
+        &pinger,
+    );
     smol::future::race(send_task, recv_task).await;
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn session_send_loop(
     cfg: SessionConfig,
     rate_limit: Arc<AtomicU32>,
@@ -144,9 +153,9 @@ async fn session_send_loop(
     measured_loss: Arc<AtomicU8>,
     high_recv_frame_no: Arc<AtomicU64>,
     total_recv_frames: Arc<AtomicU64>,
+    shaper: &smol::lock::Mutex<VarRateLimit>,
+    pinger: &smol::lock::Mutex<PingCalc>,
 ) -> Option<()> {
-    let mut shaper = VarRateLimit::new();
-
     fn get_timeout(loss: u8) -> Duration {
         let loss = loss as u64;
         // if loss is zero, then we return zero
@@ -210,20 +219,29 @@ async fn session_send_loop(
                     })
                     .await,
             );
-            shaper.wait(rate_limit.load(Ordering::Relaxed)).await;
+            shaper
+                .lock()
+                .await
+                .wait(rate_limit.load(Ordering::Relaxed))
+                .await;
+            pinger.lock().await.send(frame_no);
             frame_no += 1;
         }
         run_no += 1;
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn session_recv_loop(
     cfg: SessionConfig,
+    rate_limit: Arc<AtomicU32>,
     send_input: Sender<Bytes>,
     recv_statreq: Receiver<Sender<SessionStats>>,
     measured_loss: Arc<AtomicU8>,
     high_recv_frame_no: Arc<AtomicU64>,
     total_recv_frames: Arc<AtomicU64>,
+    shaper: &smol::lock::Mutex<VarRateLimit>,
+    pinger: &smol::lock::Mutex<PingCalc>,
 ) -> Option<()> {
     let decoder = smol::lock::RwLock::new(RunDecoder::default());
     let seqnos = smol::lock::RwLock::new(VecDeque::new());
@@ -259,6 +277,7 @@ async fn session_recv_loop(
             measured_loss.store(loss_to_u8(loss_calc.median), Ordering::Relaxed);
             high_recv_frame_no.fetch_max(new_frame.frame_no, Ordering::Relaxed);
             total_recv_frames.fetch_add(1, Ordering::Relaxed);
+            pinger.lock().await.ack(new_frame.high_recv_frame_no);
             if let Some(output) = decoder.write().await.input(
                 new_frame.run_no,
                 new_frame.run_idx,
@@ -270,6 +289,11 @@ async fn session_recv_loop(
                     let _ = send_input.send(item).await;
                 }
             }
+            shaper
+                .lock()
+                .await
+                .wait(rate_limit.load(Ordering::Relaxed))
+                .await;
             smol::future::yield_now().await;
         }
     };
@@ -278,6 +302,7 @@ async fn session_recv_loop(
         loop {
             let req = infal(recv_statreq.recv()).await;
             let decoder = decoder.read().await;
+            let ping = pinger.lock().await.ping();
             let response = SessionStats {
                 down_total: high_recv_frame_no.load(Ordering::Relaxed),
                 down_loss: 1.0
@@ -289,6 +314,7 @@ async fn session_recv_loop(
                 down_redundant: decoder.total_parity_shards as f64
                     / decoder.total_data_shards as f64,
                 recent_seqnos: seqnos.read().await.iter().cloned().collect(),
+                ping,
             };
             infal(req.send(response)).await;
             smol::future::yield_now().await;
@@ -444,5 +470,42 @@ impl LossCalculator {
             self.last_time = now;
         }
         // self.median = (1.0 - total_seqno as f64 / top_seqno as f64).max(0.0);
+    }
+}
+
+/// A ping calculator
+#[derive(Debug, Default)]
+struct PingCalc {
+    send_seqno: Option<u64>,
+    send_time: Option<Instant>,
+    pings: VecDeque<Duration>,
+}
+
+impl PingCalc {
+    fn send(&mut self, sn: u64) {
+        if self.send_seqno.is_some() {
+            return;
+        }
+        self.send_seqno = Some(sn);
+        self.send_time = Some(Instant::now());
+    }
+    fn ack(&mut self, sn: u64) {
+        if let Some(send_seqno) = self.send_seqno {
+            if sn >= send_seqno {
+                let ping_sample = self.send_time.take().unwrap().elapsed();
+                self.pings.push_back(ping_sample);
+                if self.pings.len() > 8 {
+                    self.pings.pop_front();
+                }
+                self.send_seqno = None
+            }
+        }
+    }
+    fn ping(&self) -> Duration {
+        self.pings
+            .iter()
+            .cloned()
+            .min()
+            .unwrap_or_else(|| Duration::from_secs(1000))
     }
 }

@@ -8,11 +8,7 @@ use once_cell::sync::Lazy;
 use os_socketaddr::OsSocketAddr;
 use parking_lot::{Mutex, RwLock};
 use pnet_packet::{
-    ip::{IpNextHeaderProtocol, IpNextHeaderProtocols},
-    ipv4::Ipv4Packet,
-    tcp::TcpPacket,
-    udp::UdpPacket,
-    Packet,
+    ip::IpNextHeaderProtocols, ipv4::Ipv4Packet, tcp::TcpPacket, udp::UdpPacket, Packet,
 };
 use smol::channel::Sender;
 use smol_timeout::TimeoutExt;

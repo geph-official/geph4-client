@@ -24,8 +24,8 @@ fn to_ioerror<T: Into<Box<dyn std::error::Error + Send + Sync>>>(val: T) -> std:
 impl Multiplex {
     /// Creates a new multiplexed session
     pub fn new(session: Session) -> Self {
-        let (urel_send, urel_send_recv) = smol::channel::bounded(10);
-        let (urel_recv_send, urel_recv) = smol::channel::bounded(10);
+        let (urel_send, urel_send_recv) = smol::channel::bounded(100);
+        let (urel_recv_send, urel_recv) = smol::channel::bounded(1000);
         let (conn_open, conn_open_recv) = smol::channel::unbounded();
         let (conn_accept_send, conn_accept) = smol::channel::bounded(100);
         let session = Arc::new(session);

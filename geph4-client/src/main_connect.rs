@@ -1,7 +1,6 @@
 use crate::{cache::ClientCache, kalive::Keepalive, stats::StatCollector, AuthOpt, CommonOpt};
 use crate::{china, stats::GLOBAL_LOGGER};
 use chrono::prelude::*;
-use scopeguard::defer;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
 use std::{net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, sync::Arc, time::Duration};
@@ -170,6 +169,8 @@ async fn handle_stats(
         }
         "/kill" => std::process::exit(0),
         _ => {
+            let detail = kalive.get_stats().await?;
+            stats.set_latency(detail.ping.as_secs_f64() / 1000.0);
             let jstats = serde_json::to_string(&stats)?;
             res.set_body(jstats);
             res.insert_header("Content-Type", "application/json");
@@ -248,8 +249,6 @@ async fn handle_socks5(
     exclude_prc: bool,
 ) -> anyhow::Result<()> {
     s5client.set_nodelay(true)?;
-    stats.incr_open_conns();
-    defer!(stats.decr_open_conns());
     use socksv5::v5::*;
     let _handshake = read_handshake(s5client.clone()).await?;
     write_auth_method(s5client.clone(), SocksV5AuthMethod::Noauth).await?;
