@@ -44,8 +44,8 @@ pub struct Session {
 impl Session {
     /// Creates a tuple of a Session and also a channel with which stuff is fed into the session.
     pub fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = smol::channel::bounded(300);
-        let (send_input, recv_input) = smol::channel::bounded(300);
+        let (send_tosend, recv_tosend) = smol::channel::bounded(50);
+        let (send_input, recv_input) = smol::channel::bounded(50);
         let (s, r) = smol::channel::unbounded();
         let rate_limit = Arc::new(AtomicU32::new(100000));
         let task = runtime::spawn(session_loop(
@@ -133,13 +133,11 @@ async fn session_loop(
     );
     let recv_task = session_recv_loop(
         cfg,
-        rate_limit.clone(),
         send_input,
         recv_statreq,
         measured_loss,
         high_recv_frame_no,
         total_recv_frames,
-        &shaper,
         &pinger,
     );
     smol::future::race(send_task, recv_task).await;
@@ -234,13 +232,11 @@ async fn session_send_loop(
 #[allow(clippy::too_many_arguments)]
 async fn session_recv_loop(
     cfg: SessionConfig,
-    rate_limit: Arc<AtomicU32>,
     send_input: Sender<Bytes>,
     recv_statreq: Receiver<Sender<SessionStats>>,
     measured_loss: Arc<AtomicU8>,
     high_recv_frame_no: Arc<AtomicU64>,
     total_recv_frames: Arc<AtomicU64>,
-    shaper: &smol::lock::Mutex<VarRateLimit>,
     pinger: &smol::lock::Mutex<PingCalc>,
 ) -> Option<()> {
     let decoder = smol::lock::RwLock::new(RunDecoder::default());
@@ -289,11 +285,6 @@ async fn session_recv_loop(
                     let _ = send_input.send(item).await;
                 }
             }
-            shaper
-                .lock()
-                .await
-                .wait(rate_limit.load(Ordering::Relaxed))
-                .await;
             smol::future::yield_now().await;
         }
     };
