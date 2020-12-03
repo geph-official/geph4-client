@@ -217,13 +217,20 @@ async fn keepalive_actor_once(
         })
         .detach();
 
+    let (send_death, recv_death) = smol::channel::unbounded::<anyhow::Error>();
+
     // VPN mode
     let mut _nuunuu = None;
     if stdio_vpn {
-        _nuunuu = Some(GEXEC.spawn(run_vpn(stats.clone(), mux.clone())));
+        let mux = mux.clone();
+        let send_death = send_death.clone();
+        let stats = stats.clone();
+        _nuunuu = Some(GEXEC.spawn(async move {
+            if let Err(err) = run_vpn(stats, mux).await {
+                drop(send_death.try_send(err));
+            }
+        }));
     }
-
-    let (send_death, recv_death) = smol::channel::unbounded::<anyhow::Error>();
     scope
         .run(
             async {
@@ -240,7 +247,7 @@ async fn keepalive_actor_once(
                             let remote = (&mux).open_conn(Some(conn_host)).await;
                             match remote {
                                 Ok(remote) => {
-                                    let sess_stats = mux.get_session().get_stats().await;
+                                    let sess_stats = mux.get_session().get_stats().await.ok_or_else(|| anyhow::anyhow!("session is dead (stats)"))?;
                                     log::debug!(
                                         "opened connection in {} ms; loss = {:.2}% => {:.2}%; overhead = {:.2}%",
                                         start.elapsed().as_millis(),
@@ -273,7 +280,7 @@ async fn keepalive_actor_once(
             .or(async {
                 loop {
                     let stat_send = recv_get_stats.recv().await?;
-                    let stats = mux.get_session().get_stats().await;
+                    let stats = mux.get_session().get_stats().await.ok_or_else(||anyhow::anyhow!("session dead at stats"))?;
                     drop(stat_send.send(stats).await);
                 }
             }),
@@ -391,7 +398,11 @@ async fn run_vpn(
         async move {
             for count in 0u64.. {
                 if count % 1000 == 0 {
-                    let sess_stats = mux.get_session().get_stats().await;
+                    let sess_stats = mux
+                        .get_session()
+                        .get_stats()
+                        .await
+                        .ok_or_else(|| anyhow::anyhow!("oh no"))?;
                     log::debug!(
                     "VPN received {} pkts; ping {} ms; loss = {:.2}% => {:.2}%; overhead = {:.2}%",
                     count,

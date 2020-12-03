@@ -84,10 +84,10 @@ impl Session {
     }
 
     /// Obtains current statistics.
-    pub async fn get_stats(&self) -> SessionStats {
+    pub async fn get_stats(&self) -> Option<SessionStats> {
         let (send, recv) = smol::channel::bounded(1);
-        self.get_stats.send(send).await.unwrap();
-        recv.recv().await.unwrap()
+        self.get_stats.send(send).await.ok()?;
+        recv.recv().await.ok()
     }
 
     /// Sets the rate limit, in packets per second.

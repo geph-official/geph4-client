@@ -116,6 +116,9 @@ async fn handle_stats(
     match _req.url().path() {
         "/debugpack" => {
             // create logs and sosistab buffers
+            // form a tar
+            let tar_buffer = Vec::new();
+            let mut tar_build = tar::Builder::new(tar_buffer);
             let mut logs_buffer = Vec::new();
             {
                 let noo = GLOBAL_LOGGER.read();
@@ -123,30 +126,30 @@ async fn handle_stats(
                     writeln!(logs_buffer, "{}", line)?;
                 }
             }
-            let mut sosistab_buf = Vec::new();
-            writeln!(sosistab_buf, "time,seqno")?;
-            let detail = kalive.get_stats().await?;
-            if let Some((first_time, _)) = detail.recent_seqnos.first() {
-                for (time, seqno) in detail.recent_seqnos.iter() {
-                    writeln!(
-                        sosistab_buf,
-                        "{},{}",
-                        time.saturating_duration_since(*first_time).as_secs_f64(),
-                        seqno
-                    )?;
+            let detail = kalive.get_stats().timeout(Duration::from_secs(1)).await;
+            if let Some(detail) = detail {
+                let detail = detail?;
+                let mut sosistab_buf = Vec::new();
+                writeln!(sosistab_buf, "time,seqno")?;
+                if let Some((first_time, _)) = detail.recent_seqnos.first() {
+                    for (time, seqno) in detail.recent_seqnos.iter() {
+                        writeln!(
+                            sosistab_buf,
+                            "{},{}",
+                            time.saturating_duration_since(*first_time).as_secs_f64(),
+                            seqno
+                        )?;
+                    }
                 }
+                let mut sosis_header = tar::Header::new_gnu();
+                sosis_header.set_mode(0o666);
+                sosis_header.set_size(sosistab_buf.len() as u64);
+                tar_build.append_data(
+                    &mut sosis_header,
+                    "sosistab-trace.csv",
+                    sosistab_buf.as_slice(),
+                )?;
             }
-            // form a tar
-            let tar_buffer = Vec::new();
-            let mut tar_build = tar::Builder::new(tar_buffer);
-            let mut sosis_header = tar::Header::new_gnu();
-            sosis_header.set_mode(0o666);
-            sosis_header.set_size(sosistab_buf.len() as u64);
-            tar_build.append_data(
-                &mut sosis_header,
-                "sosistab-trace.csv",
-                sosistab_buf.as_slice(),
-            )?;
             let mut logs_header = tar::Header::new_gnu();
             logs_header.set_mode(0o666);
             logs_header.set_size(logs_buffer.len() as u64);
