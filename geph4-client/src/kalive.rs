@@ -2,6 +2,7 @@ use crate::stats::StatCollector;
 use crate::{cache::ClientCache, GEXEC};
 use anyhow::Context;
 use governor::Quota;
+use once_cell::sync::Lazy;
 use pnet_packet::{
     ipv4::Ipv4Packet,
     tcp::{TcpFlags, TcpPacket},
@@ -10,7 +11,11 @@ use pnet_packet::{
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
-use std::{num::NonZeroU32, time::Duration};
+use std::{
+    io::{Stdin, Stdout},
+    num::NonZeroU32,
+    time::Duration,
+};
 use std::{sync::Arc, time::Instant};
 use vpn_structs::StdioMsg;
 
@@ -305,8 +310,21 @@ async fn authenticate_session(
 
 /// runs a vpn session
 async fn run_vpn(stats: Arc<StatCollector>, mux: &sosistab::mux::Multiplex) -> anyhow::Result<()> {
-    let mut stdin = smol::Unblock::new(std::io::stdin());
-    let mut stdout = smol::Unblock::new(std::io::stdout());
+    static STDIN: Lazy<async_dup::Arc<async_dup::Mutex<smol::Unblock<Stdin>>>> = Lazy::new(|| {
+        async_dup::Arc::new(async_dup::Mutex::new(smol::Unblock::with_capacity(
+            64 * 1024,
+            std::io::stdin(),
+        )))
+    });
+    static STDOUT: Lazy<async_dup::Arc<async_dup::Mutex<smol::Unblock<Stdout>>>> =
+        Lazy::new(|| {
+            async_dup::Arc::new(async_dup::Mutex::new(smol::Unblock::with_capacity(
+                64 * 1024,
+                std::io::stdout(),
+            )))
+        });
+    let mut stdin = STDIN.clone();
+    let mut stdout = STDOUT.clone();
     // first we negotiate the vpn
     let client_id: u128 = rand::random();
     log::info!("negotiating VPN with client id {}...", client_id);
@@ -332,13 +350,20 @@ async fn run_vpn(stats: Arc<StatCollector>, mux: &sosistab::mux::Multiplex) -> a
     stdout.flush().await?;
 
     let vpn_up_fut = async {
-        let ack_rate_limit =
-            governor::RateLimiter::direct(Quota::per_second(NonZeroU32::new(500u32).unwrap()));
+        let ack_rate_limits: Vec<_> = (0..16)
+            .map(|_| {
+                governor::RateLimiter::direct(Quota::per_second(NonZeroU32::new(500u32).unwrap()))
+            })
+            .collect();
+
         loop {
             let msg = StdioMsg::read(&mut stdin).await?;
             // ACK decimation
-            if ack_decimate(&msg.body).is_some() && ack_rate_limit.check().is_err() {
-                continue;
+            if let Some(hash) = ack_decimate(&msg.body) {
+                let limiter = &(ack_rate_limits[(hash % 16) as usize]);
+                if limiter.check().is_err() {
+                    continue;
+                }
             }
             stats.incr_total_tx(msg.body.len() as u64);
             drop(
@@ -378,16 +403,13 @@ async fn run_vpn(stats: Arc<StatCollector>, mux: &sosistab::mux::Multiplex) -> a
 }
 
 /// returns ok if it's an ack that needs to be decimated
-fn ack_decimate(bts: &[u8]) -> Option<()> {
+fn ack_decimate(bts: &[u8]) -> Option<u16> {
     let parsed = Ipv4Packet::new(bts)?;
     let parsed = TcpPacket::new(parsed.payload())?;
     let flags = parsed.get_flags();
-    if flags & TcpFlags::ACK != 0
-        && flags & TcpFlags::SYN == 0
-        && parsed.payload().is_empty()
-        && rand::random()
-    {
-        Some(())
+    if flags & TcpFlags::ACK != 0 && flags & TcpFlags::SYN == 0 && parsed.payload().is_empty() {
+        let hash = parsed.get_destination() ^ parsed.get_source();
+        Some(hash)
     } else {
         None
     }

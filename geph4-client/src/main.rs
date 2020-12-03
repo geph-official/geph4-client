@@ -82,6 +82,11 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
+
+    for _ in 1..num_cpus::get() {
+        std::thread::spawn(|| smol::block_on(smol::future::pending::<()>()));
+    }
+
     smol::block_on(GEXEC.run(async move {
         match opt {
             Opt::Connect(opt) => loop {

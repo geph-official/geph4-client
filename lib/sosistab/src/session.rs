@@ -168,16 +168,15 @@ async fn session_send_loop(
     let mut frame_no = 0u64;
     let mut run_no = 0u64;
     let mut to_send = Vec::new();
+    let mut abs_timeout = smol::Timer::after(get_timeout(measured_loss.load(Ordering::Relaxed)));
     loop {
-        smol::future::yield_now().await;
         // obtain a vector of bytes to send
         let to_send = {
             to_send.clear();
             // get as much tosend as possible within the timeout
             // this lets us do it at maximum efficiency
             to_send.push(infal(recv_tosend.recv()).await);
-            let mut abs_timeout =
-                smol::Timer::after(get_timeout(measured_loss.load(Ordering::Relaxed)));
+            abs_timeout.set_after(get_timeout(measured_loss.load(Ordering::Relaxed)));
             loop {
                 let break_now = async {
                     (&mut abs_timeout).await;
@@ -285,7 +284,6 @@ async fn session_recv_loop(
                     let _ = send_input.send(item).await;
                 }
             }
-            smol::future::yield_now().await;
         }
     };
     // stats loop
@@ -308,7 +306,6 @@ async fn session_recv_loop(
                 ping,
             };
             infal(req.send(response)).await;
-            smol::future::yield_now().await;
         }
     };
     smol::future::race(stats_loop, recv_loop).await

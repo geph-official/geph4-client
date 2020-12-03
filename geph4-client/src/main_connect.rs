@@ -169,8 +169,10 @@ async fn handle_stats(
         }
         "/kill" => std::process::exit(0),
         _ => {
-            let detail = kalive.get_stats().await?;
-            stats.set_latency(detail.ping.as_secs_f64() * 1000.0);
+            let detail = kalive.get_stats().timeout(Duration::from_millis(100)).await;
+            if let Some(Ok(detail)) = detail {
+                stats.set_latency(detail.ping.as_secs_f64() * 1000.0);
+            }
             let jstats = serde_json::to_string(&stats)?;
             res.set_body(jstats);
             res.insert_header("Content-Type", "application/json");

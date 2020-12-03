@@ -24,6 +24,7 @@ async fn run_sh(sh_str: &str) {
 async fn setup_iptables() {
     Lazy::force(&RAW_TUN);
     let to_run = r"
+    export PATH=$PATH:/usr/sbin/:/sbin/
     # mark the owner
     iptables -D OUTPUT -t mangle -m owner ! --uid-owner nobody -j MARK --set-mark 8964
     iptables -A OUTPUT -t mangle -m owner ! --uid-owner nobody -j MARK --set-mark 8964
@@ -49,6 +50,7 @@ async fn setup_iptables() {
 
 async fn clear_iptables() {
     let to_run = r"
+    export PATH=$PATH:/usr/sbin/:/sbin/
     # mark the owner
     iptables -D OUTPUT -t mangle -m owner ! --uid-owner nobody -j MARK --set-mark 8964
     # set up routing tables
