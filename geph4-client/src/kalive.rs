@@ -186,7 +186,7 @@ async fn keepalive_actor_once(
         })
         .await;
     let session = session?;
-    let mux = sosistab::mux::Multiplex::new(session);
+    let mux = Arc::new(sosistab::mux::Multiplex::new(session));
     let scope = smol::Executor::new();
     // now let's authenticate
     let token = ccache.get_auth_token().await?;
@@ -218,8 +218,9 @@ async fn keepalive_actor_once(
         .detach();
 
     // VPN mode
+    let mut _nuunuu = None;
     if stdio_vpn {
-        scope.spawn(run_vpn(stats.clone(), &mux)).detach();
+        _nuunuu = Some(GEXEC.spawn(run_vpn(stats.clone(), mux.clone())));
     }
 
     let (send_death, recv_death) = smol::channel::unbounded::<anyhow::Error>();
@@ -273,7 +274,7 @@ async fn keepalive_actor_once(
                 loop {
                     let stat_send = recv_get_stats.recv().await?;
                     let stats = mux.get_session().get_stats().await;
-                    stat_send.send(stats).await?;
+                    drop(stat_send.send(stats).await);
                 }
             }),
         )
@@ -309,10 +310,13 @@ async fn authenticate_session(
 }
 
 /// runs a vpn session
-async fn run_vpn(stats: Arc<StatCollector>, mux: &sosistab::mux::Multiplex) -> anyhow::Result<()> {
+async fn run_vpn(
+    stats: Arc<StatCollector>,
+    mux: Arc<sosistab::mux::Multiplex>,
+) -> anyhow::Result<()> {
     static STDIN: Lazy<async_dup::Arc<async_dup::Mutex<smol::Unblock<Stdin>>>> = Lazy::new(|| {
         async_dup::Arc::new(async_dup::Mutex::new(smol::Unblock::with_capacity(
-            64 * 1024,
+            1024 * 1024,
             std::io::stdin(),
         )))
     });
@@ -349,38 +353,46 @@ async fn run_vpn(stats: Arc<StatCollector>, mux: &sosistab::mux::Multiplex) -> a
     msg.write(&mut stdout).await?;
     stdout.flush().await?;
 
-    let vpn_up_fut = async {
-        let ack_rate_limits: Vec<_> = (0..16)
-            .map(|_| {
-                governor::RateLimiter::direct(Quota::per_second(NonZeroU32::new(500u32).unwrap()))
-            })
-            .collect();
+    let vpn_up_fut = {
+        let mux = mux.clone();
+        let stats = stats.clone();
+        async move {
+            let ack_rate_limits: Vec<_> = (0..16)
+                .map(|_| {
+                    governor::RateLimiter::direct(Quota::per_second(
+                        NonZeroU32::new(500u32).unwrap(),
+                    ))
+                })
+                .collect();
 
-        loop {
-            let msg = StdioMsg::read(&mut stdin).await?;
-            // ACK decimation
-            if let Some(hash) = ack_decimate(&msg.body) {
-                let limiter = &(ack_rate_limits[(hash % 16) as usize]);
-                if limiter.check().is_err() {
-                    continue;
+            loop {
+                let msg = StdioMsg::read(&mut stdin).await?;
+                // ACK decimation
+                if let Some(hash) = ack_decimate(&msg.body) {
+                    let limiter = &(ack_rate_limits[(hash % 16) as usize]);
+                    if limiter.check().is_err() {
+                        continue;
+                    }
                 }
+                stats.incr_total_tx(msg.body.len() as u64);
+                drop(
+                    mux.send_urel(
+                        bincode::serialize(&vpn_structs::Message::Payload(msg.body))
+                            .unwrap()
+                            .into(),
+                    )
+                    .await,
+                );
             }
-            stats.incr_total_tx(msg.body.len() as u64);
-            drop(
-                mux.send_urel(
-                    bincode::serialize(&vpn_structs::Message::Payload(msg.body))
-                        .unwrap()
-                        .into(),
-                )
-                .await,
-            );
         }
     };
-    let vpn_down_fut = async {
-        for count in 0u64.. {
-            if count % 1000 == 0 {
-                let sess_stats = mux.get_session().get_stats().await;
-                log::debug!(
+    let vpn_down_fut = {
+        let stats = stats.clone();
+        async move {
+            for count in 0u64.. {
+                if count % 1000 == 0 {
+                    let sess_stats = mux.get_session().get_stats().await;
+                    log::debug!(
                     "VPN received {} pkts; ping {} ms; loss = {:.2}% => {:.2}%; overhead = {:.2}%",
                     count,
                     sess_stats.ping.as_millis(),
@@ -388,18 +400,19 @@ async fn run_vpn(stats: Arc<StatCollector>, mux: &sosistab::mux::Multiplex) -> a
                     sess_stats.down_recovered_loss * 100.0,
                     sess_stats.down_redundant * 100.0,
                 );
+                }
+                let bts = mux.recv_urel().await?;
+                if let vpn_structs::Message::Payload(bts) = bincode::deserialize(&bts)? {
+                    stats.incr_total_rx(bts.len() as u64);
+                    let msg = StdioMsg { verb: 0, body: bts };
+                    msg.write(&mut stdout).await?;
+                    stdout.flush().await?
+                }
             }
-            let bts = mux.recv_urel().await?;
-            if let vpn_structs::Message::Payload(bts) = bincode::deserialize(&bts)? {
-                stats.incr_total_rx(bts.len() as u64);
-                let msg = StdioMsg { verb: 0, body: bts };
-                msg.write(&mut stdout).await?;
-                stdout.flush().await?
-            }
+            unreachable!()
         }
-        unreachable!()
     };
-    smol::future::race(vpn_up_fut, vpn_down_fut).await
+    smol::future::race(GEXEC.spawn(vpn_up_fut), GEXEC.spawn(vpn_down_fut)).await
 }
 
 /// returns ok if it's an ack that needs to be decimated
