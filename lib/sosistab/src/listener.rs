@@ -30,7 +30,7 @@ impl Listener {
     ) -> Self {
         // let addr = async_net::resolve(addr).await;
         let socket = runtime::new_udp_socket_bind(addr).await.unwrap();
-        let local_addr = socket.local_addr().unwrap();
+        let local_addr = socket.get_ref().local_addr().unwrap();
         let cookie = crypt::Cookie::new((&long_sk).into());
         let (send, recv) = smol::channel::unbounded();
         let task = runtime::spawn(
@@ -259,6 +259,7 @@ impl ListenerActor {
                                                 target_loss: 0.05,
                                                 send_frame: session_output_send,
                                                 recv_frame: session_input_recv,
+                                                recv_timeout: Duration::from_secs(3600),
                                             });
                                             let send_dead_clo = send_dead.clone();
                                             let resume_token_clo = resume_token.clone();

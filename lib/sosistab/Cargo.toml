@@ -43,6 +43,10 @@ smol-timeout="0.6"
 hex= "0.4.2"
 env_logger= "0.8.1"
 futures-timer="3"
+nonzero_ext="0.2"
+
+[target.'cfg(unix)'.dependencies]
+nix="0.19"
 
 [dev-dependencies]
 

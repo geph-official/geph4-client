@@ -11,11 +11,7 @@ use pnet_packet::{
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
-use std::{
-    io::{Stdin, Stdout},
-    num::NonZeroU32,
-    time::Duration,
-};
+use std::{io::Stdin, num::NonZeroU32, time::Duration};
 use std::{sync::Arc, time::Instant};
 use vpn_structs::StdioMsg;
 
@@ -327,15 +323,7 @@ async fn run_vpn(
             std::io::stdin(),
         )))
     });
-    static STDOUT: Lazy<async_dup::Arc<async_dup::Mutex<smol::Unblock<Stdout>>>> =
-        Lazy::new(|| {
-            async_dup::Arc::new(async_dup::Mutex::new(smol::Unblock::with_capacity(
-                64 * 1024,
-                std::io::stdout(),
-            )))
-        });
     let mut stdin = STDIN.clone();
-    let mut stdout = STDOUT.clone();
     // first we negotiate the vpn
     let client_id: u128 = rand::random();
     log::info!("negotiating VPN with client id {}...", client_id);
@@ -357,8 +345,12 @@ async fn run_vpn(
         verb: 1,
         body: format!("{}/10", client_ip).as_bytes().to_vec().into(),
     };
-    msg.write(&mut stdout).await?;
-    stdout.flush().await?;
+    {
+        use std::io::Write;
+        let mut stdout = std::io::stdout();
+        msg.write_blocking(&mut stdout)?;
+        stdout.flush()?;
+    }
 
     let vpn_up_fut = {
         let mux = mux.clone();
@@ -416,8 +408,12 @@ async fn run_vpn(
                 if let vpn_structs::Message::Payload(bts) = bincode::deserialize(&bts)? {
                     stats.incr_total_rx(bts.len() as u64);
                     let msg = StdioMsg { verb: 0, body: bts };
-                    msg.write(&mut stdout).await?;
-                    stdout.flush().await?
+                    {
+                        use std::io::Write;
+                        let mut stdout = std::io::stdout();
+                        msg.write_blocking(&mut stdout)?;
+                        stdout.flush()?;
+                    }
                 }
             }
             unreachable!()

@@ -25,10 +25,11 @@ async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T
 }
 
 #[derive(Debug, Clone)]
-pub struct SessionConfig {
+pub(crate) struct SessionConfig {
     pub target_loss: f64,
     pub send_frame: Sender<DataFrame>,
     pub recv_frame: Receiver<DataFrame>,
+    pub recv_timeout: Duration,
 }
 
 /// Representation of an isolated session that deals only in DataFrames and abstracts away all I/O concerns. It's the user's responsibility to poll the session. Otherwise, it might not make progress and will drop packets.
@@ -43,17 +44,19 @@ pub struct Session {
 
 impl Session {
     /// Creates a tuple of a Session and also a channel with which stuff is fed into the session.
-    pub fn new(cfg: SessionConfig) -> Self {
+    pub(crate) fn new(cfg: SessionConfig) -> Self {
         let (send_tosend, recv_tosend) = smol::channel::bounded(50);
         let (send_input, recv_input) = smol::channel::bounded(50);
         let (s, r) = smol::channel::unbounded();
         let rate_limit = Arc::new(AtomicU32::new(100000));
+        let recv_timeout = cfg.recv_timeout;
         let task = runtime::spawn(session_loop(
             cfg,
             recv_tosend,
             send_input,
             rate_limit.clone(),
             r,
+            recv_timeout,
         ));
         Session {
             send_tosend,
@@ -113,6 +116,7 @@ async fn session_loop(
     send_input: Sender<Bytes>,
     rate_limit: Arc<AtomicU32>,
     recv_statreq: Receiver<Sender<SessionStats>>,
+    recv_timeout: Duration,
 ) {
     let measured_loss = Arc::new(AtomicU8::new(0));
     let high_recv_frame_no = Arc::new(AtomicU64::new(0));
@@ -139,6 +143,7 @@ async fn session_loop(
         high_recv_frame_no,
         total_recv_frames,
         &pinger,
+        recv_timeout,
     );
     smol::future::race(send_task, recv_task).await;
 }
@@ -237,6 +242,7 @@ async fn session_recv_loop(
     high_recv_frame_no: Arc<AtomicU64>,
     total_recv_frames: Arc<AtomicU64>,
     pinger: &smol::lock::Mutex<PingCalc>,
+    recv_timeout: Duration,
 ) -> Option<()> {
     let decoder = smol::lock::RwLock::new(RunDecoder::default());
     let seqnos = smol::lock::RwLock::new(VecDeque::new());
@@ -244,7 +250,7 @@ async fn session_recv_loop(
     let recv_loop = async {
         let mut rp_filter = ReplayFilter::new(0);
         let mut loss_calc = LossCalculator::new();
-        let mut timer = smol::Timer::after(Duration::from_secs(600));
+        let mut timer = smol::Timer::after(recv_timeout);
         loop {
             let timer_ref = &mut timer;
             let new_frame = async { cfg.recv_frame.recv().await.ok() }
@@ -253,7 +259,7 @@ async fn session_recv_loop(
                     None
                 })
                 .await?;
-            timer.set_after(Duration::from_secs(600));
+            timer.set_after(recv_timeout);
             if !rp_filter.add(new_frame.frame_no) {
                 log::trace!(
                     "recv_loop: replay filter dropping frame {}",

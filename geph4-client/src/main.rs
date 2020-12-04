@@ -84,7 +84,7 @@ fn main() -> anyhow::Result<()> {
     log::info!("geph4-client v{} starting...", version);
 
     // for _ in 1..num_cpus::get() {
-    //     std::thread::spawn(|| smol::block_on(smol::future::pending::<()>()));
+    //     std::thread::spawn(|| smol::block_on(GEXEC.run(smol::future::pending::<()>())));
     // }
 
     smol::block_on(GEXEC.run(async move {

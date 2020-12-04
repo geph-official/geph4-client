@@ -1420,7 +1420,7 @@ dependencies = [
 
 [[package]]
 name = "geph4-client"
-version = "0.399.16"
+version = "0.399.17"
 dependencies = [
  "aioutils",
  "anyhow",
@@ -3305,6 +3305,8 @@ dependencies = [
  "im",
  "indexmap",
  "log 0.4.11",
+ "nix",
+ "nonzero_ext",
  "num_cpus",
  "once_cell",
  "parking_lot 0.11.1",

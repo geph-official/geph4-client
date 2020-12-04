@@ -1,6 +1,9 @@
 use std::{
     net::SocketAddr,
-    sync::{atomic::AtomicUsize, Arc},
+    sync::{
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+        Arc,
+    },
     time::Duration,
     time::SystemTime,
 };
@@ -233,35 +236,54 @@ async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
     let sess = sosistab::mux::Multiplex::new(sess);
     let nhandle = nursery.clone();
     let is_plus = authenticate_sess(root.binder_client.clone(), &sess)
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(300))
         .await
         .ok_or_else(|| anyhow::anyhow!("authentication timeout"))??;
     log::info!("authenticated a new session (is_plus = {})", is_plus);
     if !is_plus {
         sess.get_session().set_ratelimit(root.free_limit);
     }
-    root.session_count
-        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    scopeguard::defer!({
-        root.session_count
-            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-    });
+
+    let (send_sess_alive, recv_sess_alive) = smol::channel::bounded(1);
+    let sess_alive_loop = async {
+        let alive = AtomicBool::new(false);
+        let guard = scopeguard::guard(alive, |v| {
+            if v.load(Ordering::SeqCst) {
+                root.session_count
+                    .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        });
+        loop {
+            let signal = recv_sess_alive
+                .recv()
+                .timeout(Duration::from_secs(60))
+                .await;
+            if let Some(sig) = signal {
+                let _ = sig?;
+                if !guard.swap(true, Ordering::SeqCst) {
+                    root.session_count
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+            } else if guard.swap(false, Ordering::SeqCst) {
+                root.session_count
+                    .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
+    };
 
     let proxy_loop = async {
         loop {
-            let stream = sess
-                .accept_conn()
-                .timeout(Duration::from_secs(600))
-                .await
-                .ok_or_else(|| anyhow::anyhow!("accept timeout"))??;
+            let stream = sess.accept_conn().await?;
             let root = root.clone();
+            let send_sess_alive = send_sess_alive.clone();
             nhandle.spawn(OnError::Ignore, move |_| async move {
                 root.conn_count
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                scopeguard::defer!({
+                let _deferred = scopeguard::guard((), |_| {
                     root.conn_count
                         .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                 });
+                let _ = send_sess_alive.try_send(());
                 handle_proxy_stream(
                     root.stat_client.clone(),
                     root.exit_hostname.clone(),
@@ -278,7 +300,7 @@ async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
         root.stat_client.clone(),
         root.port_whitelist,
     );
-    smol::future::race(proxy_loop, vpn_loop).await
+    smol::future::race(proxy_loop.or(sess_alive_loop), vpn_loop).await
 }
 
 async fn authenticate_sess(

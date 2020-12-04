@@ -1,5 +1,6 @@
 use crate::{cache::ClientCache, kalive::Keepalive, stats::StatCollector, AuthOpt, CommonOpt};
 use crate::{china, stats::GLOBAL_LOGGER};
+use anyhow::Context;
 use chrono::prelude::*;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
@@ -46,7 +47,8 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     log::info!("connect mode started");
     let stat_collector = Arc::new(StatCollector::default());
     // create a db directory if doesn't exist
-    let client_cache = ClientCache::from_opts(&opt.common, &opt.auth)?;
+    let client_cache =
+        ClientCache::from_opts(&opt.common, &opt.auth).context("cannot create ClientCache")?;
     // create a kalive
     let keepalive = Keepalive::new(
         stat_collector.clone(),
@@ -56,8 +58,12 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         Arc::new(client_cache),
     );
     // enter the socks5 loop
-    let socks5_listener = smol::net::TcpListener::bind(opt.socks5_listen).await?;
-    let stat_listener = smol::net::TcpListener::bind(opt.stats_listen).await?;
+    let socks5_listener = smol::net::TcpListener::bind(opt.socks5_listen)
+        .await
+        .context("cannot bind socks5")?;
+    let stat_listener = smol::net::TcpListener::bind(opt.stats_listen)
+        .await
+        .context("cannot bind stats")?;
     let scollect = stat_collector.clone();
     // scope
     let scope = smol::Executor::new();
@@ -91,7 +97,10 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     scope
         .run(async {
             loop {
-                let (s5client, _) = socks5_listener.accept().await?;
+                let (s5client, _) = socks5_listener
+                    .accept()
+                    .await
+                    .context("cannot accept socks5")?;
                 scope
                     .spawn(handle_socks5(
                         stat_collector.clone(),

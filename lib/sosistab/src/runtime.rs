@@ -1,9 +1,12 @@
 use once_cell::sync::OnceCell;
-use smol::net::AsyncToSocketAddrs;
 use smol::prelude::*;
 use smol::Executor;
+use smol::{net::AsyncToSocketAddrs, Async};
 use socket2::{Domain, Socket, Type};
-use std::{convert::TryInto, net::SocketAddr};
+use std::{
+    convert::TryInto,
+    net::{SocketAddr, UdpSocket},
+};
 
 static USER_EXEC: OnceCell<&'static Executor> = OnceCell::new();
 
@@ -26,7 +29,7 @@ pub(crate) fn spawn<T: Send + 'static>(
 /// Create a new UDP socket that has a largeish buffer and isn't bound to anything.
 pub(crate) async fn new_udp_socket_bind(
     addr: impl AsyncToSocketAddrs,
-) -> std::io::Result<smol::net::UdpSocket> {
+) -> std::io::Result<Async<UdpSocket>> {
     let addr = smol::net::resolve(addr).await?[0];
     let socket = Socket::new(
         match addr {

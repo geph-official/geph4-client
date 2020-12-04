@@ -133,6 +133,7 @@ async fn init_session(
         target_loss: 0.01,
         send_frame: send_frame_out,
         recv_frame: recv_frame_in,
+        recv_timeout: Duration::from_secs(300),
     });
     session.on_drop(move || {
         drop(backhaul_tasks);
@@ -155,33 +156,40 @@ async fn client_backhaul_once(
     let dn_key = blake3::keyed_hash(crypt::DN_KEY, shared_sec.as_bytes());
     let dn_crypter = Arc::new(crypt::StdAEAD::new(dn_key.as_bytes()));
     let up_crypter = Arc::new(crypt::StdAEAD::new(up_key.as_bytes()));
-    let mut buf = [0u8; 2048];
 
     let mut last_remind = Instant::now();
     let mut last_reset = Instant::now();
     let mut updated = false;
-    let mut socket = runtime::new_udp_socket_bind(laddr_gen().ok()?).await.ok()?;
+    let mut socket: Arc<dyn Backhaul> =
+        Arc::new(runtime::new_udp_socket_bind(laddr_gen().ok()?).await.ok()?);
     // let mut _old_cleanup: Option<smol::Task<Option<()>>> = None;
 
     #[derive(Debug)]
     enum Evt {
-        Incoming(msg::DataFrame),
+        Incoming(Vec<msg::DataFrame>),
         Outgoing(Bytes),
     };
 
     loop {
-        let down_socket = socket.clone();
         let down = {
             let dn_crypter = dn_crypter.clone();
+            let socket = &socket;
             async move {
-                let (n, addr) = down_socket.recv_from(&mut buf).await.ok()?;
-                if let Some(plain) = dn_crypter.pad_decrypt::<msg::DataFrame>(&buf[..n]) {
-                    log::trace!("shard {} decrypted UDP message with len {}", shard_id, n);
-                    Some(Evt::Incoming(plain))
-                } else {
-                    log::warn!("anomalous UDP packet of len {} from {}", n, addr);
-                    smol::future::pending().await
+                let mut incoming = Vec::with_capacity(64);
+                for (buf, addr) in socket.recv_from_many().await.ok()? {
+                    if let Some(plain) = dn_crypter.pad_decrypt::<msg::DataFrame>(&buf) {
+                        log::trace!(
+                            "shard {} decrypted UDP message with len {}",
+                            shard_id,
+                            buf.len()
+                        );
+                        incoming.push(plain);
+                    } else {
+                        log::warn!("anomalous UDP packet of len {} from {}", buf.len(), addr);
+                        smol::future::pending().await
+                    }
                 }
+                Some(Evt::Incoming(incoming))
             }
         };
         let up_crypter = up_crypter.clone();
@@ -192,19 +200,15 @@ async fn client_backhaul_once(
         };
         match smol::future::race(down, up).await {
             Some(Evt::Incoming(df)) => {
-                send_frame_in.send(df).await.ok()?;
+                for df in df {
+                    send_frame_in.send(df).await.ok()?;
+                }
             }
             Some(Evt::Outgoing(bts)) => {
                 let now = Instant::now();
                 if now.saturating_duration_since(last_remind).as_millis() > REMIND_MILLIS
                     || !updated
                 {
-                    log::debug!(
-                        "REMIND {} to {} from {}...",
-                        shard_id,
-                        remote_addr,
-                        socket.local_addr().unwrap()
-                    );
                     last_remind = now;
                     updated = true;
                     let g_encrypt = crypt::StdAEAD::new(&cookie.generate_c2s().next().unwrap());
@@ -218,14 +222,14 @@ async fn client_backhaul_once(
                         let tata: smol::Task<Option<()>> = runtime::spawn(
                             async move {
                                 loop {
-                                    let (n, _) = old_socket.recv_from(&mut buf).await.ok()?;
+                                    let (buf, _) = old_socket.recv_from().await.ok()?;
                                     if let Some(plain) =
-                                        dn_crypter.pad_decrypt::<msg::DataFrame>(&buf[..n])
+                                        dn_crypter.pad_decrypt::<msg::DataFrame>(&buf)
                                     {
                                         log::trace!(
                                             "shard {} decrypted UDP message with len {}",
                                             shard_id,
-                                            n
+                                            buf.len()
                                         );
                                         drop(send_frame_in.send(plain).await)
                                     }
@@ -239,24 +243,18 @@ async fn client_backhaul_once(
                         tata.detach();
                         socket = loop {
                             match runtime::new_udp_socket_bind(laddr_gen().ok()?).await {
-                                Ok(sock) => break sock,
+                                Ok(sock) => break Arc::new(sock),
                                 Err(err) => {
                                     log::warn!("error rebinding: {}", err);
                                     smol::Timer::after(Duration::from_secs(1)).await;
                                 }
                             }
                         };
-                        log::debug!(
-                            "RESET {} to {} from {}...",
-                            shard_id,
-                            remote_addr,
-                            socket.local_addr().unwrap()
-                        );
                     }
                     drop(
                         socket
                             .send_to(
-                                &g_encrypt.pad_encrypt(
+                                g_encrypt.pad_encrypt(
                                     msg::HandshakeFrame::ClientResume {
                                         resume_token: resume_token.clone(),
                                         shard_id,
@@ -268,7 +266,7 @@ async fn client_backhaul_once(
                             .await,
                     );
                 }
-                drop(socket.send_to(&bts, remote_addr).await);
+                drop(socket.send_to(bts, remote_addr).await);
             }
             None => return None,
         }
