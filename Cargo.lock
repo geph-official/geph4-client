@@ -175,9 +175,9 @@ dependencies = [
 
 [[package]]
 name = "async-executor"
-version = "1.3.0"
+version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d373d78ded7d0b3fa8039375718cde0aace493f2e34fb60f51cbf567562ca801"
+checksum = "eb877970c7b440ead138f6321a3b5395d6061183af779340b65e20c0fede9146"
 dependencies = [
  "async-task",
  "concurrent-queue",
@@ -224,7 +224,7 @@ dependencies = [
  "httparse",
  "lazy_static",
  "log 0.4.11",
- "pin-project-lite",
+ "pin-project-lite 0.1.10",
 ]
 
 [[package]]
@@ -321,7 +321,7 @@ dependencies = [
  "memchr",
  "num_cpus",
  "once_cell",
- "pin-project-lite",
+ "pin-project-lite 0.1.10",
  "pin-utils",
  "slab",
  "wasm-bindgen-futures",
@@ -1149,6 +1149,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "flate2"
+version = "1.0.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7411863d55df97a419aa64cb4d2f167103ea9d767e2c54a1868b7ac3f6b47129"
+dependencies = [
+ "cfg-if 1.0.0",
+ "crc32fast",
+ "libc",
+ "miniz_oxide 0.4.3",
+]
+
+[[package]]
 name = "flexi_logger"
 version = "0.16.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1200,6 +1212,12 @@ dependencies = [
  "matches",
  "percent-encoding",
 ]
+
+[[package]]
+name = "fs_extra"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2022715d62ab30faffd124d40b76f4134a550a87792276512b18d63272333394"
 
 [[package]]
 name = "fuchsia-cprng"
@@ -1282,7 +1300,7 @@ dependencies = [
  "futures-io",
  "memchr",
  "parking",
- "pin-project-lite",
+ "pin-project-lite 0.1.10",
  "waker-fn",
 ]
 
@@ -1470,6 +1488,7 @@ version = "0.1.0"
 dependencies = [
  "aioutils",
  "anyhow",
+ "async-dup",
  "bincode",
  "binder_transport",
  "blake3",
@@ -1478,7 +1497,9 @@ dependencies = [
  "cidr",
  "ed25519-dalek",
  "env_logger 0.7.1",
+ "flate2",
  "hex",
+ "jemallocator",
  "libc",
  "log 0.4.11",
  "lru",
@@ -1489,6 +1510,7 @@ dependencies = [
  "parking_lot 0.11.1",
  "pnet_packet",
  "rand 0.7.3",
+ "rangemap",
  "scopeguard",
  "serde",
  "smol",
@@ -1498,6 +1520,7 @@ dependencies = [
  "statsd",
  "structopt",
  "tundevice",
+ "ureq",
  "vpn_structs",
  "x25519-dalek",
 ]
@@ -1688,7 +1711,7 @@ dependencies = [
  "cookie",
  "futures-lite",
  "infer",
- "pin-project-lite",
+ "pin-project-lite 0.1.10",
  "rand 0.7.3",
  "serde",
  "serde_json",
@@ -1784,6 +1807,27 @@ name = "itoa"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dc6f3ad7b9d11a0c00842ff8de1b60ee58661048eb8049ed33c73594f359d7e6"
+
+[[package]]
+name = "jemalloc-sys"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d3b9f3f5c9b31aa0f5ed3260385ac205db665baa41d49bb8338008ae94ede45"
+dependencies = [
+ "cc",
+ "fs_extra",
+ "libc",
+]
+
+[[package]]
+name = "jemallocator"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43ae63fcfc45e99ab3d1b29a46782ad679e98436c3169d15a167a1108a724b69"
+dependencies = [
+ "jemalloc-sys",
+ "libc",
+]
 
 [[package]]
 name = "js-sys"
@@ -2353,6 +2397,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e555d9e657502182ac97b539fb3dae8b79cda19e3e4f8ffb5e8de4f18df93c95"
 
 [[package]]
+name = "pin-project-lite"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b063f57ec186e6140e2b8b6921e5f1bd89c7356dda5b33acc5401203ca6131c"
+
+[[package]]
 name = "pin-utils"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2748,6 +2798,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97d13a3485349981c90c79112a11222c3e6e75de1d52b87a7525b3bf5361420f"
 
 [[package]]
+name = "rangemap"
+version = "0.1.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4174335dcaeee48b7d5b97969c9935f81c5f67ce25548e9b00b4d68a0da9e35f"
+
+[[package]]
 name = "rayon"
 version = "1.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2934,6 +2990,12 @@ name = "rustc-demangle"
 version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b2610b7f643d18c87dff3b489950269617e6601a51f1f05aa5daefee36f64f0b"
+
+[[package]]
+name = "rustc-hash"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "08d43f7aa6b08d49f382cde6a7982047c3426db949b1424bc4b7ec9ae12c6ce2"
 
 [[package]]
 name = "rustc-serialize"
@@ -3239,7 +3301,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "847d777e2c6c166bad26264479e80a9820f3d364fcb4a0e23cd57bbfa8e94961"
 dependencies = [
  "async-io",
- "pin-project-lite",
+ "pin-project-lite 0.1.10",
 ]
 
 [[package]]
@@ -3254,7 +3316,7 @@ dependencies = [
  "event-listener",
  "futures-lite",
  "once_cell",
- "pin-project-lite",
+ "pin-project-lite 0.1.10",
  "scopeguard",
  "slab",
 ]
@@ -3304,7 +3366,6 @@ dependencies = [
  "hex",
  "im",
  "indexmap",
- "log 0.4.11",
  "nix",
  "nonzero_ext",
  "num_cpus",
@@ -3314,6 +3375,7 @@ dependencies = [
  "probability",
  "rand 0.7.3",
  "reed-solomon-erasure",
+ "rustc-hash",
  "scopeguard",
  "serde",
  "smol",
@@ -3321,6 +3383,8 @@ dependencies = [
  "smolscale",
  "socket2",
  "socksv5",
+ "tracing",
+ "tracing-futures",
  "x25519-dalek",
 ]
 
@@ -3331,6 +3395,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "24a65e074159b75dcf173a4733ab2188baac24967b5c8ec9ed87ae15fcbc7636"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "spiderchan"
+version = "0.1.0"
+dependencies = [
+ "async-channel",
+ "async-executor",
+ "futures-lite",
+ "parking_lot 0.11.1",
 ]
 
 [[package]]
@@ -3716,7 +3790,7 @@ dependencies = [
  "memchr",
  "mio",
  "mio-uds",
- "pin-project-lite",
+ "pin-project-lite 0.1.10",
  "slab",
 ]
 
@@ -3735,7 +3809,7 @@ dependencies = [
  "parking_lot 0.11.1",
  "percent-encoding",
  "phf",
- "pin-project-lite",
+ "pin-project-lite 0.1.10",
  "postgres-protocol",
  "postgres-types",
  "tokio",
@@ -3762,8 +3836,51 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "log 0.4.11",
- "pin-project-lite",
+ "pin-project-lite 0.1.10",
  "tokio",
+]
+
+[[package]]
+name = "tracing"
+version = "0.1.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9f47026cdc4080c07e49b37087de021820269d996f581aac150ef9e5583eefe3"
+dependencies = [
+ "cfg-if 1.0.0",
+ "log 0.4.11",
+ "pin-project-lite 0.2.0",
+ "tracing-attributes",
+ "tracing-core",
+]
+
+[[package]]
+name = "tracing-attributes"
+version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "80e0ccfc3378da0cce270c946b676a376943f5cd16aeba64568e7939806f4ada"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "tracing-core"
+version = "0.1.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f50de3927f93d202783f4513cda820ab47ef17f624b03c096e86ef00c67e6b5f"
+dependencies = [
+ "lazy_static",
+]
+
+[[package]]
+name = "tracing-futures"
+version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab7bb6f14721aa00656086e9335d363c5c8747bae02ebe32ea2c7dece5689b4c"
+dependencies = [
+ "pin-project",
+ "tracing",
 ]
 
 [[package]]
@@ -3926,13 +4043,17 @@ dependencies = [
  "async-dup",
  "async-h1",
  "async-tls",
+ "bincode",
  "bytes 0.6.0",
  "dashmap 1.2.1",
  "http-types",
  "log 0.4.11",
  "parking_lot 0.11.1",
+ "serde",
  "smol",
+ "smol-timeout",
  "smolscale",
+ "spiderchan",
 ]
 
 [[package]]

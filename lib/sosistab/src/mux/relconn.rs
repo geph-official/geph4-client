@@ -55,7 +55,7 @@ impl RelConn {
             )
             .await
             {
-                log::debug!("relconn_actor died: {}", e)
+                tracing::debug!("relconn_actor died: {}", e)
             }
         });
         (
@@ -167,7 +167,7 @@ async fn relconn_actor(
         smol::future::yield_now().await;
         state = match state {
             SynReceived { stream_id } => {
-                log::trace!("C={} SynReceived, sending SYN-ACK", stream_id);
+                tracing::trace!("C={} SynReceived, sending SYN-ACK", stream_id);
                 // send a synack
                 transmit(Message::Rel {
                     kind: RelKind::SynAck,
@@ -187,7 +187,7 @@ async fn relconn_actor(
                 result,
             } => {
                 let wait_interval = 500u64 * 2u64.pow(tries as u32);
-                log::debug!("C={} SynSent, tried {} times", stream_id, tries);
+                tracing::debug!("C={} SynSent, tried {} times", stream_id, tries);
                 if tries > 5 {
                     anyhow::bail!("timeout")
                 }
@@ -206,14 +206,14 @@ async fn relconn_actor(
                     })
                     .await?;
                 if success {
-                    log::trace!("C={} SynSent got SYN-ACK", stream_id);
+                    tracing::trace!("C={} SynSent got SYN-ACK", stream_id);
                     result.send(()).await?;
                     SteadyState {
                         stream_id,
                         conn_vars: Box::new(ConnVars::default()),
                     }
                 } else {
-                    log::trace!("C={} SynSent timed out", stream_id);
+                    tracing::trace!("C={} SynSent timed out", stream_id);
                     transmit(Message::Rel {
                         kind: RelKind::Syn,
                         stream_id,
@@ -365,7 +365,7 @@ async fn relconn_actor(
                         seqno,
                         ..
                     })) => {
-                        log::trace!("new ACK pkt with {} seqnos", payload.len() / 2);
+                        tracing::trace!("new ACK pkt with {} seqnos", payload.len() / 2);
                         for seqno in
                             bincode::deserialize::<BTreeSet<Seqno>>(&payload).unwrap_or_default()
                         {
@@ -393,7 +393,7 @@ async fn relconn_actor(
                         payload,
                         stream_id,
                     })) => {
-                        log::trace!("new data pkt with seqno={}", seqno);
+                        tracing::trace!("new data pkt with seqno={}", seqno);
                         if conn_vars.delayed_ack_timer.is_none() {
                             conn_vars.delayed_ack_timer =
                                 Instant::now().checked_add(Duration::from_millis(5));
@@ -461,7 +461,7 @@ async fn relconn_actor(
                         }
                     }
                     err => {
-                        log::trace!("forced to RESET due to {:?}", err);
+                        tracing::trace!("forced to RESET due to {:?}", err);
                         Reset {
                             stream_id,
                             death: smol::Timer::after(Duration::from_secs(MAX_WAIT_SECS)),
@@ -474,7 +474,7 @@ async fn relconn_actor(
                 mut death,
             } => {
                 drop(send_read.close().await);
-                log::trace!("C={} RESET", stream_id);
+                tracing::trace!("C={} RESET", stream_id);
                 transmit(Message::Rel {
                     kind: RelKind::Rst,
                     stream_id,
@@ -515,7 +515,7 @@ impl RelConnBack {
     pub fn process(&self, input: Message) {
         let res = self.send_wire_read.try_send(input);
         if let Err(e) = res {
-            log::trace!("relconn failed to accept pkt: {}", e)
+            tracing::trace!("relconn failed to accept pkt: {}", e)
         }
     }
 }

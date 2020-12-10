@@ -1,4 +1,10 @@
-use std::{collections::HashSet, net::Ipv4Addr, ops::Deref, sync::Arc, time::Duration};
+use std::{
+    collections::HashSet,
+    net::{Ipv4Addr, SocketAddr},
+    ops::Deref,
+    sync::Arc,
+    time::Duration,
+};
 
 use bytes::Bytes;
 use cidr::{Cidr, Ipv4Cidr};
@@ -17,7 +23,7 @@ use tundevice::TunDevice;
 use vpn_structs::Message;
 
 /// Runs the transparent proxy helper
-pub async fn transparent_proxy_helper() -> anyhow::Result<()> {
+pub async fn transparent_proxy_helper(google_proxy: Option<SocketAddr>) -> anyhow::Result<()> {
     // always run on port 10000
     let listener = smol::net::TcpListener::bind("0.0.0.0:10000").await.unwrap();
     loop {
@@ -25,7 +31,7 @@ pub async fn transparent_proxy_helper() -> anyhow::Result<()> {
         smolscale::spawn(async move {
             client.set_nodelay(true).ok()?;
             let client_fd = client.as_raw_fd();
-            let original_dest = unsafe {
+            let addr = unsafe {
                 let raw_addr = OsSocketAddr::new();
                 if libc::getsockopt(
                     client_fd,
@@ -46,14 +52,30 @@ pub async fn transparent_proxy_helper() -> anyhow::Result<()> {
                     return None;
                 }
             };
-            let remote = smol::net::TcpStream::connect(original_dest)
+            log::debug!("helper got destination {}", addr);
+            if addr.port() == 10000 {
+                return None;
+            }
+
+            let asn = crate::asn::get_asn(addr.ip());
+            let to_conn = if let Some(proxy) = google_proxy {
+                if addr.port() == 443 && asn == crate::asn::GOOGLE_ASN {
+                    proxy
+                } else {
+                    addr
+                }
+            } else {
+                addr
+            };
+
+            let remote = smol::net::TcpStream::connect(to_conn)
                 .timeout(Duration::from_secs(60))
                 .await?
                 .ok()?;
             remote.set_nodelay(true).ok()?;
             smol::future::race(
                 aioutils::copy_with_stats(remote.clone(), client.clone(), |_| ()),
-                aioutils::copy_with_stats(client.clone(), remote.clone(), |_| ()),
+                aioutils::copy_with_stats(client, remote, |_| ()),
             )
             .await
             .ok()?;

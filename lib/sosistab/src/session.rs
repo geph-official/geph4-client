@@ -5,12 +5,16 @@ use crate::{
     VarRateLimit,
 };
 use bytes::Bytes;
+use parking_lot::Mutex;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
-use std::sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     time::Instant,
+};
+use std::{
+    sync::atomic::{AtomicU32, AtomicU64, AtomicU8, Ordering},
+    time::SystemTime,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -46,7 +50,7 @@ impl Session {
     /// Creates a tuple of a Session and also a channel with which stuff is fed into the session.
     pub(crate) fn new(cfg: SessionConfig) -> Self {
         let (send_tosend, recv_tosend) = smol::channel::bounded(50);
-        let (send_input, recv_input) = smol::channel::bounded(50);
+        let (send_input, recv_input) = smol::channel::bounded(500);
         let (s, r) = smol::channel::unbounded();
         let rate_limit = Arc::new(AtomicU32::new(100000));
         let recv_timeout = cfg.recv_timeout;
@@ -76,7 +80,7 @@ impl Session {
     /// Takes a Bytes to be sent and stuffs it into the session.
     pub async fn send_bytes(&self, to_send: Bytes) {
         if self.send_tosend.try_send(to_send).is_err() {
-            log::trace!("overflowed send buffer at session!");
+            tracing::trace!("overflowed send buffer at session!");
         }
         // drop(self.send_tosend.send(to_send).await)
     }
@@ -110,6 +114,7 @@ pub struct SessionStats {
     pub ping: Duration,
 }
 
+#[tracing::instrument]
 async fn session_loop(
     cfg: SessionConfig,
     recv_tosend: Receiver<Bytes>,
@@ -124,6 +129,9 @@ async fn session_loop(
     let shaper = smol::lock::Mutex::new(VarRateLimit::new());
     let pinger = smol::lock::Mutex::new(PingCalc::default());
 
+    // SystemTime is immune to bizarre sleep-induced timer skews on Android. We use this to detect missed timeouts when we try to send a packet.
+    let last_send = Mutex::new(SystemTime::now());
+
     // sending loop
     let send_task = session_send_loop(
         cfg.clone(),
@@ -134,6 +142,8 @@ async fn session_loop(
         total_recv_frames.clone(),
         &shaper,
         &pinger,
+        &last_send,
+        recv_timeout,
     );
     let recv_task = session_recv_loop(
         cfg,
@@ -143,12 +153,16 @@ async fn session_loop(
         high_recv_frame_no,
         total_recv_frames,
         &pinger,
+        &last_send,
         recv_timeout,
     );
+
+    // we don't spawn new tasks. This ensures that mutexes etc never actually have contention!
     smol::future::race(send_task, recv_task).await;
 }
 
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument(skip(shaper))]
 async fn session_send_loop(
     cfg: SessionConfig,
     rate_limit: Arc<AtomicU32>,
@@ -158,6 +172,8 @@ async fn session_send_loop(
     total_recv_frames: Arc<AtomicU64>,
     shaper: &smol::lock::Mutex<VarRateLimit>,
     pinger: &smol::lock::Mutex<PingCalc>,
+    last_recv: &Mutex<SystemTime>,
+    recv_timeout: Duration,
 ) -> Option<()> {
     fn get_timeout(loss: u8) -> Duration {
         let loss = loss as u64;
@@ -174,6 +190,7 @@ async fn session_send_loop(
     let mut run_no = 0u64;
     let mut to_send = Vec::new();
     let mut abs_timeout = smol::Timer::after(get_timeout(measured_loss.load(Ordering::Relaxed)));
+
     loop {
         // obtain a vector of bytes to send
         let to_send = {
@@ -196,12 +213,19 @@ async fn session_send_loop(
                 }
             }
         };
+        let now = SystemTime::now();
+        if let Ok(elapsed) = now.duration_since(*last_recv.lock()) {
+            if elapsed > recv_timeout {
+                tracing::warn!("skew-induced timeout detected. killing session now");
+                return None;
+            }
+        }
         // encode into raptor
         let encoded = FrameEncoder::new(loss_to_u8(cfg.target_loss))
             .encode(measured_loss.load(Ordering::Relaxed), &to_send);
         for (idx, bts) in encoded.iter().enumerate() {
             if frame_no % 1000 == 0 {
-                log::debug!(
+                tracing::debug!(
                     "frame {}, measured loss {}",
                     frame_no,
                     measured_loss.load(Ordering::Relaxed)
@@ -234,6 +258,7 @@ async fn session_send_loop(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[tracing::instrument]
 async fn session_recv_loop(
     cfg: SessionConfig,
     send_input: Sender<Bytes>,
@@ -242,6 +267,7 @@ async fn session_recv_loop(
     high_recv_frame_no: Arc<AtomicU64>,
     total_recv_frames: Arc<AtomicU64>,
     pinger: &smol::lock::Mutex<PingCalc>,
+    last_recv: &Mutex<SystemTime>,
     recv_timeout: Duration,
 ) -> Option<()> {
     let decoder = smol::lock::RwLock::new(RunDecoder::default());
@@ -256,12 +282,18 @@ async fn session_recv_loop(
             let new_frame = async { cfg.recv_frame.recv().await.ok() }
                 .or(async {
                     timer_ref.await;
+                    tracing::warn!(
+                        "session timeout! nominal timeout {:?}, actual timeout {:?}",
+                        recv_timeout,
+                        last_recv.lock().elapsed()
+                    );
                     None
                 })
                 .await?;
+            *last_recv.lock() = SystemTime::now();
             timer.set_after(recv_timeout);
             if !rp_filter.add(new_frame.frame_no) {
-                log::trace!(
+                tracing::trace!(
                     "recv_loop: replay filter dropping frame {}",
                     new_frame.frame_no
                 );
@@ -287,7 +319,7 @@ async fn session_recv_loop(
                 &new_frame.body,
             ) {
                 for item in output {
-                    let _ = send_input.send(item).await;
+                    let _ = send_input.try_send(item);
                 }
             }
         }
@@ -443,7 +475,7 @@ impl LossCalculator {
         {
             let delta_top = top_seqno.saturating_sub(self.last_top_seqno) as f64;
             let delta_total = total_seqno.saturating_sub(self.last_total_seqno) as f64;
-            log::debug!(
+            tracing::debug!(
                 "updating loss calculator with {}/{}",
                 delta_total,
                 delta_top

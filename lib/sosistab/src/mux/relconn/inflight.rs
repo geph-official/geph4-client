@@ -112,7 +112,6 @@ impl Inflight {
                                 self.rate.record_sample(rate_sample)
                             }
                         }
-                        seg.payload.clear_payload();
 
                         self.rtt.record_sample(if seg.retrans == 0 {
                             Some(now.saturating_duration_since(seg.send_time))

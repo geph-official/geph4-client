@@ -1,6 +1,6 @@
 use bytes::Bytes;
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 /// A sequence number.
 pub type Seqno = u64;
@@ -17,16 +17,6 @@ pub enum Message {
     },
 }
 
-impl Message {
-    /// clears the payload, freeing memory sooner rather than later
-    pub fn clear_payload(&mut self) {
-        match self {
-            Message::Urel(b) => *b = Bytes::new(),
-            Message::Rel { payload, .. } => *payload = Bytes::new(),
-        }
-    }
-}
-
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]
 pub enum RelKind {
     Syn,
@@ -40,14 +30,14 @@ pub enum RelKind {
 
 #[derive(Clone)]
 pub struct Reorderer<T: Clone> {
-    pkts: BTreeMap<Seqno, T>,
+    pkts: FxHashMap<Seqno, T>,
     min: Seqno,
 }
 
 impl<T: Clone> Default for Reorderer<T> {
     fn default() -> Self {
         Reorderer {
-            pkts: BTreeMap::new(),
+            pkts: FxHashMap::default(),
             min: 0,
         }
     }
@@ -56,12 +46,12 @@ impl<T: Clone> Reorderer<T> {
     pub fn insert(&mut self, seq: Seqno, item: T) -> bool {
         if seq >= self.min && seq <= self.min + 20000 {
             if self.pkts.insert(seq, item).is_some() {
-                log::trace!("spurious retransmission of {} received", seq);
+                tracing::trace!("spurious retransmission of {} received", seq);
             }
             // self.pkts.insert(seq, item);
             true
         } else {
-            log::trace!("rejecting (seq={}, min={})", seq, self.min);
+            tracing::trace!("rejecting (seq={}, min={})", seq, self.min);
             false
         }
     }

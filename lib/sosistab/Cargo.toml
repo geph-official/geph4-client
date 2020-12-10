@@ -24,7 +24,6 @@ event-listener= "2.5.1"
 parking_lot= "0.11.0"
 governor= "0.3.1"
 probability= "0.17.0"
-log= "0.4.11"
 priority-queue= "1.0.2"
 async-dup= "1.2.2"
 once_cell = "1.4.1"
@@ -44,6 +43,9 @@ hex= "0.4.2"
 env_logger= "0.8.1"
 futures-timer="3"
 nonzero_ext="0.2"
+tracing-futures="0.2"
+tracing={version="0.1", features=["log"]}
+rustc-hash="1"
 
 [target.'cfg(unix)'.dependencies]
 nix="0.19"

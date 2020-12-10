@@ -11,6 +11,7 @@ members = [
     "lib/vpn_structs",
     "lib/sosistab",
     "lib/warpfront",
+    "lib/spiderchan",
     "geph4-vpn-helper",
     "geph4-client",
     "geph4-bridge"

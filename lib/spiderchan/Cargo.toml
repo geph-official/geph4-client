@@ -1,0 +1,13 @@
+[package]
+name = "spiderchan"
+version = "0.1.0"
+authors = ["nullchinchilla <nullchinchilla@pm.me>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+async-channel="1.5"
+async-executor="1.4"
+parking_lot="0.11"
+futures-lite="1"

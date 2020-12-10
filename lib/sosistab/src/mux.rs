@@ -39,7 +39,7 @@ impl Multiplex {
                 conn_accept_send,
             )
             .await;
-            log::debug!("multiplex actor returned {:?}", retval);
+            tracing::debug!("multiplex actor returned {:?}", retval);
         });
         Multiplex {
             urel_send,
@@ -52,11 +52,13 @@ impl Multiplex {
     }
 
     /// Sends an unreliable message to the other side
+    #[tracing::instrument(skip(self))]
     pub async fn send_urel(&self, msg: Bytes) -> std::io::Result<()> {
         self.urel_send.send(msg).await.map_err(to_ioerror)
     }
 
     /// Receive an unreliable message
+    #[tracing::instrument(skip(self))]
     pub async fn recv_urel(&self) -> std::io::Result<Bytes> {
         self.urel_recv.recv().await.map_err(to_ioerror)
     }

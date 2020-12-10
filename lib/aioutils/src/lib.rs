@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use serde::{de::DeserializeOwned, Serialize};
 use smol::prelude::*;
-use smol_timeout::TimeoutExt;
 
 /// Reads a bincode-deserializable value with a 16bbe length
 pub async fn read_pascalish<T: DeserializeOwned>(
@@ -40,38 +39,43 @@ pub async fn copy_with_stats(
     mut writer: impl AsyncWrite + Unpin,
     mut on_write: impl FnMut(usize),
 ) -> std::io::Result<()> {
-    let mut buffer = vec![0u8; 1024];
+    let mut buffer = [0u8; 8192];
+    let mut timeout = smol::Timer::after(Duration::from_secs(600));
     loop {
         // first read into the small buffer
-        let n = {
-            if buffer.len() == 1024 {
-                reader
-                    .read(&mut buffer)
-                    .timeout(Duration::from_secs(1200))
-                    .await
-                    .ok_or_else(|| {
-                        std::io::Error::new(std::io::ErrorKind::TimedOut, "timed out")
-                    })??
-            } else if let Some(n) = reader
-                .read(&mut buffer)
-                .timeout(Duration::from_secs(10))
-                .await
-            {
-                n?
-            } else {
-                // shrink the buffer
-                buffer = vec![0u8; 1024];
-                continue;
-            }
-        };
+        let n = reader
+            .read(&mut buffer)
+            .or(async {
+                (&mut timeout).await;
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "copy_with_stats timeout",
+                ))
+            })
+            .await?;
+        if n == 0 {
+            return Ok(());
+        }
+        timeout.set_after(Duration::from_secs(600));
+        on_write(n);
+        writer.write_all(&buffer[..n]).await?;
+    }
+}
+
+/// Copies an Read to an Write, with a callback for every write.
+pub fn copy_with_stats_sync(
+    mut reader: impl std::io::Read,
+    mut writer: impl std::io::Write,
+    mut on_write: impl FnMut(usize),
+) -> std::io::Result<()> {
+    let mut buffer = [0u8; 8192];
+    loop {
+        // first read into the small buffer
+        let n = reader.read(&mut buffer)?;
         if n == 0 {
             return Ok(());
         }
         on_write(n);
-        writer.write_all(&buffer[..n]).await?;
-        if buffer.len() < 64 * 1024 {
-            // grow buffer
-            buffer.extend((0..1024).map(|_| 0u8));
-        }
+        writer.write_all(&buffer[..n])?;
     }
 }

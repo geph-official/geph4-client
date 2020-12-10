@@ -61,7 +61,7 @@ impl TunDevice {
                         .try_send(Bytes::copy_from_slice(&buf[..n]))
                         .is_err()
                     {
-                        log::warn!("overflowing tundevice")
+                        log::warn!("overflowing tundevice ({:?})", &buf[..n])
                     }
                 }
                 Some(())

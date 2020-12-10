@@ -35,6 +35,7 @@ impl VarRateLimit {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn wait(&mut self, speed: u32) {
         self.timer.set_at(self.next_time);
         (&mut self.timer).await;

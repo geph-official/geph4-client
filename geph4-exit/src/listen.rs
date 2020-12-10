@@ -32,6 +32,8 @@ struct RootCtx {
     free_limit: u32,
     port_whitelist: bool,
 
+    google_proxy: Option<SocketAddr>,
+
     nursery: smolscale::NurseryHandle,
 }
 
@@ -66,6 +68,7 @@ pub async fn main_loop<'a>(
     signing_sk: ed25519_dalek::Keypair,
     sosistab_sk: x25519_dalek::StaticSecret,
     free_limit: u32,
+    google_proxy: Option<SocketAddr>,
     port_whitelist: bool,
 ) -> anyhow::Result<()> {
     let nursery = smolscale::Nursery::new();
@@ -80,6 +83,7 @@ pub async fn main_loop<'a>(
         conn_count: AtomicUsize::new(0),
         free_limit,
         port_whitelist,
+        google_proxy,
         nursery: nursery.handle(),
     });
     // control protocol listener
@@ -289,6 +293,7 @@ async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
                     root.exit_hostname.clone(),
                     root.port_whitelist,
                     stream,
+                    root.google_proxy,
                 )
                 .await
             });
@@ -341,14 +346,39 @@ async fn handle_proxy_stream(
     exit_hostname: String,
     port_whitelist: bool,
     mut client: sosistab::mux::RelConn,
+    google_proxy: Option<SocketAddr>,
 ) -> anyhow::Result<()> {
     // read proxy request
     let to_prox: String = match client.additional_info() {
         Some(s) => s.to_string(),
         None => aioutils::read_pascalish(&mut client).await?,
     };
-    log::debug!("proxying {}", to_prox);
-    let remote = smol::net::TcpStream::connect(&to_prox)
+    let addr = smol::net::resolve(&to_prox)
+        .await?
+        .first()
+        .cloned()
+        .ok_or_else(|| anyhow::anyhow!("dns failed"))?;
+    let asn = crate::asn::get_asn(addr.ip());
+    log::debug!("proxying {} ({}, AS{})", to_prox, addr, asn);
+
+    if crate::lists::BLACK_PORTS.contains(&addr.port()) {
+        anyhow::bail!("port blacklisted")
+    }
+    if port_whitelist && !crate::lists::WHITE_PORTS.contains(&addr.port()) {
+        anyhow::bail!("port not whitelisted")
+    }
+
+    // what should we connect to depends on whether or not it's google
+    let to_conn = if let Some(proxy) = google_proxy {
+        if addr.port() == 443 && asn == crate::asn::GOOGLE_ASN {
+            proxy
+        } else {
+            addr
+        }
+    } else {
+        addr
+    };
+    let remote = smol::net::TcpStream::connect(&to_conn)
         .or(async {
             smol::Timer::after(Duration::from_secs(10)).await;
             Err(std::io::Error::new(
@@ -364,12 +394,6 @@ async fn handle_proxy_stream(
                 anyhow::bail!("attempted a connection to a non-global IP address")
             }
         }
-    }
-    if crate::lists::BLACK_PORTS.contains(&remote.peer_addr()?.port()) {
-        anyhow::bail!("port blacklisted")
-    }
-    if port_whitelist && !crate::lists::WHITE_PORTS.contains(&remote.peer_addr()?.port()) {
-        anyhow::bail!("port not whitelisted")
     }
 
     remote.set_nodelay(true)?;

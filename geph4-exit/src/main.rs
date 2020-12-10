@@ -3,9 +3,11 @@ use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
 use cap::Cap;
 use env_logger::Env;
+use jemallocator::Jemalloc;
 use std::os::unix::fs::PermissionsExt;
 use structopt::StructOpt;
 
+mod asn;
 mod listen;
 mod lists;
 mod vpn;
@@ -46,17 +48,21 @@ struct Opt {
     /// Whether or not to use port whitelist.
     #[structopt(long)]
     port_whitelist: bool,
+
+    /// Google proxy server to redirect all port 443 Google requests to.
+    #[structopt(long)]
+    google_proxy: Option<SocketAddr>,
 }
 
 #[global_allocator]
-pub static ALLOCATOR: Cap<std::alloc::System> = Cap::new(std::alloc::System, usize::max_value());
+pub static ALLOCATOR: Cap<Jemalloc> = Cap::new(Jemalloc, usize::max_value());
 
 fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let stat_client = statsd::Client::new(opt.statsd_addr, "geph4")?;
     env_logger::from_env(Env::default().default_filter_or("geph4_exit=debug,warn")).init();
     smol::future::block_on(smolscale::spawn(async move {
-        smolscale::spawn(vpn::transparent_proxy_helper()).detach();
+        smolscale::spawn(vpn::transparent_proxy_helper(opt.google_proxy)).detach();
         log::info!("geph4-exit starting...");
         // read or generate key
         let signing_sk = {
@@ -122,6 +128,7 @@ fn main() -> anyhow::Result<()> {
             signing_sk,
             sosistab_sk,
             opt.free_limit,
+            opt.google_proxy,
             opt.port_whitelist,
         )
         .await?;

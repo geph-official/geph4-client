@@ -17,6 +17,7 @@ pub struct FrameEncoder {
 
 impl FrameEncoder {
     /// Creates a new Encoder at the given loss level.
+    #[tracing::instrument]
     pub fn new(target_loss: u8) -> Self {
         FrameEncoder {
             rate_table: HashMap::new(),
@@ -26,6 +27,7 @@ impl FrameEncoder {
     }
 
     /// Encodes a slice of packets into more packets.
+    #[tracing::instrument]
     pub fn encode(&mut self, measured_loss: u8, pkts: &[Bytes]) -> Vec<Bytes> {
         // max length
         let max_length = pkts.iter().map(|v| v.len()).max().unwrap();
@@ -42,7 +44,7 @@ impl FrameEncoder {
         for r in parity_shard_space.iter_mut() {
             padded_pkts.push(r);
         }
-        log::debug!(
+        tracing::trace!(
             "{:.1}% => {}/{}",
             measured_loss as f64 / 256.0,
             data_shards,
@@ -89,6 +91,7 @@ impl FrameEncoder {
 }
 
 /// A single-use FEC decoder.
+#[derive(Debug)]
 pub struct FrameDecoder {
     data_shards: usize,
     parity_shards: usize,
@@ -100,7 +103,7 @@ pub struct FrameDecoder {
 }
 
 static DECODER_CACHE: Lazy<[[Option<Arc<galois_8::ReedSolomon>>; 32]; 32]> = Lazy::new(|| {
-    log::warn!("initializing decoder cache");
+    tracing::warn!("initializing decoder cache");
     (1..=32)
         .map(|i| {
             let vv: Vec<_> = (1..=32)
@@ -124,8 +127,9 @@ fn new_rs_decoder(data_shards: usize, parity_shards: usize) -> Arc<galois_8::Ree
 }
 
 impl FrameDecoder {
+    #[tracing::instrument]
     pub fn new(data_shards: usize, parity_shards: usize) -> Self {
-        log::debug!("decoding with {}/{}", data_shards, parity_shards);
+        tracing::trace!("decoding with {}/{}", data_shards, parity_shards);
         FrameDecoder {
             data_shards,
             parity_shards,
@@ -157,6 +161,7 @@ impl FrameDecoder {
         self.data_shards - self.good_pkts()
     }
 
+    #[tracing::instrument]
     pub fn decode(&mut self, pkt: &[u8], pkt_idx: usize) -> Option<Vec<Bytes>> {
         // if we don't have parity shards, don't touch anything
         if self.parity_shards == 0 {
@@ -164,7 +169,7 @@ impl FrameDecoder {
             return Some(vec![post_decode(Bytes::copy_from_slice(pkt))?]);
         }
         if self.space.is_empty() {
-            log::trace!("decode with pad len {}", pkt.len());
+            tracing::trace!("decode with pad len {}", pkt.len());
             self.space = vec![vec![0u8; pkt.len()]; self.data_shards + self.parity_shards]
         }
         if self.done || pkt_idx > self.space.len() || pkt_idx > self.present.len() {
@@ -183,7 +188,7 @@ impl FrameDecoder {
             ))?]);
         }
         if self.present_count < self.data_shards {
-            log::trace!("don't even attempt yet");
+            tracing::trace!("don't even attempt yet");
             return None;
         }
         let mut ref_vec: Vec<(&mut [u8], bool)> = self
@@ -193,7 +198,7 @@ impl FrameDecoder {
             .map(|(v, pres)| (v.as_mut(), *pres))
             .collect();
         // otherwise, attempt to reconstruct
-        log::trace!(
+        tracing::trace!(
             "attempting to reconstruct (data={}, parity={})",
             self.data_shards,
             self.parity_shards
@@ -220,7 +225,7 @@ impl FrameDecoder {
 fn pre_encode(pkt: &[u8], len: usize) -> BytesMut {
     assert!(pkt.len() <= 65535);
     assert!(pkt.len() + 2 <= len);
-    log::trace!("pre-encoding pkt with len {} => {}", pkt.len(), len);
+    tracing::trace!("pre-encoding pkt with len {} => {}", pkt.len(), len);
     let hdr = (pkt.len() as u16).to_le_bytes();
     let mut bts = BytesMut::with_capacity(len);
     bts.extend_from_slice(&hdr);

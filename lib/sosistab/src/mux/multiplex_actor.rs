@@ -30,7 +30,7 @@ pub async fn multiplex(
                 match msg {
                     // unreliable
                     Message::Urel(bts) => {
-                        log::trace!("urel recv {}B", bts.len());
+                        tracing::trace!("urel recv {}B", bts.len());
                         drop(urel_recv_send.try_send(bts));
                     }
                     // connection opening
@@ -41,7 +41,7 @@ pub async fn multiplex(
                         ..
                     } => {
                         if conn_tab.get_stream(stream_id).is_some() {
-                            log::trace!("syn recv {} REACCEPT", stream_id);
+                            tracing::trace!("syn recv {} REACCEPT", stream_id);
                             session
                                 .send_bytes(
                                     bincode::serialize(&Message::Rel {
@@ -56,7 +56,7 @@ pub async fn multiplex(
                                 .await;
                         } else {
                             let dead_send = dead_send.clone();
-                            log::trace!("syn recv {} ACCEPT", stream_id);
+                            tracing::trace!("syn recv {} ACCEPT", stream_id);
                             let lala = String::from_utf8_lossy(&payload).to_string();
                             let additional_info = if &lala == "" { None } else { Some(lala) };
                             let (new_conn, new_conn_back) = RelConn::new(
@@ -77,10 +77,10 @@ pub async fn multiplex(
                         stream_id, kind, ..
                     } => {
                         if let Some(handle) = conn_tab.get_stream(stream_id) {
-                            log::trace!("handing over {:?} to {}", kind, stream_id);
+                            tracing::trace!("handing over {:?} to {}", kind, stream_id);
                             handle.process(msg)
                         } else {
-                            log::trace!("discarding {:?} to nonexistent {}", kind, stream_id);
+                            tracing::trace!("discarding {:?} to nonexistent {}", kind, stream_id);
                             if kind != RelKind::Rst {
                                 session
                                     .send_bytes(
@@ -112,7 +112,7 @@ pub async fn multiplex(
         // fires on a new unreliable sending request
         let urel_send_evt = async {
             let to_send = urel_send_recv.recv().await?;
-            log::trace!("urel send {}B", to_send.len());
+            tracing::trace!("urel send {}B", to_send.len());
             glob_send.send(Message::Urel(to_send)).await?;
             Ok::<(), anyhow::Error>(())
         };
@@ -151,7 +151,7 @@ pub async fn multiplex(
                         return;
                     }
                 };
-                log::trace!("conn open send {}", stream_id);
+                tracing::trace!("conn open send {}", stream_id);
                 drop(
                     glob_send
                         .send(Message::Rel {
@@ -171,7 +171,7 @@ pub async fn multiplex(
         // dead stuff
         let dead_evt = async {
             let lala = dead_recv.recv().await?;
-            log::debug!("removing stream {} from table", lala);
+            tracing::debug!("removing stream {} from table", lala);
             conn_tab.del_stream(lala);
             Ok(())
         };
@@ -204,13 +204,13 @@ impl ConnTable {
 
     fn find_id(&self) -> Option<u16> {
         if self.sid_to_stream.len() >= 65535 {
-            log::warn!("ran out of descriptors ({})", self.sid_to_stream.len());
+            tracing::warn!("ran out of descriptors ({})", self.sid_to_stream.len());
             return None;
         }
         loop {
             let possible_id: u16 = rand::thread_rng().gen();
             if self.sid_to_stream.get(&possible_id).is_none() {
-                log::debug!(
+                tracing::debug!(
                     "found id {} out of {}",
                     possible_id,
                     self.sid_to_stream.len()

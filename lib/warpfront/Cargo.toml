@@ -17,6 +17,10 @@ parking_lot="0.11"
 async-dup="1.2"
 smolscale={path="../smolscale"}
 log= "0.4.11"
+smol-timeout="0.6"
+bincode="1"
+serde={version="1", features=["derive"]}
+spiderchan={path="../spiderchan"}
 
 [dependencies.async-tls]
 version = "0.10"

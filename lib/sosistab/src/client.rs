@@ -9,6 +9,7 @@ use std::{
 };
 
 /// Connects to a remote server.
+#[tracing::instrument]
 pub async fn connect(
     server_addr: SocketAddr,
     pubkey: x25519_dalek::PublicKey,
@@ -21,6 +22,7 @@ pub async fn connect(
 }
 
 /// Connects to a remote server, given a closure that generates socket addresses.
+#[tracing::instrument(skip(laddr_gen))]
 pub async fn connect_custom(
     server_addr: SocketAddr,
     pubkey: x25519_dalek::PublicKey,
@@ -42,7 +44,7 @@ pub async fn connect_custom(
         let init_hello = crypt::StdAEAD::new(&cookie.generate_c2s().next().unwrap())
             .pad_encrypt(&init_hello, 1000);
         udp_socket.send_to(&init_hello, server_addr).await?;
-        log::trace!("sent client hello");
+        tracing::trace!("sent client hello");
         // wait for response
         let res = udp_socket
             .recv_from(&mut buf)
@@ -66,7 +68,7 @@ pub async fn connect_custom(
                         resume_token,
                     }) = response
                     {
-                        log::trace!("obtained response from server");
+                        tracing::trace!("obtained response from server");
                         if long_pk.as_bytes() != pubkey.as_bytes() {
                             return Err(std::io::Error::new(
                                 std::io::ErrorKind::ConnectionRefused,
@@ -88,7 +90,7 @@ pub async fn connect_custom(
             }
             Err(err) => {
                 if err.kind() == std::io::ErrorKind::TimedOut {
-                    log::trace!(
+                    tracing::trace!(
                         "timed out to {} with {}s timeout; trying again",
                         server_addr,
                         timeout_factor
@@ -106,6 +108,7 @@ const SHARDS: u8 = 4;
 const RESET_MILLIS: u128 = 5000;
 const REMIND_MILLIS: u128 = 1000;
 
+#[tracing::instrument(skip(laddr_gen))]
 async fn init_session(
     cookie: crypt::Cookie,
     resume_token: Bytes,
@@ -142,6 +145,7 @@ async fn init_session(
 }
 
 #[allow(clippy::all)]
+#[tracing::instrument(skip(laddr_gen))]
 async fn client_backhaul_once(
     cookie: crypt::Cookie,
     resume_token: Bytes,
@@ -178,14 +182,14 @@ async fn client_backhaul_once(
                 let mut incoming = Vec::with_capacity(64);
                 for (buf, addr) in socket.recv_from_many().await.ok()? {
                     if let Some(plain) = dn_crypter.pad_decrypt::<msg::DataFrame>(&buf) {
-                        log::trace!(
+                        tracing::trace!(
                             "shard {} decrypted UDP message with len {}",
                             shard_id,
                             buf.len()
                         );
                         incoming.push(plain);
                     } else {
-                        log::warn!("anomalous UDP packet of len {} from {}", buf.len(), addr);
+                        tracing::warn!("anomalous UDP packet of len {} from {}", buf.len(), addr);
                         smol::future::pending().await
                     }
                 }
@@ -198,6 +202,7 @@ async fn client_backhaul_once(
             let encrypted = up_crypter.pad_encrypt(df, 1000);
             Some(Evt::Outgoing(encrypted))
         };
+
         match smol::future::race(down, up).await {
             Some(Evt::Incoming(df)) => {
                 for df in df {
@@ -226,7 +231,7 @@ async fn client_backhaul_once(
                                     if let Some(plain) =
                                         dn_crypter.pad_decrypt::<msg::DataFrame>(&buf)
                                     {
-                                        log::trace!(
+                                        tracing::trace!(
                                             "shard {} decrypted UDP message with len {}",
                                             shard_id,
                                             buf.len()
@@ -245,7 +250,7 @@ async fn client_backhaul_once(
                             match runtime::new_udp_socket_bind(laddr_gen().ok()?).await {
                                 Ok(sock) => break Arc::new(sock),
                                 Err(err) => {
-                                    log::warn!("error rebinding: {}", err);
+                                    tracing::warn!("error rebinding: {}", err);
                                     smol::Timer::after(Duration::from_secs(1)).await;
                                 }
                             }

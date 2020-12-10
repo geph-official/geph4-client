@@ -1,17 +1,26 @@
-use std::{collections::HashMap, collections::VecDeque, net::SocketAddr, pin::Pin, sync::Arc};
+use std::{
+    collections::HashMap, collections::VecDeque, net::SocketAddr, pin::Pin, sync::Arc,
+    time::Duration,
+};
 
 use async_tls::TlsConnector;
 use bytes::Bytes;
 use dashmap::DashMap;
-use http_types::{Method, Request, Response, Url};
+use http_types::{Method, Request, Response, StatusCode, Url};
 use parking_lot::Mutex;
+use protocol::{ClientReq, ServerResp};
 use smol::prelude::*;
+use smol_timeout::TimeoutExt;
+use spiderchan::Spider;
+
+mod protocol;
+mod session;
 
 /// An HTTP-based, warpfront-like backhaul.
 pub struct Warpfront {
     send_data: smol::channel::Sender<(Bytes, SocketAddr)>,
     recv_data: smol::channel::Receiver<(Bytes, SocketAddr)>,
-    _task: smol::Task<()>,
+    driver: Arc<smol::Executor<'static>>,
     remotes: Arc<DashMap<SocketAddr, WfEndpoint>>,
 }
 
@@ -28,48 +37,69 @@ impl Warpfront {
         let (send_data, recv_send_data) = smol::channel::bounded(100);
         let (send_recv_data, recv_data) = smol::channel::bounded(100);
         let remotes = Arc::new(DashMap::default());
-        let _task =
-            warpfront_task(listen_addr, recv_send_data, send_recv_data, remotes.clone()).await?;
+        let driver: smol::Executor<'static> = smol::Executor::new();
+        let task = warpfront_task(
+            &driver,
+            listen_addr,
+            recv_send_data,
+            send_recv_data,
+            remotes.clone(),
+        )
+        .await?;
+        task.detach();
         Ok(Warpfront {
             send_data,
             recv_data,
-            _task,
+            driver: Arc::new(driver),
             remotes,
         })
     }
+
+    /// Send data along the 
 }
 
 /// Creates a warpfront task.
 async fn warpfront_task(
+    driver: &smol::Executor<'static>,
     listen_addr: Option<SocketAddr>,
     recv_send_data: smol::channel::Receiver<(Bytes, SocketAddr)>,
     send_recv_data: smol::channel::Sender<(Bytes, SocketAddr)>,
     remotes: Arc<DashMap<SocketAddr, WfEndpoint>>,
 ) -> std::io::Result<smol::Task<()>> {
-    let (send_back, recv_back) = smol::channel::bounded(100);
+    let spider = Spider::new(100);
     let incoming_fut = if let Some(listen_addr) = listen_addr {
         let listener = smol::net::TcpListener::bind(listen_addr).await?;
-        handle_server(listener, recv_back).boxed()
+        handle_server(listener, spider.clone(), send_recv_data.clone()).boxed()
     } else {
         smol::future::pending().boxed()
     };
-    Ok(smolscale::spawn(async move {
+    driver.spawn(incoming_fut).detach();
+    // we have a bunch of tasks pulling upstream packets and sending them to the endpoint
+    Ok(driver.spawn(async move {
         let client = ClientPool::default();
         let lexec = smol::Executor::new();
-        for _ in 0..128 {
+        for _ in 0..64 {
             let up_task: smol::Task<anyhow::Result<()>> = lexec.spawn(async {
                 loop {
                     let (bts, dest) = recv_send_data.recv().await?;
                     if let Some(endpoint) = remotes.get(&dest) {
-                        let endpoint = endpoint.clone();
-                        let mut req =
-                            Request::new(Method::Post, endpoint.front_url.parse::<Url>()?);
-                        req.insert_header("Host", endpoint.real_host);
-                        req.set_body(bts.to_vec());
-                        log::debug!("uploading pkt of length {}", bts.len());
-                        if let Err(e) = client.request(req).await {
-                            log::warn!("warpfront error: {}", e)
+                        let req = ClientReq {
+                            packets: vec![bts],
+                            timeout_ms: 0,
+                        };
+                        match once_client_req(&client, req, endpoint.clone()).await {
+                            Ok(resp) => {
+                                for resp in resp.packets {
+                                    send_recv_data.send((resp, dest)).await?;
+                                }
+                            }
+                            Err(e) => {
+                                log::warn!("warpfront {}", e);
+                                smol::Timer::after(Duration::from_secs(1)).await;
+                            }
                         }
+                    } else {
+                        spider.send(dest, bts).await;
                     }
                 }
             });
@@ -79,11 +109,74 @@ async fn warpfront_task(
     }))
 }
 
+async fn once_client_req(
+    client: &ClientPool,
+    req: ClientReq,
+    endpoint: WfEndpoint,
+) -> http_types::Result<ServerResp> {
+    let bts: Bytes = bincode::serialize(&req)?.into();
+    let endpoint = endpoint.clone();
+    let mut req = Request::new(Method::Post, endpoint.front_url.parse::<Url>()?);
+    req.insert_header("Host", endpoint.real_host);
+    req.set_body(bts.to_vec());
+    log::debug!("uploading pkt of length {}", bts.len());
+    let mut resp = client.request(req).await?;
+    let bts = resp.body_bytes().await?;
+    Ok(bincode::deserialize(&bts)?)
+}
+
 async fn handle_server(
     server: smol::net::TcpListener,
-    recv_back: smol::channel::Receiver<(Bytes, SocketAddr)>,
+    spider: Spider<SocketAddr, Bytes>,
+    send_recv_data: smol::channel::Sender<(Bytes, SocketAddr)>,
 ) -> anyhow::Result<()> {
-    unimplemented!()
+    // for every incoming request, forward it into send_recv_data, then try to get something from recv_back within the timeout. as simple as that
+    let exec = smol::Executor::new();
+    exec.run(async {
+        loop {
+            let (tcp_conn, client_addr) = server.accept().await?;
+            let spider = spider.clone();
+            let send_recv_data = send_recv_data.clone();
+            exec.spawn(async move {
+                let topic = spider
+                    .subscribe(client_addr)
+                    .ok_or_else(|| anyhow::anyhow!("spider error"))?;
+                let send_recv_data = send_recv_data.clone();
+                async_h1::accept(tcp_conn, move |mut req| {
+                    let send_recv_data = send_recv_data.clone();
+                    let topic = topic.clone();
+                    async move {
+                        let req: ClientReq = bincode::deserialize(&req.body_bytes().await?)?;
+                        for bts in req.packets {
+                            send_recv_data.send((bts, client_addr)).await?;
+                        }
+                        let possible_resp = topic
+                            .recv()
+                            .timeout(Duration::from_millis(req.timeout_ms))
+                            .await;
+                        let resp_bts = match possible_resp {
+                            None => Bytes::new(),
+                            Some(Some(v)) => v,
+                            _ => {
+                                return Err(http_types::Error::new(
+                                    500,
+                                    anyhow::anyhow!("spider error"),
+                                ))
+                            }
+                        };
+                        let resp_bts: &[u8] = &resp_bts;
+                        let mut res = Response::new(StatusCode::Ok);
+                        res.insert_header("content-type", "application/octet-stream");
+                        res.set_body(resp_bts);
+                        Ok(res)
+                    }
+                })
+                .await
+            })
+            .detach()
+        }
+    })
+    .await
 }
 
 trait AsyncRW: AsyncRead + AsyncWrite {}

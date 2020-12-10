@@ -20,6 +20,7 @@ pub struct Listener {
 
 impl Listener {
     /// Accepts a session. This function must be repeatedly called for the entire Listener to make any progress.
+    #[tracing::instrument(skip(self))]
     pub async fn accept_session(&self) -> Option<Session> {
         self.accepted.recv().await.ok()
     }
@@ -92,6 +93,7 @@ struct ListenerActor {
 }
 impl ListenerActor {
     #[allow(clippy::mutable_key_type)]
+    #[tracing::instrument(skip(self))]
     async fn run(self, accepted: Sender<Session>) -> Option<()> {
         // replay filter for globally-encrypted stuff
         let mut curr_filter = RecentFilter::new();
@@ -122,7 +124,7 @@ impl ListenerActor {
             );
             match event.await? {
                 Evt::DeadSess(resume_token) => {
-                    log::trace!("removing existing session!");
+                    tracing::trace!("removing existing session!");
                     session_table.delete(resume_token).await;
                 }
                 Evt::NewRecv((buffer, addr)) => {
@@ -133,11 +135,11 @@ impl ListenerActor {
                             drop(sess.send(dframe).await);
                             continue;
                         } else {
-                            log::trace!("{} NOT associated with existing session", addr);
+                            tracing::trace!("{} NOT associated with existing session", addr);
                         }
                     }
                     if !curr_filter.check(&buffer) {
-                        log::warn!("discarding replay attempt with len {}", buffer.len());
+                        tracing::warn!("discarding replay attempt with len {}", buffer.len());
                         continue;
                     }
                     // we know it's not part of an existing session then. we decrypt it under the current key
@@ -153,7 +155,10 @@ impl ListenerActor {
                                     version,
                                 } => {
                                     if version != 1 {
-                                        log::warn!("got packet with incorrect version {}", version);
+                                        tracing::warn!(
+                                            "got packet with incorrect version {}",
+                                            version
+                                        );
                                         break;
                                     }
                                     // generate session key
@@ -184,19 +189,19 @@ impl ListenerActor {
                                     let reply =
                                         crypt::StdAEAD::new(&s2c_key).pad_encrypt(&reply, 1000);
                                     socket.send_to(reply, addr).await.ok()?;
-                                    log::trace!("replied to ClientHello from {}", addr);
+                                    tracing::trace!("replied to ClientHello from {}", addr);
                                 }
                                 ClientResume {
                                     resume_token,
                                     shard_id,
                                 } => {
-                                    log::trace!("Got ClientResume-{} from {}!", shard_id, addr);
+                                    tracing::trace!("Got ClientResume-{} from {}!", shard_id, addr);
                                     // first check whether we know about the resume token
                                     if !session_table
                                         .rebind(addr, shard_id, resume_token.clone())
                                         .await
                                     {
-                                        log::trace!("ClientResume from {} is new!", addr);
+                                        tracing::trace!("ClientResume from {} is new!", addr);
                                         let tokinfo = TokenInfo::decrypt(&token_key, &resume_token);
                                         if let Some(tokinfo) = tokinfo {
                                             let up_key = blake3::keyed_hash(
@@ -279,7 +284,7 @@ impl ListenerActor {
                                                 .await;
                                             drop(accepted.send(session).await);
                                         } else {
-                                            log::warn!(
+                                            tracing::warn!(
                                                 "ClientResume from {} can't be decrypted",
                                                 addr
                                             );
@@ -303,6 +308,7 @@ struct TokenInfo {
 }
 
 impl TokenInfo {
+    #[tracing::instrument]
     fn decrypt(key: &[u8], encrypted: &[u8]) -> Option<Self> {
         // first we decrypt
         let crypter = crypt::StdAEAD::new(key);
@@ -310,6 +316,7 @@ impl TokenInfo {
         bincode::deserialize(&plain).ok()
     }
 
+    #[tracing::instrument]
     fn encrypt(&self, key: &[u8]) -> Bytes {
         let crypter = crypt::StdAEAD::new(key);
         let mut rng = rand::thread_rng();
@@ -333,10 +340,11 @@ struct SessionTable {
 }
 
 impl SessionTable {
+    #[tracing::instrument(skip(self))]
     async fn rebind(&mut self, addr: SocketAddr, shard_id: u8, token: Bytes) -> bool {
         if let Some((_, _, addrs)) = self.token_to_sess.get(&token) {
             let old = addrs.write().insert(shard_id, addr);
-            log::trace!("binding {}=>{}", shard_id, addr);
+            tracing::trace!("binding {}=>{}", shard_id, addr);
             if let Some(old) = old {
                 self.addr_to_token.remove(&old);
             }
@@ -347,6 +355,7 @@ impl SessionTable {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     async fn delete(&mut self, token: Bytes) {
         if let Some((_, _, lock_addrs)) = self.token_to_sess.remove(&token) {
             for (_, addr) in lock_addrs.read().iter() {
@@ -355,12 +364,14 @@ impl SessionTable {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     fn lookup(&self, addr: SocketAddr) -> Option<(&Sender<msg::DataFrame>, &crypt::StdAEAD)> {
         let token = self.addr_to_token.get(&addr)?;
         let (s, a, _) = self.token_to_sess.get(token)?;
         Some((s, a))
     }
 
+    #[tracing::instrument(skip(self))]
     fn new_sess(
         &mut self,
         token: Bytes,
