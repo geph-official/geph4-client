@@ -4043,6 +4043,7 @@ dependencies = [
  "async-dup",
  "async-h1",
  "async-tls",
+ "async-trait",
  "bincode",
  "bytes 0.6.0",
  "dashmap 1.2.1",
@@ -4052,7 +4053,7 @@ dependencies = [
  "serde",
  "smol",
  "smol-timeout",
- "smolscale",
+ "sosistab",
  "spiderchan",
 ]
 

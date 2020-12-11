@@ -158,9 +158,11 @@ async fn keepalive_actor_once(
             async {
                 Ok(infal(
                     sosistab::connect(
-                        smol::net::resolve(format!("{}:19831", exit_info.hostname))
-                            .await
-                            .context("can't resolve hostname of exit")?[0],
+                        dbg!(
+                            smol::net::resolve(format!("{}:19831", exit_info.hostname))
+                                .await
+                                .context("can't resolve hostname of exit")?[0]
+                        ),
                         exit_info.sosistab_key,
                     )
                     .await,
@@ -168,7 +170,7 @@ async fn keepalive_actor_once(
                 .await)
             }
             .or(async {
-                smol::Timer::after(Duration::from_secs(5)).await;
+                smol::Timer::after(Duration::from_secs(10)).await;
                 log::warn!("turning on bridges because we couldn't get a direct connection");
                 bridge_sess_async.await
             })

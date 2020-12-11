@@ -55,7 +55,27 @@ impl Warpfront {
         })
     }
 
-    /// Send data along the 
+    /// Add a new remote corresponding to a "fake" SocketAddr.
+    pub fn add_remote(&self, fake_addr: SocketAddr, endpoint: WfEndpoint) {
+        self.remotes.insert(fake_addr, endpoint)
+    }
+}
+
+#[async_trait::async_trait]
+impl sosistab::Backhaul for Warpfront {
+    async fn send_to(&self, to_send: Bytes, dest: SocketAddr) -> std::io::Result<()> {
+        self.driver
+            .run(self.send_data.send((to_send, dest)))
+            .await
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
+    }
+
+    async fn recv_from(&self) -> std::io::Result<(Bytes, SocketAddr)> {
+        self.recv_data
+            .recv()
+            .await
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::Other, err))
+    }
 }
 
 /// Creates a warpfront task.

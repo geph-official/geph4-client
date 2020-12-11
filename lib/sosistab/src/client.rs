@@ -15,7 +15,7 @@ pub async fn connect(
     pubkey: x25519_dalek::PublicKey,
 ) -> std::io::Result<Session> {
     connect_custom(server_addr, pubkey, || {
-        let val = "0.0.0.0:0".parse::<SocketAddr>().unwrap();
+        let val = "[::0]:0".parse::<SocketAddr>().unwrap();
         Ok(val)
     })
     .await

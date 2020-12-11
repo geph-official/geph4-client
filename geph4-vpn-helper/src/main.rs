@@ -44,6 +44,9 @@ async fn setup_iptables() {
     # clamp MTU
     iptables -t mangle -D OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
     iptables -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
+    # block non-nobody ipv6 completely
+    ip6tables -D OUTPUT -m owner ! --uid-owner nobody -j REJECT
+    ip6tables -A OUTPUT -m owner ! --uid-owner nobody -j REJECT
     ";
     run_sh(to_run).await;
 }
@@ -63,6 +66,8 @@ async fn clear_iptables() {
     iptables -t nat -D OUTPUT -p tcp --dport 53 -j DNAT -m owner ! --uid-owner nobody --to 127.0.0.1:15353
     # clamp MTU
     iptables -t mangle -D OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
+    # ipv6
+    ip6tables -D OUTPUT -m owner ! --uid-owner nobody -j REJECT
     ";
     run_sh(to_run).await;
 }

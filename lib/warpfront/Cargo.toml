@@ -15,11 +15,12 @@ async-h1 = "2.1.2"
 http-types = "2.5.0"
 parking_lot="0.11"
 async-dup="1.2"
-smolscale={path="../smolscale"}
+sosistab={path="../sosistab"}
 log= "0.4.11"
 smol-timeout="0.6"
 bincode="1"
 serde={version="1", features=["derive"]}
+async-trait= "0.1.41"
 spiderchan={path="../spiderchan"}
 
 [dependencies.async-tls]
