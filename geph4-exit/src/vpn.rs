@@ -1,11 +1,3 @@
-use std::{
-    collections::HashSet,
-    net::{Ipv4Addr, SocketAddr},
-    ops::Deref,
-    sync::Arc,
-    time::Duration,
-};
-
 use bytes::Bytes;
 use cidr::{Cidr, Ipv4Cidr};
 use libc::{c_void, SOL_IP, SO_ORIGINAL_DST};
@@ -16,9 +8,17 @@ use parking_lot::{Mutex, RwLock};
 use pnet_packet::{
     ip::IpNextHeaderProtocols, ipv4::Ipv4Packet, tcp::TcpPacket, udp::UdpPacket, Packet,
 };
+use rand::prelude::*;
 use smol::channel::Sender;
 use smol_timeout::TimeoutExt;
 use std::os::unix::io::AsRawFd;
+use std::{
+    collections::HashSet,
+    net::{Ipv4Addr, SocketAddr},
+    ops::Deref,
+    sync::Arc,
+    time::Duration,
+};
 use tundevice::TunDevice;
 use vpn_structs::Message;
 
@@ -228,14 +228,16 @@ impl IpAddrAssigner {
 
     /// Assigns a new IP address.
     pub fn assign(&self) -> AssignedIpv4Addr {
+        let first = u32::from_be_bytes(self.cidr.first_address().octets());
+        let last = u32::from_be_bytes(self.cidr.last_address().octets());
         loop {
-            for elem in self.cidr.iter().skip(16) {
-                let mut tab = self.table.lock();
-                if !tab.contains(&elem) {
-                    tab.insert(elem);
-                    log::debug!("assigned {}", elem);
-                    return AssignedIpv4Addr::new(self.table.clone(), elem);
-                }
+            let candidate = rand::thread_rng().gen_range(first + 16, last - 16);
+            let candidate = Ipv4Addr::from(candidate);
+            let mut tab = self.table.lock();
+            if !tab.contains(&candidate) {
+                tab.insert(candidate);
+                log::debug!("assigned {}", candidate);
+                return AssignedIpv4Addr::new(self.table.clone(), candidate);
             }
         }
     }
