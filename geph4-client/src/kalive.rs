@@ -150,11 +150,9 @@ async fn keepalive_actor_once(
             async {
                 Ok(infal(
                     sosistab::connect(
-                        dbg!(
-                            smol::net::resolve(format!("{}:19831", exit_info.hostname))
-                                .await
-                                .context("can't resolve hostname of exit")?[0]
-                        ),
+                        smol::net::resolve(format!("{}:19831", exit_info.hostname))
+                            .await
+                            .context("can't resolve hostname of exit")?[0],
                         exit_info.sosistab_key,
                     )
                     .await,
