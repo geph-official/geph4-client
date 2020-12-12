@@ -15,7 +15,7 @@ x25519-dalek = { version = "1.1.0", features = ["serde"] }
 ed25519-dalek = { version = "1.0.1", features = ["serde"] }
 bincode = "1.3.1"
 blake3 = "0.3.7"
-chacha20poly1305 = "0.6.0"
+chacha20poly1305 = "0.7.0"
 async-h1 = "2.1.2"
 http-types = "2.5.0"
 log = "0.4.11"

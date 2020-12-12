@@ -11,8 +11,10 @@ mod kalive;
 mod persist;
 use once_cell::sync::Lazy;
 use prelude::*;
+mod dns;
 mod prelude;
 mod stats;
+mod vpn;
 
 mod china;
 mod main_binderproxy;
