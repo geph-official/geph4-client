@@ -43,7 +43,7 @@ impl Backhaul for Async<UdpSocket> {
         Ok((buf.freeze().slice(0..n), origin))
     }
 
-    #[cfg(target_family = "unix")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     async fn send_to_many(&self, to_send: &[(Bytes, SocketAddr)]) -> io::Result<()> {
         use nix::sys::socket::SendMmsgData;
         use nix::sys::socket::{ControlMessage, InetAddr, SockAddr};
@@ -78,7 +78,7 @@ impl Backhaul for Async<UdpSocket> {
         .await
     }
 
-    #[cfg(target_family = "unix")]
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     async fn recv_from_many(&self) -> io::Result<Vec<(Bytes, SocketAddr)>> {
         use nix::sys::socket::RecvMmsgData;
         use nix::sys::uio::IoVec;
