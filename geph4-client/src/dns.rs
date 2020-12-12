@@ -65,7 +65,7 @@ impl DnsPool {
 
     /// Do a DNS request.
     pub async fn request(&self, buff: &[u8]) -> Option<Vec<u8>> {
-        let dns_timeout = Duration::from_secs(1);
+        let dns_timeout = Duration::from_secs(10);
         let mut conn = {
             let lala = self.recv_conn.try_recv();
             match lala {
@@ -73,12 +73,12 @@ impl DnsPool {
                 _ => {
                     let tcp_conn = self
                         .keepalive
-                        .connect("1.1.1.1:853")
+                        .connect("ordns.he.net:853")
                         .timeout(dns_timeout)
                         .await?
                         .ok()?;
                     TlsConnector::default()
-                        .connect("cloudflare-dns.com", tcp_conn)
+                        .connect("ordns.he.net", tcp_conn)
                         .await
                         .ok()?
                 }

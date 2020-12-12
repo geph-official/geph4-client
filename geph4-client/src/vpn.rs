@@ -1,10 +1,14 @@
 use std::{io::Stdin, num::NonZeroU32, sync::Arc, time::Duration};
 
+use async_net::Ipv4Addr;
+use bytes::Bytes;
 use governor::Quota;
 use once_cell::sync::Lazy;
 use pnet_packet::{
-    ipv4::Ipv4Packet,
+    ip::IpNextHeaderProtocols,
+    ipv4::{Ipv4Packet, MutableIpv4Packet},
     tcp::{TcpFlags, TcpPacket},
+    udp::UdpPacket,
     Packet,
 };
 use smol_timeout::TimeoutExt;
@@ -63,7 +67,6 @@ pub async fn run_vpn(
                     ))
                 })
                 .collect();
-
             loop {
                 let msg = StdioMsg::read(&mut stdin).await?;
                 // ACK decimation
@@ -73,10 +76,16 @@ pub async fn run_vpn(
                         continue;
                     }
                 }
-                stats.incr_total_tx(msg.body.len() as u64);
+                // fix dns
+                let body = if let Some(body) = fix_dns_dest(&msg.body) {
+                    body
+                } else {
+                    msg.body
+                };
+                stats.incr_total_tx(body.len() as u64);
                 drop(
                     mux.send_urel(
-                        bincode::serialize(&vpn_structs::Message::Payload(msg.body))
+                        bincode::serialize(&vpn_structs::Message::Payload(body))
                             .unwrap()
                             .into(),
                     )
@@ -133,4 +142,24 @@ fn ack_decimate(bts: &[u8]) -> Option<u16> {
     } else {
         None
     }
+}
+
+/// fixes dns destination
+fn fix_dns_dest(bts: &[u8]) -> Option<Bytes> {
+    let is_dns = {
+        let parsed = Ipv4Packet::new(bts)?;
+        if parsed.get_next_level_protocol() == IpNextHeaderProtocols::Udp {
+            let parsed = UdpPacket::new(parsed.payload())?;
+            parsed.get_destination() == 53
+        } else {
+            false
+        }
+    };
+    if is_dns {
+        let mut vv = bts.to_vec();
+        let mut parsed = MutableIpv4Packet::new(&mut vv)?;
+        parsed.set_destination(Ipv4Addr::new(1, 1, 1, 1));
+        return Some(vv.into());
+    }
+    None
 }

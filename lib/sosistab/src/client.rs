@@ -1,3 +1,4 @@
+use crate::chan::recv_many;
 use crate::*;
 use bytes::Bytes;
 use smol::channel::{Receiver, Sender};
@@ -171,7 +172,7 @@ async fn client_backhaul_once(
     #[derive(Debug)]
     enum Evt {
         Incoming(Vec<msg::DataFrame>),
-        Outgoing(Bytes),
+        Outgoing(Vec<Bytes>),
     };
 
     loop {
@@ -198,8 +199,11 @@ async fn client_backhaul_once(
         };
         let up_crypter = up_crypter.clone();
         let up = async {
-            let df = recv_frame_out.recv().await.ok()?;
-            let encrypted = up_crypter.pad_encrypt(df, 1000);
+            let dff = recv_many(&recv_frame_out).await.ok()?;
+            let encrypted = dff
+                .into_iter()
+                .map(|df| up_crypter.pad_encrypt(df, 1000))
+                .collect();
             Some(Evt::Outgoing(encrypted))
         };
 
@@ -210,6 +214,7 @@ async fn client_backhaul_once(
                 }
             }
             Some(Evt::Outgoing(bts)) => {
+                let bts: Vec<Bytes> = bts;
                 let now = Instant::now();
                 if now.saturating_duration_since(last_remind).as_millis() > REMIND_MILLIS
                     || !updated
@@ -271,7 +276,8 @@ async fn client_backhaul_once(
                             .await,
                     );
                 }
-                drop(socket.send_to(bts, remote_addr).await);
+                let to_send: Vec<_> = bts.into_iter().map(|v| (v, remote_addr)).collect();
+                drop(socket.send_to_many(&to_send).await);
             }
             None => return None,
         }

@@ -183,18 +183,10 @@ static INCOMING_PKT_HANDLER: Lazy<smol::Task<()>> = Lazy::new(|| {
                 .read_raw()
                 .await
                 .expect("cannot read from tun device");
-            let parsed = Ipv4Packet::new(&pkt);
             let dest = Ipv4Packet::new(&pkt)
                 .map(|pkt| INCOMING_MAP.read().peek(&pkt.get_destination()).cloned());
             if let Some(Some(dest)) = dest {
                 let _ = dest.try_send(pkt);
-            } else {
-                log::warn!(
-                    "can't route to {}, no handler",
-                    parsed
-                        .map(|p| p.get_destination().to_string())
-                        .unwrap_or_else(|| String::from("NOPARSE"))
-                );
             }
         }
     })

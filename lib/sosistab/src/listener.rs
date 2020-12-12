@@ -1,5 +1,8 @@
-use crate::session::{Session, SessionConfig};
 use crate::*;
+use crate::{
+    chan::recv_many,
+    session::{Session, SessionConfig},
+};
 use bytes::Bytes;
 use indexmap::IndexMap;
 use msg::HandshakeFrame::*;
@@ -229,10 +232,9 @@ impl ListenerActor {
                                                 runtime::spawn(async move {
                                                     let mut ctr = 0u8;
                                                     loop {
-                                                        match session_output_recv.recv().await {
-                                                            Ok(df) => {
-                                                                let enc =
-                                                                    dn_aead.pad_encrypt(&df, 1000);
+                                                        match recv_many(&session_output_recv).await
+                                                        {
+                                                            Ok(dff) => {
                                                                 let remote_addr = loop {
                                                                     let addrs = locked_addrs.read();
                                                                     assert!(!addrs.is_empty());
@@ -247,9 +249,20 @@ impl ListenerActor {
                                                                         break *remote_addr;
                                                                     }
                                                                 };
+                                                                let encrypted: Vec<_> = dff
+                                                                    .into_iter()
+                                                                    .map(|df| {
+                                                                        (
+                                                                            dn_aead.pad_encrypt(
+                                                                                &df, 1000,
+                                                                            ),
+                                                                            remote_addr,
+                                                                        )
+                                                                    })
+                                                                    .collect();
                                                                 drop(
                                                                     socket
-                                                                        .send_to(enc, remote_addr)
+                                                                        .send_to_many(&encrypted)
                                                                         .await,
                                                                 );
                                                             }

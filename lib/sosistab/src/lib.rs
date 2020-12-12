@@ -3,7 +3,7 @@ mod crypt;
 mod fec;
 mod listener;
 use std::time::{Duration, Instant};
-
+mod chan;
 pub use client::*;
 pub use listener::*;
 mod msg;

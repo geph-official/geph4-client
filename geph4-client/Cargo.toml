@@ -47,6 +47,7 @@ treebitmap= "0.4.0"
 pnet_packet= "0.27.2"
 governor= "0.3.1"
 async-dup="1"
+bytes="0.6"
 
 [dependencies.async-tls]
 version = "0.11"

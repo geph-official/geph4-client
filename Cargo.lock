@@ -1494,6 +1494,7 @@ dependencies = [
  "async-tls 0.11.0",
  "bincode",
  "binder_transport",
+ "bytes 0.6.0",
  "chrono",
  "dirs",
  "ed25519-dalek",

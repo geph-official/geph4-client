@@ -5,11 +5,12 @@ use crate::{
     VarRateLimit,
 };
 use bytes::Bytes;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
+use rustc_hash::FxHashMap;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashSet, VecDeque},
     time::Instant,
 };
 use std::{
@@ -52,7 +53,7 @@ impl Session {
         let (send_tosend, recv_tosend) = smol::channel::bounded(50);
         let (send_input, recv_input) = smol::channel::bounded(500);
         let (s, r) = smol::channel::unbounded();
-        let rate_limit = Arc::new(AtomicU32::new(100000));
+        let rate_limit = Arc::new(AtomicU32::new(15000));
         let recv_timeout = cfg.recv_timeout;
         let task = runtime::spawn(session_loop(
             cfg,
@@ -123,11 +124,11 @@ async fn session_loop(
     recv_statreq: Receiver<Sender<SessionStats>>,
     recv_timeout: Duration,
 ) {
-    let measured_loss = Arc::new(AtomicU8::new(0));
-    let high_recv_frame_no = Arc::new(AtomicU64::new(0));
-    let total_recv_frames = Arc::new(AtomicU64::new(0));
-    let shaper = smol::lock::Mutex::new(VarRateLimit::new());
-    let pinger = smol::lock::Mutex::new(PingCalc::default());
+    let measured_loss = AtomicU8::new(0);
+    let high_recv_frame_no = AtomicU64::new(0);
+    let total_recv_frames = AtomicU64::new(0);
+    let shaper = VarRateLimit::new();
+    let pinger = Mutex::new(PingCalc::default());
 
     // SystemTime is immune to bizarre sleep-induced timer skews on Android. We use this to detect missed timeouts when we try to send a packet.
     let last_send = Mutex::new(SystemTime::now());
@@ -135,12 +136,12 @@ async fn session_loop(
     // sending loop
     let send_task = session_send_loop(
         cfg.clone(),
-        rate_limit.clone(),
+        &rate_limit,
         recv_tosend.clone(),
-        measured_loss.clone(),
-        high_recv_frame_no.clone(),
-        total_recv_frames.clone(),
-        &shaper,
+        &measured_loss,
+        &high_recv_frame_no,
+        &total_recv_frames,
+        shaper,
         &pinger,
         &last_send,
         recv_timeout,
@@ -149,9 +150,9 @@ async fn session_loop(
         cfg,
         send_input,
         recv_statreq,
-        measured_loss,
-        high_recv_frame_no,
-        total_recv_frames,
+        &measured_loss,
+        &high_recv_frame_no,
+        &total_recv_frames,
         &pinger,
         &last_send,
         recv_timeout,
@@ -165,13 +166,13 @@ async fn session_loop(
 #[tracing::instrument(skip(shaper))]
 async fn session_send_loop(
     cfg: SessionConfig,
-    rate_limit: Arc<AtomicU32>,
+    rate_limit: &AtomicU32,
     recv_tosend: Receiver<Bytes>,
-    measured_loss: Arc<AtomicU8>,
-    high_recv_frame_no: Arc<AtomicU64>,
-    total_recv_frames: Arc<AtomicU64>,
-    shaper: &smol::lock::Mutex<VarRateLimit>,
-    pinger: &smol::lock::Mutex<PingCalc>,
+    measured_loss: &AtomicU8,
+    high_recv_frame_no: &AtomicU64,
+    total_recv_frames: &AtomicU64,
+    mut shaper: VarRateLimit,
+    pinger: &Mutex<PingCalc>,
     last_recv: &Mutex<SystemTime>,
     recv_timeout: Duration,
 ) -> Option<()> {
@@ -245,12 +246,8 @@ async fn session_send_loop(
                     })
                     .await,
             );
-            shaper
-                .lock()
-                .await
-                .wait(rate_limit.load(Ordering::Relaxed))
-                .await;
-            pinger.lock().await.send(frame_no);
+            shaper.wait(rate_limit.load(Ordering::Relaxed)).await;
+            pinger.lock().send(frame_no);
             frame_no += 1;
         }
         run_no += 1;
@@ -263,15 +260,15 @@ async fn session_recv_loop(
     cfg: SessionConfig,
     send_input: Sender<Bytes>,
     recv_statreq: Receiver<Sender<SessionStats>>,
-    measured_loss: Arc<AtomicU8>,
-    high_recv_frame_no: Arc<AtomicU64>,
-    total_recv_frames: Arc<AtomicU64>,
-    pinger: &smol::lock::Mutex<PingCalc>,
+    measured_loss: &AtomicU8,
+    high_recv_frame_no: &AtomicU64,
+    total_recv_frames: &AtomicU64,
+    pinger: &Mutex<PingCalc>,
     last_recv: &Mutex<SystemTime>,
     recv_timeout: Duration,
 ) -> Option<()> {
-    let decoder = smol::lock::RwLock::new(RunDecoder::default());
-    let seqnos = smol::lock::RwLock::new(VecDeque::new());
+    let decoder = RwLock::new(RunDecoder::default());
+    let seqnos = RwLock::new(VecDeque::new());
     // receive loop
     let recv_loop = async {
         let mut rp_filter = ReplayFilter::new(0);
@@ -300,7 +297,7 @@ async fn session_recv_loop(
                 continue;
             }
             {
-                let mut seqnos = seqnos.write().await;
+                let mut seqnos = seqnos.write();
                 seqnos.push_back((Instant::now(), new_frame.frame_no));
                 if seqnos.len() > 100000 {
                     seqnos.pop_front();
@@ -310,8 +307,8 @@ async fn session_recv_loop(
             measured_loss.store(loss_to_u8(loss_calc.median), Ordering::Relaxed);
             high_recv_frame_no.fetch_max(new_frame.frame_no, Ordering::Relaxed);
             total_recv_frames.fetch_add(1, Ordering::Relaxed);
-            pinger.lock().await.ack(new_frame.high_recv_frame_no);
-            if let Some(output) = decoder.write().await.input(
+            pinger.lock().ack(new_frame.high_recv_frame_no);
+            if let Some(output) = decoder.write().input(
                 new_frame.run_no,
                 new_frame.run_idx,
                 new_frame.data_shards,
@@ -328,20 +325,22 @@ async fn session_recv_loop(
     let stats_loop = async {
         loop {
             let req = infal(recv_statreq.recv()).await;
-            let decoder = decoder.read().await;
-            let ping = pinger.lock().await.ping();
-            let response = SessionStats {
-                down_total: high_recv_frame_no.load(Ordering::Relaxed),
-                down_loss: 1.0
-                    - (total_recv_frames.load(Ordering::Relaxed) as f64
-                        / high_recv_frame_no.load(Ordering::Relaxed) as f64)
-                        .min(1.0),
-                down_recovered_loss: 1.0
-                    - (decoder.correct_count as f64 / decoder.total_count as f64).min(1.0),
-                down_redundant: decoder.total_parity_shards as f64
-                    / decoder.total_data_shards as f64,
-                recent_seqnos: seqnos.read().await.iter().cloned().collect(),
-                ping,
+            let ping = pinger.lock().ping();
+            let response = {
+                let decoder = decoder.read();
+                SessionStats {
+                    down_total: high_recv_frame_no.load(Ordering::Relaxed),
+                    down_loss: 1.0
+                        - (total_recv_frames.load(Ordering::Relaxed) as f64
+                            / high_recv_frame_no.load(Ordering::Relaxed) as f64)
+                            .min(1.0),
+                    down_recovered_loss: 1.0
+                        - (decoder.correct_count as f64 / decoder.total_count as f64).min(1.0),
+                    down_redundant: decoder.total_parity_shards as f64
+                        / decoder.total_data_shards as f64,
+                    recent_seqnos: seqnos.read().iter().cloned().collect(),
+                    ping,
+                }
             };
             infal(req.send(response)).await;
         }
@@ -353,7 +352,7 @@ async fn session_recv_loop(
 struct RunDecoder {
     top_run: u64,
     bottom_run: u64,
-    decoders: HashMap<u64, FrameDecoder>,
+    decoders: FxHashMap<u64, FrameDecoder>,
     total_count: u64,
     correct_count: u64,
 
