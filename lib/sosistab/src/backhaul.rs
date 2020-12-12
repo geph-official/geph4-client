@@ -49,8 +49,12 @@ impl Backhaul for Async<UdpSocket> {
         use nix::sys::socket::{ControlMessage, InetAddr, SockAddr};
         use nix::sys::uio::IoVec;
         use std::os::unix::prelude::*;
+        if to_send.len() == 1 {
+            return Backhaul::send_to(self, to_send[0].0.clone(), to_send[0].1).await;
+        }
         // non-blocking
         self.write_with(|sock| {
+            tracing::debug!("send_to_many({})", to_send.len());
             let fd: RawFd = sock.as_raw_fd();
             let iov: Vec<[IoVec<&[u8]>; 1]> = to_send
                 .iter()

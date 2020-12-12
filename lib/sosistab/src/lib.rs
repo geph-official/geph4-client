@@ -2,10 +2,9 @@ mod client;
 mod crypt;
 mod fec;
 mod listener;
-use std::time::{Duration, Instant};
-mod chan;
 pub use client::*;
 pub use listener::*;
+use std::time::{Duration, Instant};
 mod msg;
 pub mod runtime;
 mod session;
@@ -35,8 +34,11 @@ impl VarRateLimit {
         }
     }
 
-    #[tracing::instrument(skip(self))]
+    #[tracing::instrument(skip(self), level = "trace")]
     pub async fn wait(&mut self, speed: u32) {
+        if speed > 10000 {
+            return;
+        }
         self.timer.set_at(self.next_time);
         (&mut self.timer).await;
         self.next_time = Instant::now()

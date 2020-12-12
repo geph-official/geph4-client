@@ -32,7 +32,7 @@ async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T
 #[derive(Debug, Clone)]
 pub(crate) struct SessionConfig {
     pub target_loss: f64,
-    pub send_frame: Sender<DataFrame>,
+    pub send_frame: Sender<Vec<DataFrame>>,
     pub recv_frame: Receiver<DataFrame>,
     pub recv_timeout: Duration,
 }
@@ -53,7 +53,7 @@ impl Session {
         let (send_tosend, recv_tosend) = smol::channel::bounded(50);
         let (send_input, recv_input) = smol::channel::bounded(500);
         let (s, r) = smol::channel::unbounded();
-        let rate_limit = Arc::new(AtomicU32::new(15000));
+        let rate_limit = Arc::new(AtomicU32::new(100000));
         let recv_timeout = cfg.recv_timeout;
         let task = runtime::spawn(session_loop(
             cfg,
@@ -163,7 +163,7 @@ async fn session_loop(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[tracing::instrument(skip(shaper))]
+#[tracing::instrument(skip(shaper), level = "trace")]
 async fn session_send_loop(
     cfg: SessionConfig,
     rate_limit: &AtomicU32,
@@ -178,9 +178,9 @@ async fn session_send_loop(
 ) -> Option<()> {
     fn get_timeout(loss: u8) -> Duration {
         let loss = loss as u64;
-        // if loss is zero, then we return zero
+        // if loss is zero, then we return 5
         if loss == 0 {
-            Duration::from_secs(0)
+            Duration::from_millis(5)
         } else {
             // around 50 ms for full loss
             Duration::from_millis(loss * loss / 1500 + 5)
@@ -209,7 +209,7 @@ async fn session_send_loop(
                     to_send.push(infal(recv_tosend.recv()).await);
                     false
                 });
-                if break_now.await || to_send.len() >= 64 {
+                if break_now.await || to_send.len() >= 32 {
                     break &to_send;
                 }
             }
@@ -224,38 +224,29 @@ async fn session_send_loop(
         // encode into raptor
         let encoded = FrameEncoder::new(loss_to_u8(cfg.target_loss))
             .encode(measured_loss.load(Ordering::Relaxed), &to_send);
+        let mut tosend = Vec::with_capacity(encoded.len());
         for (idx, bts) in encoded.iter().enumerate() {
-            if frame_no % 1000 == 0 {
-                tracing::debug!(
-                    "frame {}, measured loss {}",
-                    frame_no,
-                    measured_loss.load(Ordering::Relaxed)
-                );
-            }
-            drop(
-                cfg.send_frame
-                    .send(DataFrame {
-                        frame_no,
-                        run_no,
-                        run_idx: idx as u8,
-                        data_shards: to_send.len() as u8,
-                        parity_shards: (encoded.len() - to_send.len()) as u8,
-                        high_recv_frame_no: high_recv_frame_no.load(Ordering::Relaxed),
-                        total_recv_frames: total_recv_frames.load(Ordering::Relaxed),
-                        body: bts.clone(),
-                    })
-                    .await,
-            );
+            tosend.push(DataFrame {
+                frame_no,
+                run_no,
+                run_idx: idx as u8,
+                data_shards: to_send.len() as u8,
+                parity_shards: (encoded.len() - to_send.len()) as u8,
+                high_recv_frame_no: high_recv_frame_no.load(Ordering::Relaxed),
+                total_recv_frames: total_recv_frames.load(Ordering::Relaxed),
+                body: bts.clone(),
+            });
             shaper.wait(rate_limit.load(Ordering::Relaxed)).await;
             pinger.lock().send(frame_no);
             frame_no += 1;
         }
+        cfg.send_frame.send(tosend).await.ok()?;
         run_no += 1;
     }
 }
 
 #[allow(clippy::too_many_arguments)]
-#[tracing::instrument]
+#[tracing::instrument(level = "trace")]
 async fn session_recv_loop(
     cfg: SessionConfig,
     send_input: Sender<Bytes>,

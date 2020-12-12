@@ -497,7 +497,7 @@ async fn relconn_actor(
                 )
                 .await;
                 if die {
-                    anyhow::bail!("60 seconds in reset up")
+                    anyhow::bail!("exiting from reset")
                 }
                 Reset { stream_id, death }
             }

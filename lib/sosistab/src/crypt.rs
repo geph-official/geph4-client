@@ -17,7 +17,6 @@ pub struct StdAEAD {
 
 impl StdAEAD {
     /// New std aead given a key.
-    #[tracing::instrument]
     pub fn new(key: &[u8]) -> Self {
         let blake3_key = blake3::keyed_hash(b"mac-----------------------------", key);
         let chacha_key = blake3::keyed_hash(b"enc-----------------------------", key);
@@ -28,7 +27,6 @@ impl StdAEAD {
     }
 
     /// Encrypts a message, given a nonce.
-    #[tracing::instrument]
     pub fn encrypt(&self, msg: &[u8], nonce: u128) -> Bytes {
         // overwrite first 128 bits of key
         let mut chacha_key = self.chacha_key;
@@ -50,7 +48,6 @@ impl StdAEAD {
     }
 
     /// Decrypts a message. Returns None if there's an error. Intentionally does not discriminate between different errors to limit possible side channels.
-    #[tracing::instrument]
     pub fn decrypt(&self, msg: &[u8]) -> Option<Bytes> {
         if msg.len() < 24 {
             return None;
@@ -78,7 +75,6 @@ impl StdAEAD {
     }
 
     /// Pad and encrypt.
-    #[tracing::instrument(skip(msg))]
     pub fn pad_encrypt(&self, msg: impl Serialize, target_len: usize) -> Bytes {
         let mut target_len = rand::thread_rng().gen_range(0, target_len + 1);
         let mut plain = Vec::with_capacity(1500);
@@ -94,7 +90,6 @@ impl StdAEAD {
     }
 
     /// Decrypt and depad.
-    #[tracing::instrument]
     pub fn pad_decrypt<T: DeserializeOwned>(&self, ctext: &[u8]) -> Option<T> {
         let plain = self.decrypt(ctext)?;
         bincode::deserialize_from(plain.as_ref()).ok()
@@ -200,7 +195,7 @@ fn curr_epoch() -> u64 {
         / 60
 }
 
-#[tracing::instrument(skip(my_long_sk, my_eph_sk))]
+#[tracing::instrument(skip(my_long_sk, my_eph_sk), level = "trace")]
 pub fn triple_ecdh(
     my_long_sk: &x25519_dalek::StaticSecret,
     my_eph_sk: &x25519_dalek::StaticSecret,

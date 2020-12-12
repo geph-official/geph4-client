@@ -17,7 +17,7 @@ pub struct FrameEncoder {
 
 impl FrameEncoder {
     /// Creates a new Encoder at the given loss level.
-    #[tracing::instrument]
+    #[tracing::instrument(level = "trace")]
     pub fn new(target_loss: u8) -> Self {
         FrameEncoder {
             rate_table: HashMap::new(),
@@ -27,7 +27,7 @@ impl FrameEncoder {
     }
 
     /// Encodes a slice of packets into more packets.
-    #[tracing::instrument]
+    #[tracing::instrument(level = "trace")]
     pub fn encode(&mut self, measured_loss: u8, pkts: &[Bytes]) -> Vec<Bytes> {
         // max length
         let max_length = pkts.iter().map(|v| v.len()).max().unwrap();
@@ -127,7 +127,7 @@ fn new_rs_decoder(data_shards: usize, parity_shards: usize) -> Arc<galois_8::Ree
 }
 
 impl FrameDecoder {
-    #[tracing::instrument]
+    #[tracing::instrument(level = "trace")]
     pub fn new(data_shards: usize, parity_shards: usize) -> Self {
         tracing::trace!("decoding with {}/{}", data_shards, parity_shards);
         FrameDecoder {
@@ -161,7 +161,7 @@ impl FrameDecoder {
         self.data_shards - self.good_pkts()
     }
 
-    #[tracing::instrument]
+    #[tracing::instrument(level = "trace")]
     pub fn decode(&mut self, pkt: &[u8], pkt_idx: usize) -> Option<Vec<Bytes>> {
         // if we don't have parity shards, don't touch anything
         if self.parity_shards == 0 {

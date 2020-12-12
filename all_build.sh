@@ -1,12 +1,12 @@
 #!/bin/sh
 sh osx_build.sh
-cross build --release --target i686-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml
-cross build --release --target x86_64-unknown-linux-musl --manifest-path=geph4-client/Cargo.toml
-cross build --release --target x86_64-unknown-linux-gnu --manifest-path=geph4-vpn-helper/Cargo.toml
-cross build --release --target x86_64-unknown-linux-musl --manifest-path=geph4-bridge/Cargo.toml
-cross build --release --target armv7-linux-androideabi --manifest-path=geph4-client/Cargo.toml
-cross build --release --target aarch64-linux-android --manifest-path=geph4-client/Cargo.toml
-cross build --release --target armv7-unknown-linux-musleabihf --manifest-path=geph4-client/Cargo.toml
+cross build --release --locked --target i686-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml
+cross build --release  --locked  --target x86_64-unknown-linux-musl --manifest-path=geph4-client/Cargo.toml
+cross build --release --locked  --target x86_64-unknown-linux-gnu --manifest-path=geph4-vpn-helper/Cargo.toml
+cross build --release --locked  --target x86_64-unknown-linux-musl --manifest-path=geph4-bridge/Cargo.toml
+cross build --release --locked  --target armv7-linux-androideabi --manifest-path=geph4-client/Cargo.toml
+cross build --release --locked  --target aarch64-linux-android --manifest-path=geph4-client/Cargo.toml
+cross build --release --locked  --target armv7-unknown-linux-musleabihf --manifest-path=geph4-client/Cargo.toml
 mkdir ~/repo/OUTPUT/
 mv ~/repo/target/x86_64-unknown-linux-musl/release/geph4-client ~/repo/OUTPUT/geph4-client-linux-amd64
 mv ~/repo/target/x86_64-unknown-linux-gnu/release/geph4-vpn-helper ~/repo/OUTPUT/geph4-vpn-helper-linux-amd64

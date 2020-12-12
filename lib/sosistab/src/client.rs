@@ -1,4 +1,3 @@
-use crate::chan::recv_many;
 use crate::*;
 use bytes::Bytes;
 use smol::channel::{Receiver, Sender};
@@ -10,7 +9,7 @@ use std::{
 };
 
 /// Connects to a remote server.
-#[tracing::instrument]
+#[tracing::instrument(level = "trace")]
 pub async fn connect(
     server_addr: SocketAddr,
     pubkey: x25519_dalek::PublicKey,
@@ -23,7 +22,7 @@ pub async fn connect(
 }
 
 /// Connects to a remote server, given a closure that generates socket addresses.
-#[tracing::instrument(skip(laddr_gen))]
+#[tracing::instrument(skip(laddr_gen), level = "trace")]
 pub async fn connect_custom(
     server_addr: SocketAddr,
     pubkey: x25519_dalek::PublicKey,
@@ -105,11 +104,11 @@ pub async fn connect_custom(
     unimplemented!()
 }
 
-const SHARDS: u8 = 4;
+const SHARDS: u8 = 1;
 const RESET_MILLIS: u128 = 5000;
 const REMIND_MILLIS: u128 = 1000;
 
-#[tracing::instrument(skip(laddr_gen))]
+#[tracing::instrument(skip(laddr_gen), level = "trace")]
 async fn init_session(
     cookie: crypt::Cookie,
     resume_token: Bytes,
@@ -117,7 +116,7 @@ async fn init_session(
     remote_addr: SocketAddr,
     laddr_gen: Arc<impl Fn() -> std::io::Result<SocketAddr> + Send + Sync + 'static>,
 ) -> std::io::Result<Session> {
-    let (send_frame_out, recv_frame_out) = smol::channel::bounded::<msg::DataFrame>(1000);
+    let (send_frame_out, recv_frame_out) = smol::channel::bounded(1000);
     let (send_frame_in, recv_frame_in) = smol::channel::bounded::<msg::DataFrame>(1000);
     let backhaul_tasks: Vec<_> = (0..SHARDS)
         .map(|i| {
@@ -146,12 +145,12 @@ async fn init_session(
 }
 
 #[allow(clippy::all)]
-#[tracing::instrument(skip(laddr_gen))]
+#[tracing::instrument(skip(laddr_gen), level = "trace")]
 async fn client_backhaul_once(
     cookie: crypt::Cookie,
     resume_token: Bytes,
     send_frame_in: Sender<msg::DataFrame>,
-    recv_frame_out: Receiver<msg::DataFrame>,
+    recv_frame_out: Receiver<Vec<msg::DataFrame>>,
     shard_id: u8,
     remote_addr: SocketAddr,
     shared_sec: blake3::Hash,
@@ -199,7 +198,7 @@ async fn client_backhaul_once(
         };
         let up_crypter = up_crypter.clone();
         let up = async {
-            let dff = recv_many(&recv_frame_out).await.ok()?;
+            let dff = recv_frame_out.recv().await.ok()?;
             let encrypted = dff
                 .into_iter()
                 .map(|df| up_crypter.pad_encrypt(df, 1000))

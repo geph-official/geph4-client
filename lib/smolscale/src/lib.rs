@@ -61,7 +61,7 @@ fn monitor_loop() {
                             true
                         }
                         .or(async {
-                            async_io::Timer::after(Duration::from_millis(500)).await;
+                            async_io::Timer::after(Duration::from_millis(100)).await;
                             false
                         });
                         if !cont.await && exitable {
