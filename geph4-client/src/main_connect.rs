@@ -140,14 +140,25 @@ async fn handle_stats(
             if let Some(detail) = detail {
                 let detail = detail?;
                 let mut sosistab_buf = Vec::new();
-                writeln!(sosistab_buf, "time,seqno")?;
-                if let Some((first_time, _)) = detail.recent_seqnos.first() {
-                    for (time, seqno) in detail.recent_seqnos.iter() {
+                writeln!(
+                    sosistab_buf,
+                    "time,last_recv,total_recv,total_parity,total_loss,ping"
+                )?;
+                if let Some(first) = detail.first() {
+                    let first_time = first.time;
+                    for item in detail.iter() {
                         writeln!(
                             sosistab_buf,
-                            "{},{}",
-                            time.saturating_duration_since(*first_time).as_secs_f64(),
-                            seqno
+                            "{},{},{},{},{},{}",
+                            item.time
+                                .duration_since(first_time)
+                                .unwrap_or_default()
+                                .as_secs_f64(),
+                            item.last_recv,
+                            item.total_recv,
+                            item.total_parity,
+                            item.total_loss,
+                            item.ping.as_secs_f64() * 1000.0,
                         )?;
                     }
                 }
@@ -184,7 +195,9 @@ async fn handle_stats(
         _ => {
             let detail = kalive.get_stats().timeout(Duration::from_millis(100)).await;
             if let Some(Ok(detail)) = detail {
-                stats.set_latency(detail.ping.as_secs_f64() * 1000.0);
+                if let Some(detail) = detail.last() {
+                    stats.set_latency(detail.ping.as_secs_f64() * 1000.0);
+                }
             }
             let jstats = serde_json::to_string(&stats)?;
             res.set_body(jstats);

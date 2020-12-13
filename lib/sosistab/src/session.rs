@@ -1,9 +1,9 @@
-use crate::msg::DataFrame;
 use crate::runtime;
 use crate::{
     fec::{FrameDecoder, FrameEncoder},
     VarRateLimit,
 };
+use crate::{msg::DataFrame, stats::TimeSeries};
 use bytes::Bytes;
 use parking_lot::{Mutex, RwLock};
 use rustc_hash::FxHashMap;
@@ -35,14 +35,15 @@ pub(crate) struct SessionConfig {
     pub send_frame: Sender<Vec<DataFrame>>,
     pub recv_frame: Receiver<DataFrame>,
     pub recv_timeout: Duration,
+    pub statistics: usize,
 }
 
 /// Representation of an isolated session that deals only in DataFrames and abstracts away all I/O concerns. It's the user's responsibility to poll the session. Otherwise, it might not make progress and will drop packets.
 pub struct Session {
     pub(crate) send_tosend: Sender<Bytes>,
+    statistics: Arc<Mutex<TimeSeries<SessionStat>>>,
     rate_limit: Arc<AtomicU32>,
     recv_input: Receiver<Bytes>,
-    get_stats: Sender<Sender<SessionStats>>,
     _dropper: Vec<Box<dyn FnOnce() + Send + Sync + 'static>>,
     _task: smol::Task<()>,
 }
@@ -52,22 +53,22 @@ impl Session {
     pub(crate) fn new(cfg: SessionConfig) -> Self {
         let (send_tosend, recv_tosend) = smol::channel::bounded(50);
         let (send_input, recv_input) = smol::channel::bounded(500);
-        let (s, r) = smol::channel::unbounded();
         let rate_limit = Arc::new(AtomicU32::new(100000));
         let recv_timeout = cfg.recv_timeout;
+        let statistics = Arc::new(Mutex::new(TimeSeries::new(cfg.statistics)));
         let task = runtime::spawn(session_loop(
             cfg,
+            statistics.clone(),
             recv_tosend,
             send_input,
             rate_limit.clone(),
-            r,
             recv_timeout,
         ));
         Session {
             send_tosend,
             recv_input,
             rate_limit,
-            get_stats: s,
+            statistics,
             _dropper: Vec::new(),
             _task: task,
         }
@@ -91,37 +92,29 @@ impl Session {
         self.recv_input.recv().await.ok()
     }
 
-    /// Obtains current statistics.
-    pub async fn get_stats(&self) -> Option<SessionStats> {
-        let (send, recv) = smol::channel::bounded(1);
-        self.get_stats.send(send).await.ok()?;
-        recv.recv().await.ok()
-    }
-
     /// Sets the rate limit, in packets per second.
     pub fn set_ratelimit(&self, pps: u32) {
         self.rate_limit.store(pps, Ordering::Relaxed);
     }
-}
 
-/// Statistics of a single Sosistab session.
-#[derive(Debug)]
-pub struct SessionStats {
-    pub down_total: u64,
-    pub down_loss: f64,
-    pub down_recovered_loss: f64,
-    pub down_redundant: f64,
-    pub recent_seqnos: Vec<(Instant, u64)>,
-    pub ping: Duration,
+    /// Gets the statistics.
+    pub fn all_stats(&self) -> Vec<SessionStat> {
+        self.statistics.lock().items().into_iter().collect()
+    }
+
+    /// Get the latest stats.
+    pub fn latest_stat(&self) -> Option<SessionStat> {
+        self.statistics.lock().items().last().cloned()
+    }
 }
 
 #[tracing::instrument]
 async fn session_loop(
     cfg: SessionConfig,
+    statistics: Arc<Mutex<TimeSeries<SessionStat>>>,
     recv_tosend: Receiver<Bytes>,
     send_input: Sender<Bytes>,
     rate_limit: Arc<AtomicU32>,
-    recv_statreq: Receiver<Sender<SessionStats>>,
     recv_timeout: Duration,
 ) {
     let measured_loss = AtomicU8::new(0);
@@ -148,8 +141,8 @@ async fn session_loop(
     );
     let recv_task = session_recv_loop(
         cfg,
+        statistics,
         send_input,
-        recv_statreq,
         &measured_loss,
         &high_recv_frame_no,
         &total_recv_frames,
@@ -249,8 +242,8 @@ async fn session_send_loop(
 #[tracing::instrument(level = "trace")]
 async fn session_recv_loop(
     cfg: SessionConfig,
+    statistics: Arc<Mutex<TimeSeries<SessionStat>>>,
     send_input: Sender<Bytes>,
-    recv_statreq: Receiver<Sender<SessionStats>>,
     measured_loss: &AtomicU8,
     high_recv_frame_no: &AtomicU64,
     total_recv_frames: &AtomicU64,
@@ -259,84 +252,60 @@ async fn session_recv_loop(
     recv_timeout: Duration,
 ) -> Option<()> {
     let decoder = RwLock::new(RunDecoder::default());
-    let seqnos = RwLock::new(VecDeque::new());
     // receive loop
-    let recv_loop = async {
-        let mut rp_filter = ReplayFilter::new(0);
-        let mut loss_calc = LossCalculator::new();
-        let mut timer = smol::Timer::after(recv_timeout);
-        loop {
-            let timer_ref = &mut timer;
-            let new_frame = async { cfg.recv_frame.recv().await.ok() }
-                .or(async {
-                    timer_ref.await;
-                    tracing::warn!(
-                        "session timeout! nominal timeout {:?}, actual timeout {:?}",
-                        recv_timeout,
-                        last_recv.lock().elapsed()
-                    );
-                    None
-                })
-                .await?;
-            *last_recv.lock() = SystemTime::now();
-            timer.set_after(recv_timeout);
-            if !rp_filter.add(new_frame.frame_no) {
-                tracing::trace!(
-                    "recv_loop: replay filter dropping frame {}",
-                    new_frame.frame_no
+    let mut rp_filter = ReplayFilter::new(0);
+    let mut loss_calc = LossCalculator::new();
+    let mut timer = smol::Timer::after(recv_timeout);
+    loop {
+        let timer_ref = &mut timer;
+        let new_frame = async { cfg.recv_frame.recv().await.ok() }
+            .or(async {
+                timer_ref.await;
+                tracing::warn!(
+                    "session timeout! nominal timeout {:?}, actual timeout {:?}",
+                    recv_timeout,
+                    last_recv.lock().elapsed()
                 );
-                continue;
-            }
-            {
-                let mut seqnos = seqnos.write();
-                seqnos.push_back((Instant::now(), new_frame.frame_no));
-                if seqnos.len() > 100000 {
-                    seqnos.pop_front();
-                }
-            }
-            loss_calc.update_params(new_frame.high_recv_frame_no, new_frame.total_recv_frames);
-            measured_loss.store(loss_to_u8(loss_calc.median), Ordering::Relaxed);
-            high_recv_frame_no.fetch_max(new_frame.frame_no, Ordering::Relaxed);
-            total_recv_frames.fetch_add(1, Ordering::Relaxed);
-            pinger.lock().ack(new_frame.high_recv_frame_no);
-            if let Some(output) = decoder.write().input(
-                new_frame.run_no,
-                new_frame.run_idx,
-                new_frame.data_shards,
-                new_frame.parity_shards,
-                &new_frame.body,
-            ) {
-                for item in output {
-                    let _ = send_input.try_send(item);
-                }
+                None
+            })
+            .await?;
+        *last_recv.lock() = SystemTime::now();
+        timer.set_after(recv_timeout);
+        if !rp_filter.add(new_frame.frame_no) {
+            tracing::trace!(
+                "recv_loop: replay filter dropping frame {}",
+                new_frame.frame_no
+            );
+            continue;
+        }
+        loss_calc.update_params(new_frame.high_recv_frame_no, new_frame.total_recv_frames);
+        measured_loss.store(loss_to_u8(loss_calc.median), Ordering::Relaxed);
+        let high_recv = high_recv_frame_no.fetch_max(new_frame.frame_no, Ordering::Relaxed);
+        let total_recv = total_recv_frames.fetch_add(1, Ordering::Relaxed);
+        pinger.lock().ack(new_frame.high_recv_frame_no);
+
+        let stat = SessionStat {
+            time: SystemTime::now(),
+            last_recv: new_frame.frame_no,
+            total_recv,
+            ping: pinger.lock().ping(),
+            total_parity: decoder.read().total_parity_shards,
+            total_loss: 1.0 - (total_recv as f64 / high_recv.max(1) as f64).min(1.0),
+        };
+        statistics.lock().push(stat);
+
+        if let Some(output) = decoder.write().input(
+            new_frame.run_no,
+            new_frame.run_idx,
+            new_frame.data_shards,
+            new_frame.parity_shards,
+            &new_frame.body,
+        ) {
+            for item in output {
+                let _ = send_input.try_send(item);
             }
         }
-    };
-    // stats loop
-    let stats_loop = async {
-        loop {
-            let req = infal(recv_statreq.recv()).await;
-            let ping = pinger.lock().ping();
-            let response = {
-                let decoder = decoder.read();
-                SessionStats {
-                    down_total: high_recv_frame_no.load(Ordering::Relaxed),
-                    down_loss: 1.0
-                        - (total_recv_frames.load(Ordering::Relaxed) as f64
-                            / high_recv_frame_no.load(Ordering::Relaxed) as f64)
-                            .min(1.0),
-                    down_recovered_loss: 1.0
-                        - (decoder.correct_count as f64 / decoder.total_count as f64).min(1.0),
-                    down_redundant: decoder.total_parity_shards as f64
-                        / decoder.total_data_shards as f64,
-                    recent_seqnos: seqnos.read().iter().cloned().collect(),
-                    ping,
-                }
-            };
-            infal(req.send(response)).await;
-        }
-    };
-    smol::future::race(stats_loop, recv_loop).await
+    }
 }
 /// A reordering-resistant FEC reconstructor
 #[derive(Default)]
@@ -524,4 +493,15 @@ impl PingCalc {
             .min()
             .unwrap_or_else(|| Duration::from_secs(1000))
     }
+}
+
+/// Session stat
+#[derive(Copy, Clone, Debug)]
+pub struct SessionStat {
+    pub time: SystemTime,
+    pub last_recv: u64,
+    pub total_recv: u64,
+    pub total_parity: u64,
+    pub total_loss: f64,
+    pub ping: Duration,
 }

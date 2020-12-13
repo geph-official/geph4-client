@@ -104,20 +104,14 @@ pub async fn run_vpn(
         let dns_nat = &dns_nat;
         async move {
             for count in 0u64.. {
-                if count % 1000 == 0 {
-                    let sess_stats = mux
-                        .get_session()
-                        .get_stats()
-                        .await
-                        .ok_or_else(|| anyhow::anyhow!("oh no"))?;
+                if count % 1000 == 1 {
+                    let sess_stats = mux.get_session().latest_stat().unwrap();
                     log::debug!(
-                    "VPN received {} pkts; ping {} ms; loss = {:.2}% => {:.2}%; overhead = {:.2}%",
-                    count,
-                    sess_stats.ping.as_millis(),
-                    sess_stats.down_loss * 100.0,
-                    sess_stats.down_recovered_loss * 100.0,
-                    sess_stats.down_redundant * 100.0,
-                );
+                        "VPN received {} pkts; ping {} ms, loss {}%",
+                        count,
+                        sess_stats.ping.as_millis(),
+                        sess_stats.total_loss * 100.0,
+                    );
                 }
                 let bts = mux.recv_urel().await?;
                 if let vpn_structs::Message::Payload(bts) = bincode::deserialize(&bts)? {

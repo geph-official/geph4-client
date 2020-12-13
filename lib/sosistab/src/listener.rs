@@ -306,6 +306,7 @@ impl ListenerActor {
                                                     send_frame: session_output_send,
                                                     recv_frame: session_input_recv,
                                                     recv_timeout: Duration::from_secs(3600),
+                                                    statistics: 128,
                                                 });
                                                 let send_dead_clo = send_dead.clone();
                                                 let resume_token_clo = resume_token.clone();

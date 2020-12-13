@@ -11,6 +11,7 @@ mod session;
 pub use session::*;
 mod backhaul;
 pub mod mux;
+mod stats;
 pub use backhaul::*;
 
 #[cfg(test)]

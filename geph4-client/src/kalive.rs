@@ -10,7 +10,7 @@ use std::{sync::Arc, time::Instant};
 #[derive(Clone)]
 pub struct Keepalive {
     open_socks5_conn: Sender<(String, Sender<sosistab::mux::RelConn>)>,
-    get_stats: Sender<Sender<sosistab::SessionStats>>,
+    get_stats: Sender<Sender<Vec<sosistab::SessionStat>>>,
     _task: Arc<smol::Task<anyhow::Result<()>>>,
 }
 
@@ -50,7 +50,7 @@ impl Keepalive {
     }
 
     /// Gets session statistics
-    pub async fn get_stats(&self) -> anyhow::Result<sosistab::SessionStats> {
+    pub async fn get_stats(&self) -> anyhow::Result<Vec<sosistab::SessionStat>> {
         let (send, recv) = smol::channel::bounded(1);
         self.get_stats.send(send).await?;
         Ok(recv.recv().await?)
@@ -64,7 +64,7 @@ async fn keepalive_actor(
     stdio_vpn: bool,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::mux::RelConn>)>,
-    recv_get_stats: Receiver<Sender<sosistab::SessionStats>>,
+    recv_get_stats: Receiver<Sender<Vec<sosistab::SessionStat>>>,
 ) -> anyhow::Result<()> {
     loop {
         if let Err(err) = keepalive_actor_once(
@@ -91,7 +91,7 @@ async fn keepalive_actor_once(
     stdio_vpn: bool,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::mux::RelConn>)>,
-    recv_get_stats: Receiver<Sender<sosistab::SessionStats>>,
+    recv_get_stats: Receiver<Sender<Vec<sosistab::SessionStat>>>,
 ) -> anyhow::Result<()> {
     stats.set_exit_descriptor(None);
 
@@ -235,14 +235,14 @@ async fn keepalive_actor_once(
                             let remote = (&mux).open_conn(Some(conn_host)).await;
                             match remote {
                                 Ok(remote) => {
-                                    let sess_stats = mux.get_session().get_stats().await.ok_or_else(|| anyhow::anyhow!("session is dead (stats)"))?;
-                                    log::debug!(
-                                        "opened connection in {} ms; loss = {:.2}% => {:.2}%; overhead = {:.2}%",
-                                        start.elapsed().as_millis(),
-                                        sess_stats.down_loss * 100.0,
-                                        sess_stats.down_recovered_loss * 100.0,
-                                        sess_stats.down_redundant * 100.0,
-                                    );
+                                    let sess_stats = mux.get_session().latest_stat();
+                                    if let Some(stat) = sess_stats {
+                                        log::debug!(
+                                            "opened connection in {} ms; loss = {:.2}%",
+                                            start.elapsed().as_millis(),
+                                            stat.total_loss * 100.0
+                                        );
+                                    };
                                     conn_reply.send(remote).await?;
                                     Ok::<(), anyhow::Error>(())
                                 }
@@ -268,7 +268,7 @@ async fn keepalive_actor_once(
             .or(async {
                 loop {
                     let stat_send = recv_get_stats.recv().await?;
-                    let stats = mux.get_session().get_stats().await.ok_or_else(||anyhow::anyhow!("session dead at stats"))?;
+                    let stats = mux.get_session().all_stats();
                     drop(stat_send.send(stats).await);
                 }
             }),

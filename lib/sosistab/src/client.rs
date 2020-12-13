@@ -137,6 +137,7 @@ async fn init_session(
         send_frame: send_frame_out,
         recv_frame: recv_frame_in,
         recv_timeout: Duration::from_secs(300),
+        statistics: 40000,
     });
     session.on_drop(move || {
         drop(backhaul_tasks);
