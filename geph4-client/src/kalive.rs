@@ -152,7 +152,10 @@ async fn keepalive_actor_once(
                     sosistab::connect(
                         smol::net::resolve(format!("{}:19831", exit_info.hostname))
                             .await
-                            .context("can't resolve hostname of exit")?[0],
+                            .context("can't resolve hostname of exit")?
+                            .into_iter()
+                            .find(|v| v.is_ipv4())
+                            .context("can't find ipv4 address for exit")?,
                         exit_info.sosistab_key,
                     )
                     .await,
