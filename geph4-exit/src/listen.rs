@@ -260,7 +260,7 @@ async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
         loop {
             let signal = recv_sess_alive
                 .recv()
-                .timeout(Duration::from_secs(60))
+                .timeout(Duration::from_secs(600))
                 .await;
             if let Some(sig) = signal {
                 let _ = sig?;

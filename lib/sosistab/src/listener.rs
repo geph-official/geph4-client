@@ -302,7 +302,7 @@ impl ListenerActor {
                                                     })
                                                 };
                                                 let mut session = Session::new(SessionConfig {
-                                                    target_loss: 0.05,
+                                                    target_loss: 0.01,
                                                     send_frame: session_output_send,
                                                     recv_frame: session_input_recv,
                                                     recv_timeout: Duration::from_secs(3600),
