@@ -23,16 +23,7 @@ impl StatCollector {
     }
 
     pub fn set_latency(&self, ms: f64) {
-        let mut old = self.open_latency.lock();
-        if *old > 0.1 {
-            if ms > *old {
-                *old = *old * 0.9 + ms * 0.1;
-            } else {
-                *old = *old * 0.5 + ms * 0.5
-            }
-        } else {
-            *old = ms
-        }
+        *self.open_latency.lock() = ms
     }
     // pub fn get_latency(&self) -> f64 {
     //     *self.open_latency.lock()

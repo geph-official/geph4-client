@@ -49,9 +49,9 @@ pub struct Session {
 }
 
 impl Session {
-    /// Creates a tuple of a Session and also a channel with which stuff is fed into the session.
+    /// Creates a Session.
     pub(crate) fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = smol::channel::bounded(50);
+        let (send_tosend, recv_tosend) = smol::channel::bounded(20);
         let (send_input, recv_input) = smol::channel::bounded(500);
         let rate_limit = Arc::new(AtomicU32::new(100000));
         let recv_timeout = cfg.recv_timeout;
@@ -84,6 +84,7 @@ impl Session {
         if self.send_tosend.try_send(to_send).is_err() {
             tracing::trace!("overflowed send buffer at session!");
         }
+        smol::future::yield_now().await;
         // drop(self.send_tosend.send(to_send).await)
     }
 

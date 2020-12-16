@@ -140,7 +140,7 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         if count % 1000 == 1 {
             let sess_stats = ctx.mux.get_session().latest_stat().unwrap();
             log::debug!(
-                "VPN received {} pkts; ping {} ms, loss {}%",
+                "VPN received {} pkts; ping {} ms, loss {:.2}%",
                 count,
                 sess_stats.ping.as_millis(),
                 sess_stats.total_loss * 100.0,
