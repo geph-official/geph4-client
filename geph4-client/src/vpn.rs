@@ -1,10 +1,7 @@
-use std::{collections::HashMap, io::Stdin, num::NonZeroU32, sync::Arc, time::Duration};
-
 use async_net::Ipv4Addr;
 use bytes::Bytes;
-use governor::Quota;
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 use pnet_packet::{
     ip::IpNextHeaderProtocols,
     ipv4::{Ipv4Packet, MutableIpv4Packet},
@@ -13,23 +10,36 @@ use pnet_packet::{
     udp::UdpPacket,
     Packet,
 };
+use smol::prelude::*;
 use smol_timeout::TimeoutExt;
+use sosistab::mux::Multiplex;
+use std::{
+    collections::HashMap, collections::VecDeque, io::Stdin, sync::Arc, time::Duration,
+    time::Instant,
+};
 use vpn_structs::StdioMsg;
 
 use crate::stats::StatCollector;
+
+static STDIN: Lazy<async_dup::Arc<async_dup::Mutex<smol::Unblock<Stdin>>>> = Lazy::new(|| {
+    async_dup::Arc::new(async_dup::Mutex::new(smol::Unblock::with_capacity(
+        1024 * 1024,
+        std::io::stdin(),
+    )))
+});
+
+#[derive(Clone, Copy)]
+struct VpnContext<'a> {
+    mux: &'a Multiplex,
+    stats: &'a StatCollector,
+    dns_nat: &'a RwLock<HashMap<u16, Ipv4Addr>>,
+}
 
 /// runs a vpn session
 pub async fn run_vpn(
     stats: Arc<StatCollector>,
     mux: Arc<sosistab::mux::Multiplex>,
 ) -> anyhow::Result<()> {
-    static STDIN: Lazy<async_dup::Arc<async_dup::Mutex<smol::Unblock<Stdin>>>> = Lazy::new(|| {
-        async_dup::Arc::new(async_dup::Mutex::new(smol::Unblock::with_capacity(
-            1024 * 1024,
-            std::io::stdin(),
-        )))
-    });
-    let mut stdin = STDIN.clone();
     // first we negotiate the vpn
     let client_id: u128 = rand::random();
     log::info!("negotiating VPN with client id {}...", client_id);
@@ -60,80 +70,100 @@ pub async fn run_vpn(
 
     // a mini-nat for DNS request
     let dns_nat = RwLock::new(HashMap::new());
-    let vpn_up_fut = {
-        let mux = mux.clone();
-        let stats = stats.clone();
-        let dns_nat = &dns_nat;
-        async move {
-            let ack_rate_limits: Vec<_> = (0..16)
-                .map(|_| {
-                    governor::RateLimiter::direct(Quota::per_second(
-                        NonZeroU32::new(500u32).unwrap(),
-                    ))
-                })
-                .collect();
-            loop {
-                let msg = StdioMsg::read(&mut stdin).await?;
-                // ACK decimation
-                if let Some(hash) = ack_decimate(&msg.body) {
-                    let limiter = &(ack_rate_limits[(hash % 16) as usize]);
-                    if limiter.check().is_err() {
-                        continue;
+    let ctx = VpnContext {
+        mux: &mux,
+        stats: &stats,
+        dns_nat: &dns_nat,
+    };
+    vpn_up_loop(ctx).or(vpn_down_loop(ctx)).await
+}
+
+/// up loop for vpn
+async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
+    let mut stdin = STDIN.clone();
+    let ack_queue = Mutex::new(VecDeque::new());
+    let mut ack_time = Instant::now();
+    loop {
+        let stdin_fut = async {
+            let msg = StdioMsg::read(&mut stdin).await?;
+            // ACK decimation
+            if ack_decimate(&msg.body).is_some() {
+                {
+                    let mut ack_queue = ack_queue.lock();
+                    ack_queue.push_back(msg.body);
+                    while ack_queue.len() > 10 {
+                        // drop head
+                        ack_queue.pop_front();
                     }
                 }
+                Ok(None)
+            } else {
                 // fix dns
-                let body = if let Some(body) = fix_dns_dest(&msg.body, dns_nat) {
+                let body = if let Some(body) = fix_dns_dest(&msg.body, ctx.dns_nat) {
                     body
                 } else {
                     msg.body
                 };
-                stats.incr_total_tx(body.len() as u64);
-                drop(
-                    mux.send_urel(
+                Ok::<Option<Bytes>, anyhow::Error>(Some(body))
+            }
+        };
+        let ack_fut = async {
+            // limiter.until_ready().await;
+            smol::Timer::at(ack_time).await;
+            let item = ack_queue.lock().pop_front();
+            if let Some(item) = item {
+                ack_time = Instant::now() + Duration::from_millis(1);
+                Ok(Some(item))
+            } else {
+                smol::future::pending().await
+            }
+        };
+        let body = ack_fut.or(stdin_fut).await?;
+        if let Some(body) = body {
+            ctx.stats.incr_total_tx(body.len() as u64);
+            drop(
+                ctx.mux
+                    .send_urel(
                         bincode::serialize(&vpn_structs::Message::Payload(body))
                             .unwrap()
                             .into(),
                     )
                     .await,
-                );
+            );
+        }
+    }
+}
+
+/// down loop for vpn
+async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
+    for count in 0u64.. {
+        if count % 1000 == 1 {
+            let sess_stats = ctx.mux.get_session().latest_stat().unwrap();
+            log::debug!(
+                "VPN received {} pkts; ping {} ms, loss {}%",
+                count,
+                sess_stats.ping.as_millis(),
+                sess_stats.total_loss * 100.0,
+            );
+        }
+        let bts = ctx.mux.recv_urel().await?;
+        if let vpn_structs::Message::Payload(bts) = bincode::deserialize(&bts)? {
+            ctx.stats.incr_total_rx(bts.len() as u64);
+            let bts = if let Some(bts) = fix_dns_src(&bts, ctx.dns_nat) {
+                bts
+            } else {
+                bts
+            };
+            let msg = StdioMsg { verb: 0, body: bts };
+            {
+                use std::io::Write;
+                let mut stdout = std::io::stdout();
+                msg.write_blocking(&mut stdout)?;
+                stdout.flush()?;
             }
         }
-    };
-    let vpn_down_fut = {
-        let stats = stats.clone();
-        let dns_nat = &dns_nat;
-        async move {
-            for count in 0u64.. {
-                if count % 1000 == 1 {
-                    let sess_stats = mux.get_session().latest_stat().unwrap();
-                    log::debug!(
-                        "VPN received {} pkts; ping {} ms, loss {}%",
-                        count,
-                        sess_stats.ping.as_millis(),
-                        sess_stats.total_loss * 100.0,
-                    );
-                }
-                let bts = mux.recv_urel().await?;
-                if let vpn_structs::Message::Payload(bts) = bincode::deserialize(&bts)? {
-                    stats.incr_total_rx(bts.len() as u64);
-                    let bts = if let Some(bts) = fix_dns_src(&bts, dns_nat) {
-                        bts
-                    } else {
-                        bts
-                    };
-                    let msg = StdioMsg { verb: 0, body: bts };
-                    {
-                        use std::io::Write;
-                        let mut stdout = std::io::stdout();
-                        msg.write_blocking(&mut stdout)?;
-                        stdout.flush()?;
-                    }
-                }
-            }
-            unreachable!()
-        }
-    };
-    smol::future::race(vpn_up_fut, vpn_down_fut).await
+    }
+    unreachable!()
 }
 
 /// returns ok if it's an ack that needs to be decimated

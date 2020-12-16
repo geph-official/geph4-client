@@ -163,8 +163,8 @@ async fn keepalive_actor_once(
                 .await)
             }
             .or(async {
-                smol::Timer::after(Duration::from_secs(10)).await;
-                log::warn!("turning on bridges because we couldn't get a direct connection");
+                smol::Timer::after(Duration::from_secs(1)).await;
+                log::warn!("racing with bridges because direct connection took a while");
                 bridge_sess_async.await
             })
             .await
@@ -172,8 +172,8 @@ async fn keepalive_actor_once(
     };
     let session: anyhow::Result<sosistab::Session> = connected_sess_async
         .or(async {
-            smol::Timer::after(Duration::from_secs(10)).await;
-            anyhow::bail!("initial connection timeout after 10");
+            smol::Timer::after(Duration::from_secs(20)).await;
+            anyhow::bail!("initial connection timeout after 20");
         })
         .await;
     let session = session?;
