@@ -24,7 +24,7 @@ static IPV4_MAP: Lazy<RangeMap<Ipv4Addr, u32>> = Lazy::new(|| {
             log::warn!("skipping line in ASN database: {}", line)
         } else {
             let start: Ipv4Addr = elems[0].parse().unwrap();
-            let end: Ipv4Addr = elems[1].parse().unwrap();
+            let end: Ipv4Addr = next_ip(elems[1].parse().unwrap());
             let asn: u32 = elems[2].parse().unwrap();
             if end > start {
                 toret.insert(start..end, asn);
@@ -33,6 +33,11 @@ static IPV4_MAP: Lazy<RangeMap<Ipv4Addr, u32>> = Lazy::new(|| {
     }
     toret
 });
+
+/// the "next" IP address
+pub fn next_ip(ip: Ipv4Addr) -> Ipv4Addr {
+    (u32::from_be_bytes(ip.octets()).saturating_add(1)).into()
+}
 
 /// Returns the ASN of this IP address, or zero if unable to.
 pub fn get_asn(addr: IpAddr) -> u32 {
