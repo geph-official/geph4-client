@@ -10,7 +10,7 @@ use pnet_packet::{
     udp::UdpPacket,
     Packet,
 };
-use smol::prelude::*;
+use smol::{channel::Receiver, prelude::*};
 use smol_timeout::TimeoutExt;
 use sosistab::mux::Multiplex;
 use std::{
@@ -19,14 +19,7 @@ use std::{
 };
 use vpn_structs::StdioMsg;
 
-use crate::stats::StatCollector;
-
-static STDIN: Lazy<async_dup::Arc<async_dup::Mutex<smol::Unblock<Stdin>>>> = Lazy::new(|| {
-    async_dup::Arc::new(async_dup::Mutex::new(smol::Unblock::with_capacity(
-        1024 * 1024,
-        std::io::stdin(),
-    )))
-});
+use crate::{stats::StatCollector, GEXEC};
 
 #[derive(Clone, Copy)]
 struct VpnContext<'a> {
@@ -80,12 +73,11 @@ pub async fn run_vpn(
 
 /// up loop for vpn
 async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
-    let mut stdin = STDIN.clone();
     let ack_queue = Mutex::new(VecDeque::new());
     let mut ack_time = Instant::now();
     loop {
         let stdin_fut = async {
-            let msg = StdioMsg::read(&mut stdin).await?;
+            let msg = STDIN.recv().await;
             // ACK decimation
             if ack_decimate(&msg.body).is_some() {
                 {
@@ -239,4 +231,37 @@ fn fix_dns_src(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Bytes
     parsed.set_source(*nat.read().get(&dns_src_port)?);
     fix_all_checksums(&mut vv)?;
     Some(vv.into())
+}
+
+static STDIN: Lazy<AtomicStdin> = Lazy::new(AtomicStdin::new);
+
+/// A type that wraps stdin and provides atomic packet recv operations to prevent cancellations from messing things up.
+struct AtomicStdin {
+    incoming: Receiver<StdioMsg>,
+    _task: smol::Task<Option<()>>,
+}
+
+impl AtomicStdin {
+    fn new() -> Self {
+        static STDIN: Lazy<async_dup::Arc<async_dup::Mutex<smol::Unblock<Stdin>>>> =
+            Lazy::new(|| {
+                async_dup::Arc::new(async_dup::Mutex::new(smol::Unblock::with_capacity(
+                    1024 * 1024,
+                    std::io::stdin(),
+                )))
+            });
+        let (send_incoming, incoming) = smol::channel::bounded(1000);
+        let _task = GEXEC.spawn(async move {
+            let mut stdin = STDIN.clone();
+            loop {
+                let msg = StdioMsg::read(&mut stdin).await.unwrap();
+                send_incoming.send(msg).await.ok()?
+            }
+        });
+        Self { incoming, _task }
+    }
+
+    async fn recv(&self) -> StdioMsg {
+        self.incoming.recv().await.unwrap()
+    }
 }
