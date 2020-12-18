@@ -95,9 +95,9 @@ dependencies = [
 
 [[package]]
 name = "ahash"
-version = "0.4.6"
+version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6789e291be47ace86a60303502173d84af8327e3627ecf334356ee0f87a164c"
+checksum = "739f4a8db6605981345c5654f3a85b056ce52f37a39d34da03f25bf2151ea16e"
 
 [[package]]
 name = "aho-corasick"
@@ -113,6 +113,7 @@ name = "aioutils"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-dup",
  "bincode",
  "serde",
  "smol",
@@ -207,10 +208,12 @@ dependencies = [
 
 [[package]]
 name = "async-h1"
-version = "2.2.1"
+version = "2.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbd08aac4521ff179a4f91a0710729f0caf4d796fd913569d0613704e50da405"
+checksum = "e5c68a75f812ff0f299e142c06dd0c34e3295a594d935e61eeb6c77041d1d4dc"
 dependencies = [
+ "async-channel",
+ "async-dup",
  "async-std",
  "byte-pool",
  "futures-core",
@@ -306,7 +309,6 @@ dependencies = [
  "async-global-executor",
  "async-io",
  "async-mutex",
- "async-process",
  "blocking",
  "crossbeam-utils 0.8.1",
  "futures-channel",
@@ -443,7 +445,10 @@ dependencies = [
 name = "binder_transport"
 version = "0.1.0"
 dependencies = [
+ "aioutils",
  "async-h1",
+ "async-tls 0.11.0",
+ "async-trait",
  "bincode",
  "blake3",
  "chacha20poly1305",
@@ -1337,16 +1342,16 @@ checksum = "611834ce18aaa1bd13c4b374f5d653e1027cf99b6b502584ff8c9a64413b30bb"
 
 [[package]]
 name = "futures-lite"
-version = "1.11.2"
+version = "1.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5e6c079abfac3ab269e2927ec048dabc89d009ebfdda6b8ee86624f30c689658"
+checksum = "b4481d0cd0de1d204a4fa55e7d45f07b1d958abcb06714b3446438e2eff695fb"
 dependencies = [
  "fastrand",
  "futures-core",
  "futures-io",
  "memchr",
  "parking",
- "pin-project-lite 0.1.11",
+ "pin-project-lite 0.2.0",
  "waker-fn",
 ]
 
@@ -1692,7 +1697,7 @@ version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d7afe4a420e3fe79967a00898cc1f4db7c8a49a9333a29f8a4bd76a253d5cd04"
 dependencies = [
- "ahash 0.4.6",
+ "ahash 0.4.7",
 ]
 
 [[package]]
@@ -1830,9 +1835,9 @@ dependencies = [
 
 [[package]]
 name = "indexmap"
-version = "1.6.0"
+version = "1.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55e2e4c765aa53a0424761bf9f41aa7a6ac1efa87238f59560640e27fca028f2"
+checksum = "4fb1fa934250de4de8aef298d81c729a7d33d8c239daa3a7575e6b92bfc7313b"
 dependencies = [
  "autocfg 1.0.1",
  "hashbrown 0.9.1",
@@ -2000,9 +2005,9 @@ dependencies = [
 
 [[package]]
 name = "lru"
-version = "0.6.1"
+version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be716eb6878ca2263eb5d00a781aa13264a794f519fe6af4fbb2668b2d5441c0"
+checksum = "3abe07af102235a56ac9a6dd904aab1e05483e2e8afdfffec3598be55b1b7606"
 dependencies = [
  "hashbrown 0.9.1",
 ]
@@ -2645,9 +2650,9 @@ checksum = "ac74c624d6b2d21f425f752262f42188365d7b8ff1aff74c82e45136510a4857"
 
 [[package]]
 name = "priority-queue"
-version = "1.0.3"
+version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a6f1a563bbd2d93b9c5a2e4b3af6f0fc728bca22653f31cb515ea932604ea57"
+checksum = "a6fffb2a42c53276c40a3dcef02bd8ec18d4b0105f2828a186bd58d64a8054d0"
 dependencies = [
  "autocfg 1.0.1",
  "indexmap",
@@ -3418,13 +3423,12 @@ dependencies = [
 
 [[package]]
 name = "socket2"
-version = "0.3.17"
+version = "0.3.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2c29947abdee2a218277abeca306f25789c938e500ea5a9d4b12a5a504466902"
+checksum = "97e0e9fd577458a4f61fb91fcb559ea2afecc54c934119421f9f5d3d5b1a1057"
 dependencies = [
  "cfg-if 1.0.0",
  "libc",
- "redox_syscall",
  "winapi 0.3.9",
 ]
 
@@ -3647,9 +3651,9 @@ dependencies = [
 
 [[package]]
 name = "subtle"
-version = "2.3.0"
+version = "2.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "343f3f510c2915908f155e94f17220b19ccfacf2a64a2a5d8004f2c3e311e7fd"
+checksum = "1e81da0851ada1f3e9d4312c704aa4f8806f0f9d69faaf8df2f3464b4a9437c2"
 
 [[package]]
 name = "syn"
