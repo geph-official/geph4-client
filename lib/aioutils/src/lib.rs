@@ -3,6 +3,9 @@ use std::{pin::Pin, time::Duration};
 use serde::{de::DeserializeOwned, Serialize};
 use smol::prelude::*;
 
+mod dns;
+pub use dns::*;
+
 /// Reads a bincode-deserializable value with a 16bbe length
 pub async fn read_pascalish<T: DeserializeOwned>(
     reader: &mut (impl AsyncRead + Unpin),

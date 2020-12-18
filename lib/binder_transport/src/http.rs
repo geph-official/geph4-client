@@ -6,7 +6,6 @@ use crate::{
 use async_tls::TlsConnector;
 use http_types::{Method, Request, StatusCode, Url};
 use smol::channel::{Receiver, Sender};
-use smol::prelude::*;
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
 /// An HTTP-based BinderClient implementation, driven by ureq.
@@ -78,7 +77,8 @@ async fn endpoint_to_conn(endpoint: &str) -> std::io::Result<aioutils::ConnLike>
         .ok_or_else(|| aioutils::to_ioerror("no host"))?;
     let port = url.port_or_known_default().unwrap_or(0);
     let composed = format!("{}:{}", host_string, port);
-    let tcp_conn = smol::net::TcpStream::connect(composed).await?;
+    let tcp_conn =
+        smol::net::TcpStream::connect(aioutils::resolve(&composed).await?.as_slice()).await?;
     match url.scheme() {
         "https" => {
             let connector = TlsConnector::default();
