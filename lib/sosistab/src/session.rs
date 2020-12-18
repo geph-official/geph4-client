@@ -52,7 +52,7 @@ impl Session {
     /// Creates a Session.
     pub(crate) fn new(cfg: SessionConfig) -> Self {
         let (send_tosend, recv_tosend) = smol::channel::bounded(20);
-        let (send_input, recv_input) = smol::channel::bounded(500);
+        let (send_input, recv_input) = smol::channel::bounded(20);
         let rate_limit = Arc::new(AtomicU32::new(100000));
         let recv_timeout = cfg.recv_timeout;
         let statistics = Arc::new(Mutex::new(TimeSeries::new(cfg.statistics)));
@@ -121,7 +121,6 @@ async fn session_loop(
     let measured_loss = AtomicU8::new(0);
     let high_recv_frame_no = AtomicU64::new(0);
     let total_recv_frames = AtomicU64::new(0);
-    let shaper = VarRateLimit::new();
     let pinger = Mutex::new(PingCalc::default());
 
     // SystemTime is immune to bizarre sleep-induced timer skews on Android. We use this to detect missed timeouts when we try to send a packet.
@@ -135,13 +134,13 @@ async fn session_loop(
         &measured_loss,
         &high_recv_frame_no,
         &total_recv_frames,
-        shaper,
         &pinger,
         &last_send,
         recv_timeout,
     );
     let recv_task = session_recv_loop(
         cfg,
+        &rate_limit,
         statistics,
         send_input,
         &measured_loss,
@@ -157,7 +156,7 @@ async fn session_loop(
 }
 
 #[allow(clippy::too_many_arguments)]
-#[tracing::instrument(skip(shaper), level = "trace")]
+#[tracing::instrument(level = "trace")]
 async fn session_send_loop(
     cfg: SessionConfig,
     rate_limit: &AtomicU32,
@@ -165,7 +164,6 @@ async fn session_send_loop(
     measured_loss: &AtomicU8,
     high_recv_frame_no: &AtomicU64,
     total_recv_frames: &AtomicU64,
-    mut shaper: VarRateLimit,
     pinger: &Mutex<PingCalc>,
     last_recv: &Mutex<SystemTime>,
     recv_timeout: Duration,
@@ -185,6 +183,7 @@ async fn session_send_loop(
     let mut run_no = 0u64;
     let mut to_send = Vec::new();
     let mut abs_timeout = smol::Timer::after(get_timeout(measured_loss.load(Ordering::Relaxed)));
+    let mut shaper = VarRateLimit::new();
 
     loop {
         // obtain a vector of bytes to send
@@ -243,6 +242,7 @@ async fn session_send_loop(
 #[tracing::instrument(level = "trace")]
 async fn session_recv_loop(
     cfg: SessionConfig,
+    rate_limit: &AtomicU32,
     statistics: Arc<Mutex<TimeSeries<SessionStat>>>,
     send_input: Sender<Bytes>,
     measured_loss: &AtomicU8,
@@ -257,6 +257,7 @@ async fn session_recv_loop(
     let mut rp_filter = ReplayFilter::new(0);
     let mut loss_calc = LossCalculator::new();
     let mut timer = smol::Timer::after(recv_timeout);
+    let mut shaper = VarRateLimit::new();
     loop {
         let timer_ref = &mut timer;
         let new_frame = async { cfg.recv_frame.recv().await.ok() }
@@ -272,6 +273,7 @@ async fn session_recv_loop(
             .await?;
         *last_recv.lock() = SystemTime::now();
         timer.set_after(recv_timeout);
+        shaper.wait(rate_limit.load(Ordering::Relaxed)).await;
         if !rp_filter.add(new_frame.frame_no) {
             tracing::trace!(
                 "recv_loop: replay filter dropping frame {}",
