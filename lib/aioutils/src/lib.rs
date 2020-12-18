@@ -1,7 +1,10 @@
-use std::time::Duration;
+use std::{pin::Pin, time::Duration};
 
 use serde::{de::DeserializeOwned, Serialize};
 use smol::prelude::*;
+
+mod dns;
+pub use dns::*;
 
 /// Reads a bincode-deserializable value with a 16bbe length
 pub async fn read_pascalish<T: DeserializeOwned>(
@@ -78,4 +81,18 @@ pub fn copy_with_stats_sync(
         on_write(n);
         writer.write_all(&buffer[..n])?;
     }
+}
+
+pub trait AsyncRW: AsyncRead + AsyncWrite {}
+
+impl<T: AsyncRead + AsyncWrite> AsyncRW for T {}
+
+pub type ConnLike = async_dup::Arc<async_dup::Mutex<Pin<Box<dyn AsyncRW + 'static + Send>>>>;
+
+pub fn connify<T: AsyncRead + AsyncWrite + 'static + Send>(conn: T) -> ConnLike {
+    async_dup::Arc::new(async_dup::Mutex::new(Box::pin(conn)))
+}
+
+pub fn to_ioerror<T: Into<Box<dyn std::error::Error + Send + Sync>>>(e: T) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::Other, e)
 }

@@ -3,7 +3,8 @@ use crate::{
     BinderResponse, BinderResult, BinderServer, EncryptedBinderRequestData,
     EncryptedBinderResponse,
 };
-use http_types::StatusCode;
+use async_tls::TlsConnector;
+use http_types::{Method, Request, StatusCode, Url};
 use smol::channel::{Receiver, Sender};
 use std::{net::SocketAddr, sync::Arc, time::Duration};
 
@@ -33,32 +34,58 @@ impl HttpClient {
     }
 }
 
+#[async_trait::async_trait]
 impl BinderClient for HttpClient {
-    fn request(
-        &self,
-        brequest: BinderRequestData,
-        timeout: std::time::Duration,
-    ) -> BinderResult<BinderResponse> {
-        let mut request = ureq::post(&self.endpoint);
-        // set headers
+    async fn request(&self, brequest: BinderRequestData) -> BinderResult<BinderResponse> {
+        // open connection
+        let conn = endpoint_to_conn(&self.endpoint)
+            .await
+            .map_err(|v| BinderError::Other(v.to_string()))?;
+        // send request
+        let mut req = Request::new(Method::Post, Url::parse(&self.endpoint).unwrap());
         for (header, value) in self.headers.iter() {
-            request.set(header, value);
+            req.insert_header(header.as_str(), value.as_str());
         }
         // set body
         let my_esk = x25519_dalek::EphemeralSecret::new(rand::rngs::OsRng {});
         let (encrypted, reply_key) = brequest.encrypt(my_esk, self.binder_lpk);
-        request.timeout(timeout);
+        req.set_body(bincode::serialize(&encrypted).unwrap());
         // do the request
-        let response = request.send_bytes(&bincode::serialize(&encrypted).unwrap());
-        if let Some(err) = response.synthetic_error() {
-            return Err(BinderError::Other(err.to_string()));
-        }
-        // read response
-        let response: EncryptedBinderResponse = bincode::deserialize_from(response.into_reader())
+        let mut response = async_h1::connect(conn, req)
+            .await
             .map_err(|v| BinderError::Other(v.to_string()))?;
+
+        // read response
+        let response: EncryptedBinderResponse = bincode::deserialize(
+            &response
+                .body_bytes()
+                .await
+                .map_err(|v| BinderError::Other(v.to_string()))?,
+        )
+        .map_err(|v| BinderError::Other(v.to_string()))?;
         response
             .decrypt(reply_key)
             .ok_or_else(|| BinderError::Other("decryption failure".into()))?
+    }
+}
+
+/// Returns a connection, given an endpoint.
+async fn endpoint_to_conn(endpoint: &str) -> std::io::Result<aioutils::ConnLike> {
+    let url = Url::parse(endpoint).map_err(aioutils::to_ioerror)?;
+    let host_string = url
+        .host_str()
+        .ok_or_else(|| aioutils::to_ioerror("no host"))?;
+    let port = url.port_or_known_default().unwrap_or(0);
+    let composed = format!("{}:{}", host_string, port);
+    let tcp_conn =
+        smol::net::TcpStream::connect(aioutils::resolve(&composed).await?.as_slice()).await?;
+    match url.scheme() {
+        "https" => {
+            let connector = TlsConnector::default();
+            let tls_conn = connector.connect(host_string, tcp_conn).await?;
+            Ok(aioutils::connify(tls_conn))
+        }
+        _ => Ok(aioutils::connify(tcp_conn)),
     }
 }
 

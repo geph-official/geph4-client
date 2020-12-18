@@ -8,13 +8,10 @@ pub use http::*;
 use rand::prelude::*;
 
 /// Trait that all binder clients implement.
+#[async_trait::async_trait]
 pub trait BinderClient: Sync + Send {
     /// Send a request to the network with a certain timeout.
-    fn request(
-        &self,
-        request: BinderRequestData,
-        timeout: std::time::Duration,
-    ) -> BinderResult<BinderResponse>;
+    async fn request(&self, request: BinderRequestData) -> BinderResult<BinderResponse>;
 }
 
 /// Trait that all binder transport servers implement.
@@ -64,52 +61,45 @@ impl MultiBinderClient {
 
 impl MultiBinderClient {
     // does the request on ONE binder
-    fn request_one(
-        &self,
-        request: BinderRequestData,
-        timeout: std::time::Duration,
-    ) -> BinderResult<BinderResponse> {
+    async fn request_one(&self, request: BinderRequestData) -> BinderResult<BinderResponse> {
         let curr_idx = self.index.fetch_add(1, Ordering::Relaxed);
         let client = &self.clients[curr_idx % self.clients.len()];
-        match client.request(request, timeout) {
-            Ok(v) => Ok(v),
-            Err(e) => Err(e),
+        let res = client.request(request).await;
+        if res.is_ok() {
+            self.index.fetch_sub(1, Ordering::Relaxed);
         }
+        res
     }
 
     // does the request on all binders
-    fn request_multi(
-        &self,
-        request: BinderRequestData,
-        timeout: std::time::Duration,
-    ) -> BinderResult<BinderResponse> {
+    async fn request_multi(&self, request: BinderRequestData) -> BinderResult<BinderResponse> {
         let (send_res, recv_res) = smol::channel::unbounded();
+        let exec = smol::Executor::new();
         for (idx, client) in self.clients.iter().enumerate() {
             let client = client.clone();
             let request = request.clone();
             let send_res = send_res.clone();
-            std::thread::spawn(move || {
-                let result = client.request(request, timeout);
-                drop(send_res.try_send((idx, result)));
-            });
+            exec.spawn(async move {
+                let _ = send_res.send((idx, client.request(request).await)).await;
+            })
+            .detach();
         }
-        let (idx, res) =
-            smol::future::block_on(recv_res.recv()).expect("result channel shouldn't have closed");
+        let (idx, res) = exec
+            .run(recv_res.recv())
+            .await
+            .expect("result channel shouldn't have closed");
         self.index.store(idx, Ordering::Relaxed);
         res
     }
 }
 
+#[async_trait::async_trait]
 impl BinderClient for MultiBinderClient {
-    fn request(
-        &self,
-        request: BinderRequestData,
-        timeout: std::time::Duration,
-    ) -> BinderResult<BinderResponse> {
+    async fn request(&self, request: BinderRequestData) -> BinderResult<BinderResponse> {
         if request.is_idempotent() {
-            self.request_multi(request, timeout)
+            self.request_multi(request).await
         } else {
-            self.request_one(request, timeout)
+            self.request_one(request).await
         }
     }
 }

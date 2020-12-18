@@ -55,10 +55,7 @@ async fn bridge_loop<'a>(
     let mut current_exits: HashMap<String, smol::Task<anyhow::Result<()>>> = HashMap::new();
     loop {
         let binder_client = binder_client.clone();
-        let exits = smol::unblock(move || {
-            binder_client.request(BinderRequestData::GetExits, Duration::from_secs(10))
-        })
-        .await;
+        let exits = binder_client.request(BinderRequestData::GetExits).await;
         if let Ok(exits) = exits {
             if let BinderResponse::GetExitsResp(exits) = exits {
                 log::info!("got {} exits!", exits.len());

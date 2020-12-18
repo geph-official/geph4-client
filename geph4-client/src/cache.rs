@@ -127,16 +127,11 @@ impl ClientCache {
         self.get_cached(
             &format!("cache.bridges.{}", exit_hostname),
             async {
-                let res = timeout(smol::unblock(move || {
-                    binder_client.request(
-                        BinderRequestData::GetBridges {
-                            level: tok.level,
-                            unblinded_digest: tok.unblinded_digest,
-                            unblinded_signature: tok.unblinded_signature,
-                            exit_hostname,
-                        },
-                        TIMEOUT,
-                    )
+                let res = timeout(binder_client.request(BinderRequestData::GetBridges {
+                    level: tok.level,
+                    unblinded_digest: tok.unblinded_digest,
+                    unblinded_signature: tok.unblinded_signature,
+                    exit_hostname,
                 }))
                 .await??;
                 if let BinderResponse::GetBridgesResp(bridges) = res {
@@ -160,14 +155,9 @@ impl ClientCache {
             };
             let epoch = mizaru::time_to_epoch(SystemTime::now()) as u16;
             let binder_client = self.binder_client.clone();
-            let subkey = timeout(smol::unblock(move || {
-                binder_client.request(
-                    BinderRequestData::GetEpochKey {
-                        level: level.to_string(),
-                        epoch,
-                    },
-                    TIMEOUT,
-                )
+            let subkey = timeout(binder_client.request(BinderRequestData::GetEpochKey {
+                level: level.to_string(),
+                epoch,
             }))
             .await??;
             if let BinderResponse::GetEpochKeyResp(subkey) = subkey {
@@ -179,17 +169,12 @@ impl ClientCache {
                 let binder_client = self.binder_client.clone();
                 let username = self.username.clone();
                 let password = self.password.clone();
-                let resp = timeout(smol::unblock(move || {
-                    binder_client.request(
-                        BinderRequestData::Authenticate {
-                            username,
-                            password,
-                            level: level.to_string(),
-                            epoch,
-                            blinded_digest,
-                        },
-                        TIMEOUT,
-                    )
+                let resp = timeout(binder_client.request(BinderRequestData::Authenticate {
+                    username,
+                    password,
+                    level: level.to_string(),
+                    epoch,
+                    blinded_digest,
                 }))
                 .await?;
                 match resp {
@@ -220,10 +205,7 @@ impl ClientCache {
 
     async fn get_exits_fresh(&self) -> anyhow::Result<Vec<ExitDescriptor>> {
         let binder_client = self.binder_client.clone();
-        let res = smol::unblock(move || {
-            binder_client.request(BinderRequestData::GetExits, Duration::from_secs(30))
-        })
-        .await?;
+        let res = timeout(binder_client.request(BinderRequestData::GetExits)).await??;
         match res {
             binder_transport::BinderResponse::GetExitsResp(exits) => Ok(exits),
             other => anyhow::bail!("unexpected response {:?}", other),

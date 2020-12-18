@@ -28,6 +28,8 @@ async fn setup_iptables() {
     # mark the owner
     iptables -D OUTPUT -t mangle -m owner ! --uid-owner nobody -j MARK --set-mark 8964
     iptables -A OUTPUT -t mangle -m owner ! --uid-owner nobody -j MARK --set-mark 8964
+    iptables -D OUTPUT -t mangle -d 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 -j MARK --set-mark 11111
+    iptables -A OUTPUT -t mangle -d 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 -j MARK --set-mark 11111
     # set up routing tables
     ip route flush table 8964
     ip route add default dev tun-geph table 8964
@@ -55,6 +57,7 @@ async fn clear_iptables() {
     let to_run = r"
     export PATH=$PATH:/usr/sbin/:/sbin/
     # mark the owner
+    iptables -D OUTPUT -t mangle -d 10.0.0.0/8,172.16.0.0/12,192.168.0.0/16 -j MARK --set-mark 11111
     iptables -D OUTPUT -t mangle -m owner ! --uid-owner nobody -j MARK --set-mark 8964
     # set up routing tables
     ip rule del fwmark 8964 table 8964

@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, path::PathBuf, sync::Arc, time::Duration};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
 use cap::Cap;
@@ -102,10 +102,7 @@ fn main() -> anyhow::Result<()> {
         ));
         let exits = {
             let binder_client = binder_client.clone();
-            let resp = smol::unblock(move || {
-                binder_client.request(BinderRequestData::GetExits, Duration::from_secs(10))
-            })
-            .await?;
+            let resp = binder_client.request(BinderRequestData::GetExits).await?;
             match resp {
                 BinderResponse::GetExitsResp(exits) => exits,
                 _ => panic!(),

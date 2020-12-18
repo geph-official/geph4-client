@@ -4,6 +4,7 @@ use crate::{CommonOpt, GEXEC};
 use binder_transport::{BinderClient, BinderError, BinderRequestData, BinderResponse};
 use http_types::{Request, Response};
 use serde::{Deserialize, Serialize};
+use smol_timeout::TimeoutExt;
 use std::time::Duration;
 use structopt::StructOpt;
 
@@ -39,21 +40,24 @@ pub async fn main_binderproxy(opt: BinderProxyOpt) -> anyhow::Result<()> {
         GEXEC
             .spawn(async_h1::accept(client, move |req| {
                 let binder_client = binder_client.clone();
-                smol::unblock(move || dbg_err(handle_req(binder_client, req)))
+                async move { dbg_err(handle_req(binder_client, req).await) }
             }))
             .detach();
     }
 }
 
-fn handle_req(binder_client: Arc<dyn BinderClient>, req: Request) -> http_types::Result<Response> {
+async fn handle_req(
+    binder_client: Arc<dyn BinderClient>,
+    req: Request,
+) -> http_types::Result<Response> {
     match req.url().path() {
-        "/register" => handle_register(binder_client, req),
-        "/captcha" => handle_captcha(binder_client, req),
+        "/register" => handle_register(binder_client, req).await,
+        "/captcha" => handle_captcha(binder_client, req).await,
         _ => Ok(Response::new(404)),
     }
 }
 
-fn handle_register(
+async fn handle_register(
     binder_client: Arc<dyn BinderClient>,
     mut req: Request,
 ) -> http_types::Result<Response> {
@@ -69,31 +73,36 @@ fn handle_register(
         captcha_soln: String,
     }
     let request: Req = smol::future::block_on(req.take_body().into_json())?;
-    match binder_client.request(
-        BinderRequestData::RegisterUser {
+    match binder_client
+        .request(BinderRequestData::RegisterUser {
             username: request.username,
             password: request.password,
             captcha_id: request.captcha_id,
             captcha_soln: request.captcha_soln,
-        },
-        TIMEOUT,
-    ) {
-        Ok(_) => Ok(Response::new(200)),
-        Err(BinderError::WrongCaptcha) => Ok(Response::new(422)),
-        Err(BinderError::UserAlreadyExists) => Ok(Response::new(409)),
+        })
+        .timeout(TIMEOUT)
+        .await
+    {
+        Some(Ok(_)) => Ok(Response::new(200)),
+        Some(Err(BinderError::WrongCaptcha)) => Ok(Response::new(422)),
+        Some(Err(BinderError::UserAlreadyExists)) => Ok(Response::new(409)),
         _ => Ok(Response::new(500)),
     }
 }
 
-fn handle_captcha(
+async fn handle_captcha(
     binder_client: Arc<dyn BinderClient>,
     _req: Request,
 ) -> http_types::Result<Response> {
-    match binder_client.request(BinderRequestData::GetCaptcha, TIMEOUT) {
-        Ok(BinderResponse::GetCaptchaResp {
+    match binder_client
+        .request(BinderRequestData::GetCaptcha)
+        .timeout(TIMEOUT)
+        .await
+    {
+        Some(Ok(BinderResponse::GetCaptchaResp {
             captcha_id,
             png_data,
-        }) => {
+        })) => {
             let mut resp = Response::new(200);
             resp.insert_header("Content-Type", "image/png");
             resp.insert_header("x-captcha-id", captcha_id);

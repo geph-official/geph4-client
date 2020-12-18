@@ -212,21 +212,17 @@ async fn handle_control<'a>(
         let exit_signature = ctx.signing_sk.sign(&to_sign);
         let binder_client = ctx.binder_client.clone();
         let exit_hostname = ctx.exit_hostname.to_string();
-        let resp = smol::unblock(move || {
-            binder_client.request(
-                BinderRequestData::AddBridgeRoute {
-                    sosistab_pubkey: sosistab_pk,
-                    bridge_address: their_addr,
-                    bridge_group: their_group,
-                    exit_hostname,
-                    route_unixtime,
-                    exit_signature,
-                },
-                Duration::from_secs(30),
-            )
-        })
-        .await
-        .context("failed to go to binder")?;
+        let resp = binder_client
+            .request(BinderRequestData::AddBridgeRoute {
+                sosistab_pubkey: sosistab_pk,
+                bridge_address: their_addr,
+                bridge_group: their_group,
+                exit_hostname,
+                route_unixtime,
+                exit_signature,
+            })
+            .await
+            .context("failed to go to binder")?;
         assert_eq!(resp, BinderResponse::Okay);
     }
 }
@@ -322,17 +318,13 @@ async fn authenticate_sess(
     }
     let is_plus = level != "free";
     // validate it through the binder
-    let res = smol::unblock(move || {
-        binder_client.request(
-            BinderRequestData::Validate {
-                level: level.clone(),
-                unblinded_digest: auth_tok,
-                unblinded_signature: auth_sig,
-            },
-            Duration::from_secs(30),
-        )
-    })
-    .await?;
+    let res = binder_client
+        .request(BinderRequestData::Validate {
+            level: level.clone(),
+            unblinded_digest: auth_tok,
+            unblinded_signature: auth_sig,
+        })
+        .await?;
     if res != BinderResponse::ValidateResp(true) {
         anyhow::bail!("unexpected authentication response from binder: {:?}", res)
     }
