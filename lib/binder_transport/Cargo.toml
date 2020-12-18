@@ -25,7 +25,6 @@ mizaru={path="../mizaru"}
 aioutils={path="../aioutils"}
 thiserror= "1.0.21"
 rsa-fdh = "0.4.1"
-ureq = "1.5.1"
 async-trait="0.1"
 
 

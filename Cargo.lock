@@ -464,7 +464,6 @@ dependencies = [
  "serde",
  "smol",
  "thiserror",
- "ureq",
  "x25519-dalek",
 ]
 
