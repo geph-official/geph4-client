@@ -1092,6 +1092,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "defmac"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d5592fca31e96d8a748d03080b58be78c5383617aa4bd89e69f30607d8769891"
+
+[[package]]
 name = "derivative"
 version = "2.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1698,11 +1704,16 @@ dependencies = [
 name = "geph4-vpn-helper"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "defmac",
  "env_logger 0.8.2",
  "log 0.4.11",
  "nix",
  "once_cell",
+ "parking_lot 0.11.1",
+ "pnet_packet",
  "smol",
+ "thiserror",
  "tundevice",
  "vpn_structs",
 ]

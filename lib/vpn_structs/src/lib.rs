@@ -41,6 +41,21 @@ impl StdioMsg {
         })
     }
 
+    /// Reads a new StdioMsg, synchronously.
+    pub fn read_blocking<R: std::io::Read>(reader: &mut R) -> std::io::Result<Self> {
+        let mut scratch_space = [0u8; 2];
+        reader.read_exact(&mut scratch_space[..1])?;
+        let verb = scratch_space[0];
+        reader.read_exact(&mut scratch_space)?;
+        let length = u16::from_le_bytes(scratch_space);
+        let mut bts = vec![0u8; length as usize];
+        reader.read_exact(&mut bts)?;
+        Ok(StdioMsg {
+            verb,
+            body: bts.into(),
+        })
+    }
+
     /// Write out the StdioMsg
     pub async fn write<W: smol::io::AsyncWrite + Unpin>(
         &self,

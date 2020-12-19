@@ -161,6 +161,7 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
 /// returns ok if it's an ack that needs to be decimated
 fn ack_decimate(bts: &[u8]) -> Option<u16> {
     let parsed = Ipv4Packet::new(bts)?;
+    // log::warn!("******** VPN UP: {:?}", parsed);
     let parsed = TcpPacket::new(parsed.payload())?;
     let flags = parsed.get_flags();
     if flags & TcpFlags::ACK != 0 && flags & TcpFlags::SYN == 0 && parsed.payload().is_empty() {
@@ -215,6 +216,7 @@ fn fix_all_checksums(bts: &mut [u8]) -> Option<()> {
 fn fix_dns_src(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Bytes> {
     let dns_src_port = {
         let parsed = Ipv4Packet::new(bts)?;
+        // log::warn!("******** VPN DOWN: {:?}", parsed);
         if parsed.get_next_level_protocol() == IpNextHeaderProtocols::Udp {
             let parsed = UdpPacket::new(parsed.payload())?;
             if parsed.get_source() == 53 {

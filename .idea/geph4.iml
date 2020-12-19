@@ -11,8 +11,18 @@
       <sourceFolder url="file://$MODULE_DIR$/lib/tundevice/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/geph4-binder/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/lib/mizaru/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/geph4-bridge/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/geph4-client/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/geph4-exit/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/geph4-vpn-helper/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/lib/aioutils/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/lib/smolscale/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/lib/spiderchan/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/lib/vpn_structs/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/lib/warpfront/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/lib/sosistab/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
+      <excludeFolder url="file://$MODULE_DIR$/geph4-client/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

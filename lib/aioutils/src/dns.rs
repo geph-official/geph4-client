@@ -1,7 +1,7 @@
 use std::net::SocketAddr;
 
 /// Resolves a string into a vector of SocketAddrs.
-#[cfg(target_os = "android")]
+#[cfg(target_os = "windows")]
 pub async fn resolve(host_port: &str) -> std::io::Result<Vec<SocketAddr>> {
     use dnsclient::{r#async::DNSClient, UpstreamServer};
     log::warn!("using custom DNS implementation to resolve {}", host_port);
@@ -28,7 +28,7 @@ pub async fn resolve(host_port: &str) -> std::io::Result<Vec<SocketAddr>> {
         .collect())
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(not(target_os = "windows"))]
 pub async fn resolve(host_port: &str) -> std::io::Result<Vec<SocketAddr>> {
     smol::net::resolve(host_port).await
 }
