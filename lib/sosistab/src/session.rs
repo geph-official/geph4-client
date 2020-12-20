@@ -229,7 +229,7 @@ async fn session_send_loop(
                 total_recv_frames: total_recv_frames.load(Ordering::Relaxed),
                 body: bts.clone(),
             });
-            shaper.wait(rate_limit.load(Ordering::Relaxed)).await;
+            // shaper.wait(rate_limit.load(Ordering::Relaxed)).await;
             pinger.lock().send(frame_no);
             frame_no += 1;
         }
