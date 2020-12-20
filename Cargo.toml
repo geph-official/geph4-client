@@ -19,7 +19,7 @@ members = [
 
 
 [profile.dev]
-opt-level=0
+opt-level=2
 lto="off"
 incremental=true
 

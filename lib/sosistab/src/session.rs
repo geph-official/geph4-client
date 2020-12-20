@@ -172,18 +172,19 @@ async fn session_send_loop(
         let loss = loss as u64;
         // if loss is zero, then we return 5
         if loss == 0 {
-            Duration::from_millis(5)
+            Duration::from_millis(0)
         } else {
             // around 50 ms for full loss
             Duration::from_millis(loss * loss / 1500 + 5)
         }
     }
 
+    let mut shaper = VarRateLimit::new();
+
     let mut frame_no = 0u64;
     let mut run_no = 0u64;
     let mut to_send = Vec::new();
     let mut abs_timeout = smol::Timer::after(get_timeout(measured_loss.load(Ordering::Relaxed)));
-    let mut shaper = VarRateLimit::new();
 
     loop {
         // obtain a vector of bytes to send
@@ -192,19 +193,24 @@ async fn session_send_loop(
             // get as much tosend as possible within the timeout
             // this lets us do it at maximum efficiency
             to_send.push(infal(recv_tosend.recv()).await);
-            abs_timeout.set_after(get_timeout(measured_loss.load(Ordering::Relaxed)));
-            loop {
-                let break_now = async {
-                    (&mut abs_timeout).await;
-                    true
+            let loss = measured_loss.load(Ordering::Relaxed);
+            if loss > 0 {
+                abs_timeout.set_after(get_timeout(loss));
+                loop {
+                    let break_now = async {
+                        (&mut abs_timeout).await;
+                        true
+                    }
+                    .or(async {
+                        to_send.push(infal(recv_tosend.recv()).await);
+                        false
+                    });
+                    if break_now.await || to_send.len() >= 32 {
+                        break &to_send;
+                    }
                 }
-                .or(async {
-                    to_send.push(infal(recv_tosend.recv()).await);
-                    false
-                });
-                if break_now.await || to_send.len() >= 32 {
-                    break &to_send;
-                }
+            } else {
+                &to_send
             }
         };
         let now = SystemTime::now();
@@ -229,7 +235,7 @@ async fn session_send_loop(
                 total_recv_frames: total_recv_frames.load(Ordering::Relaxed),
                 body: bts.clone(),
             });
-            // shaper.wait(rate_limit.load(Ordering::Relaxed)).await;
+            shaper.wait(rate_limit.load(Ordering::Relaxed)).await;
             pinger.lock().send(frame_no);
             frame_no += 1;
         }
@@ -257,7 +263,7 @@ async fn session_recv_loop(
     let mut rp_filter = ReplayFilter::new(0);
     let mut loss_calc = LossCalculator::new();
     let mut timer = smol::Timer::after(recv_timeout);
-    let mut shaper = VarRateLimit::new();
+    // let mut shaper = VarRateLimit::new();
     loop {
         let timer_ref = &mut timer;
         let new_frame = async { cfg.recv_frame.recv().await.ok() }
@@ -273,7 +279,7 @@ async fn session_recv_loop(
             .await?;
         *last_recv.lock() = SystemTime::now();
         timer.set_after(recv_timeout);
-        shaper.wait(rate_limit.load(Ordering::Relaxed)).await;
+        // shaper.wait(rate_limit.load(Ordering::Relaxed)).await;
         if !rp_filter.add(new_frame.frame_no) {
             tracing::trace!(
                 "recv_loop: replay filter dropping frame {}",
