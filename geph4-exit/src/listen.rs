@@ -12,7 +12,7 @@ use anyhow::Context;
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
 use ed25519_dalek::Signer;
 use rand::prelude::*;
-use smol::prelude::*;
+use smol::{channel::Sender, prelude::*};
 use smol_timeout::TimeoutExt;
 use smolscale::OnError;
 
@@ -167,7 +167,7 @@ async fn handle_control<'a>(
         anyhow::bail!("failed bridge secret authentication");
     }
     // now we read their info
-    let mut info: Option<(u16, x25519_dalek::PublicKey)> = None;
+    let mut info: Option<(u16, x25519_dalek::PublicKey, Sender<()>)> = None;
     loop {
         let (their_addr, their_group): (SocketAddr, String) = aioutils::read_pascalish(&mut client)
             .or(async {
@@ -182,13 +182,15 @@ async fn handle_control<'a>(
             log::debug!("redoing binding because info is none");
             let sosis_secret = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
             let sosis_listener = sosistab::Listener::listen("[::0]:0", sosis_secret.clone()).await;
+            let (send, recv) = smol::channel::bounded(1);
             info = Some((
                 sosis_listener.local_addr().port(),
                 x25519_dalek::PublicKey::from(&sosis_secret),
+                send,
             ));
-            ctx.nursery
-                .clone()
-                .spawn(OnError::Ignore, move |nursery| async move {
+            // spawn a task that dies when the binding is gone
+            ctx.nursery.clone().spawn(OnError::Ignore, move |nursery| {
+                async move {
                     loop {
                         let sess = sosis_listener
                             .accept_session()
@@ -197,10 +199,12 @@ async fn handle_control<'a>(
                         let ctx = ctx.clone();
                         nursery.spawn(OnError::Ignore, move |_| handle_session(ctx.new_sess(sess)));
                     }
-                });
+                }
+                .or(async move { Ok(recv.recv().await?) })
+            });
         }
         // send to the other side and then binder
-        let (port, sosistab_pk) = info.unwrap();
+        let (port, sosistab_pk, _) = info.as_ref().unwrap();
         aioutils::write_pascalish(&mut client, &(port, sosistab_pk)).await?;
         let route_unixtime = SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -214,7 +218,7 @@ async fn handle_control<'a>(
         let exit_hostname = ctx.exit_hostname.to_string();
         let resp = binder_client
             .request(BinderRequestData::AddBridgeRoute {
-                sosistab_pubkey: sosistab_pk,
+                sosistab_pubkey: *sosistab_pk,
                 bridge_address: their_addr,
                 bridge_group: their_group,
                 exit_hostname,

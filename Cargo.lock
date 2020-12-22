@@ -1649,6 +1649,7 @@ dependencies = [
  "socket2",
  "socksv5",
  "sosistab",
+ "statsd",
  "strsim 0.10.0",
  "structopt",
  "tar",

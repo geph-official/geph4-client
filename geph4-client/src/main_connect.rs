@@ -40,6 +40,14 @@ pub struct ConnectOpt {
     #[structopt(long)]
     /// whether or not to wait for VPN commands on stdio
     stdio_vpn: bool,
+
+    #[structopt(long)]
+    /// an endpoint to send test results. If set, will periodically do network testing.
+    nettest_server: Option<SocketAddr>,
+
+    #[structopt(long)]
+    /// a name for this test instance.
+    nettest_name: Option<String>,
 }
 
 pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
@@ -70,6 +78,15 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         log::debug!("starting dns...");
         scope
             .spawn(crate::dns::dns_loop(dns_listen, keepalive.clone()))
+            .detach();
+    }
+    if let Some(nettest_server) = opt.nettest_server {
+        log::info!("Network testing enabled at {}!", nettest_server);
+        scope
+            .spawn(crate::nettest::nettest(
+                opt.nettest_name.unwrap(),
+                nettest_server,
+            ))
             .detach();
     }
     let _stat: smol::Task<anyhow::Result<()>> = scope.spawn(async {
