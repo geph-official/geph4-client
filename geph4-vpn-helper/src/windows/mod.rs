@@ -1,5 +1,5 @@
 use once_cell::sync::Lazy;
-use parking_lot::RwLock;
+use parking_lot::{RwLock, RwLockWriteGuard};
 use std::{
     collections::BTreeMap,
     io::Stdin,
@@ -28,27 +28,17 @@ impl ProcessTable {
         if process_id == 4 {
             return;
         }
-        self.mapping
-            .write()
-            .insert((local_port, protocol), process_id);
+        let mut mapping = self.mapping.write();
+        mapping.insert((local_port, protocol), process_id);
+        RwLockWriteGuard::unlock_fair(mapping);
     }
 
     /// Returns the process ID associated with this address and protocol. Returns None if no such process exists.
     pub fn get(&self, local_addr: SocketAddr, protocol: Prot) -> Option<u32> {
-        let start_time = Instant::now();
-        loop {
-            let toret = self
-                .mapping
-                .read()
-                .get(&(local_addr.port(), protocol))
-                .cloned();
-            if toret.is_none() && start_time.elapsed().as_micros() < 10000 {
-                std::thread::sleep(Duration::from_micros(1000));
-                continue;
-            } else {
-                return toret;
-            }
-        }
+        self.mapping
+            .read()
+            .get(&(local_addr.port(), protocol))
+            .cloned()
     }
 }
 
@@ -114,25 +104,59 @@ fn download_loop(mut geph_stdout: ChildStdout) {
     }
 }
 
+static MIN_TIME_PERIOD: once_cell::sync::Lazy<winapi::shared::minwindef::UINT> =
+    once_cell::sync::Lazy::new(|| unsafe {
+        use std::mem;
+        use winapi::um::{mmsystem::*, timeapi::timeGetDevCaps};
+
+        let tc_size = mem::size_of::<TIMECAPS>() as u32;
+        let mut tc = TIMECAPS {
+            wPeriodMin: 0,
+            wPeriodMax: 0,
+        };
+
+        if timeGetDevCaps(&mut tc as *mut TIMECAPS, tc_size) == TIMERR_NOERROR {
+            tc.wPeriodMin
+        } else {
+            1
+        }
+    });
+
+pub(crate) fn thread_sleep(duration: Duration) {
+    unsafe {
+        use winapi::um::timeapi::{timeBeginPeriod, timeEndPeriod};
+        timeBeginPeriod(*MIN_TIME_PERIOD);
+        std::thread::sleep(duration);
+        timeEndPeriod(*MIN_TIME_PERIOD);
+    }
+}
+
 fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
-    let handle = windivert::PacketHandle::open("outbound and not loopback", 0).unwrap();
-    loop {
-        let pkt = handle.receive();
-        if let Ok(mut pkt) = pkt {
+    let handle = Arc::new(windivert::PacketHandle::open("outbound and not loopback", 0).unwrap());
+    let (send, recv) = flume::unbounded::<(Vec<u8>, Instant)>();
+    let hand2 = handle.clone();
+    std::thread::spawn(move || {
+        loop {
+            let (mut pkt, time) = recv.recv().unwrap();
             // println!("received outbound of length {}", pkt.len());
             let pkt_addrs = get_packet_addrs(&pkt);
 
             if let Some((pkt_addrs, prot)) = pkt_addrs {
-                let process_id = GLOBAL_TABLE.get(pkt_addrs.source_addr, prot);
-                // println!(
-                //     "outgoing packet to {} of length {} has process_id = {:?}",
-                //     pkt_addrs.destination_addr,
-                //     pkt.len(),
-                //     process_id
-                // );
+                let mut loop_iter = 0;
+                let process_id = loop {
+                    let process_id = GLOBAL_TABLE.get(pkt_addrs.source_addr, prot);
+                    if process_id.is_some() || time <= Instant::now() {
+                        break process_id;
+                    }
+                    loop_iter += 1;
+                    std::thread::yield_now();
+                };
+                if loop_iter > 0 {
+                    dbg!(loop_iter);
+                }
                 if let Some(pid) = process_id {
                     if pid == geph_pid {
-                        handle.inject(&pkt, true).unwrap();
+                        hand2.inject(&pkt, true).unwrap();
                         continue;
                     }
                 }
@@ -152,6 +176,13 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
                     geph_stdin.flush().unwrap();
                 }
             }
+        }
+    });
+    loop {
+        let pkt = handle.receive();
+        if let Ok(pkt) = pkt {
+            send.send((pkt, Instant::now() + Duration::from_millis(3)))
+                .unwrap();
         }
     }
 }

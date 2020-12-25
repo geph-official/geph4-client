@@ -57,8 +57,8 @@ pub async fn run_vpn(
     {
         use std::io::Write;
         let mut stdout = std::io::stdout();
-        msg.write_blocking(&mut stdout)?;
-        stdout.flush()?;
+        msg.write_blocking(&mut stdout).unwrap();
+        stdout.flush().unwrap();
     }
 
     // a mini-nat for DNS request
@@ -150,8 +150,8 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
             {
                 use std::io::Write;
                 let mut stdout = std::io::stdout();
-                msg.write_blocking(&mut stdout)?;
-                stdout.flush()?;
+                msg.write_blocking(&mut stdout).unwrap();
+                stdout.flush().unwrap();
             }
         }
     }

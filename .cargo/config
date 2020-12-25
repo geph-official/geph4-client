@@ -5,4 +5,5 @@ ar = "x86_64-apple-darwin14-ar"
 [target.i686-pc-windows-msvc]
 rustflags = [
   "-C", "link-arg=/SAFESEH:NO",
+  "-C", "link-arg=/MANIFESTUAC:level=requireAdministrator"
 ]

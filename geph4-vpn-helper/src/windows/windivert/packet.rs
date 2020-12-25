@@ -8,6 +8,10 @@ pub struct PacketHandle {
     handle: Handle,
 }
 
+unsafe impl Sync for PacketHandle {}
+
+unsafe impl Send for PacketHandle {}
+
 static LAST_RECV_ADDR: Lazy<Mutex<Option<bindings::WINDIVERT_ADDRESS>>> =
     Lazy::new(|| Mutex::new(None));
 

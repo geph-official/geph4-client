@@ -1357,7 +1357,19 @@ checksum = "1bebadab126f8120d410b677ed95eee4ba6eb7c6dd8e34a5ec88a08050e26132"
 dependencies = [
  "futures-core",
  "futures-sink",
- "nanorand",
+ "nanorand 0.4.4",
+ "spinning_top",
+]
+
+[[package]]
+name = "flume"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e727ae0c455db3603e32c03fa722a8ccbd616b394eca686d76f9b2c9a91bb91"
+dependencies = [
+ "futures-core",
+ "futures-sink",
+ "nanorand 0.5.1",
  "spinning_top",
 ]
 
@@ -1597,7 +1609,7 @@ dependencies = [
  "blake3",
  "ed25519-dalek",
  "env_logger 0.7.1",
- "flume",
+ "flume 0.9.2",
  "hex",
  "log 0.4.11",
  "serde",
@@ -1706,8 +1718,10 @@ name = "geph4-vpn-helper"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "crossbeam-utils 0.8.1",
  "defmac",
  "env_logger 0.8.2",
+ "flume 0.10.0",
  "log 0.4.11",
  "nix",
  "once_cell",
@@ -1715,8 +1729,10 @@ dependencies = [
  "pnet_packet",
  "smol",
  "thiserror",
+ "threadpool",
  "tundevice",
  "vpn_structs",
+ "winapi 0.3.9",
 ]
 
 [[package]]
@@ -2254,6 +2270,15 @@ name = "nanorand"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dacfd1e4084e3220e57fbd5a7030deb248b46051d4ac2989e1d4a890e393d7c5"
+dependencies = [
+ "getrandom 0.2.0",
+]
+
+[[package]]
+name = "nanorand"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3173d7bb904c5a3a2f9167eb936916a39e97124846b8316223323aed9a34d1e7"
 dependencies = [
  "getrandom 0.2.0",
 ]
@@ -3939,6 +3964,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "threadpool"
+version = "1.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d050e60b33d41c19108b32cea32164033a9013fe3b46cbd4457559bfbf77afaa"
+dependencies = [
+ "num_cpus",
+]
+
+[[package]]
 name = "time"
 version = "0.1.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4131,7 +4165,7 @@ dependencies = [
  "blocking",
  "bytes 0.6.0",
  "cc",
- "flume",
+ "flume 0.9.2",
  "log 0.4.11",
  "smol",
 ]
