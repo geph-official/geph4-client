@@ -30,11 +30,12 @@ enum Opt {
 
 pub static GEXEC: smol::Executor<'static> = smol::Executor::new();
 fn main() -> anyhow::Result<()> {
-    // tracing_subscriber::fmt()
-    //     .with_env_filter(
-    //         EnvFilter::from_default_env().add_directive("geph4_client=debug".parse().unwrap()),
-    //     )
-    //     .init();
+    // fixes timer resolution on Windows
+    #[cfg(windows)]
+    unsafe {
+        winapi::um::timeapi::timeBeginPeriod(1);
+    }
+
     sosistab::runtime::set_smol_executor(&GEXEC);
     // the logging function
     fn logger(

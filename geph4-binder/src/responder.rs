@@ -116,7 +116,7 @@ fn handle_request_once(serv: &impl BinderServer, core: &BinderCore) -> anyhow::R
         }),
         // get exits
         BinderRequestData::GetExits => db_retry(|| {
-            let response = core.get_exits()?;
+            let response = core.get_exits(false)?;
             Ok(BinderResponse::GetExitsResp(response))
         }),
         // get bridges

@@ -57,3 +57,6 @@ features = ["client"]
 # tracing-flame="0.1"
 
 # tracing-subscriber = "0.2.15"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["minwindef", "mmsystem", "timeapi"] }

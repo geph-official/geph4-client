@@ -346,14 +346,18 @@ impl BinderCore {
     }
 
     /// Get all exits
-    pub fn get_exits(&self) -> Result<Vec<ExitDescriptor>, BinderError> {
+    pub fn get_exits(&self, only_free: bool) -> Result<Vec<ExitDescriptor>, BinderError> {
         let mut client = self.get_pg_conn()?;
         let mut txn: postgres::Transaction = client
             .transaction()
             .map_err(|_| BinderError::DatabaseFailed)?;
         let rows = txn
             .query(
-                "select hostname,signing_key,country,city,sosistab_key from exits",
+                if only_free {
+                    "select hostname,signing_key,country,city,sosistab_key from exits where plus = 'f'"
+                } else {
+                    "select hostname,signing_key,country,city,sosistab_key from exits"
+                },
                 &[],
             )
             .map_err(|_| BinderError::DatabaseFailed)?;
