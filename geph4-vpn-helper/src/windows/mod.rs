@@ -179,11 +179,9 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
         }
     });
     loop {
-        let pkt = handle.receive();
-        if let Ok(pkt) = pkt {
-            send.send((pkt, Instant::now() + Duration::from_millis(3)))
-                .unwrap();
-        }
+        let pkt = handle.receive().unwrap();
+        send.send((pkt, Instant::now() + Duration::from_millis(3)))
+            .unwrap();
     }
 }
 

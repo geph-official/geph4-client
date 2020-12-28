@@ -24,7 +24,7 @@ impl PacketHandle {
     }
 
     pub fn receive(&self) -> Result<Vec<u8>, InternalError> {
-        let mut packet: Vec<u8> = vec![0; 1500];
+        let mut packet: Vec<u8> = vec![0; 65536];
         let mut addr: MaybeUninit<bindings::WINDIVERT_ADDRESS> = MaybeUninit::uninit();
         let packet_len = self.handle.receive(Some(&mut packet), Some(&mut addr))?;
         let addr = unsafe { addr.assume_init() };
