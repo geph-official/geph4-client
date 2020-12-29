@@ -1,6 +1,6 @@
 [package]
 name = "geph4-client"
-version = "0.399.22"
+version = "0.399.23"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2018"
 
@@ -57,3 +57,6 @@ features = ["client"]
 # tracing-flame="0.1"
 
 # tracing-subscriber = "0.2.15"
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["minwindef", "mmsystem", "timeapi"] }

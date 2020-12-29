@@ -149,7 +149,7 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
                         break process_id;
                     }
                     loop_iter += 1;
-                    std::thread::yield_now();
+                    thread_sleep(Duration::from_millis(1));
                 };
                 if loop_iter > 0 {
                     dbg!(loop_iter);
