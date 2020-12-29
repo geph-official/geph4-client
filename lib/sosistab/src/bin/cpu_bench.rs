@@ -23,7 +23,7 @@ async fn run_server() {
             let mplex = sosistab::mux::Multiplex::new(socket);
             loop {
                 let pkt = mplex.recv_urel().await.unwrap();
-                mplex.send_urel(pkt).await.unwrap();
+                mplex.send_urel(pkt).unwrap();
             }
         })
         .detach();
@@ -44,7 +44,7 @@ async fn run_client() {
     let up_loop = async {
         let lim = RateLimiter::direct(Quota::per_second(nonzero!(10000u32)));
         for count in 0u128.. {
-            mux.send_urel(vec![0; 1024].into()).await.unwrap();
+            mux.send_urel(vec![0; 1024].into()).unwrap();
             if count % 1000 == 0 {
                 eprintln!("{} packets sent", count);
             }

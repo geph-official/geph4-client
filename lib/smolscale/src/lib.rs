@@ -55,19 +55,13 @@ fn monitor_loop() {
                     scopeguard::defer!({
                         THREAD_COUNT.fetch_sub(1, Ordering::SeqCst);
                     });
-                    loop {
-                        let cont = async {
-                            EXEC.tick().await;
-                            true
-                        }
-                        .or(async {
-                            async_io::Timer::after(Duration::from_millis(100)).await;
-                            false
-                        });
-                        if !cont.await && exitable {
-                            return;
-                        }
-                    }
+                    if exitable {
+                        async_io::block_on(
+                            EXEC.run(async_io::Timer::after(Duration::from_secs(5))),
+                        );
+                    } else {
+                        async_io::block_on(EXEC.run(futures_lite::future::pending::<()>()));
+                    };
                 })
             })
             .unwrap();

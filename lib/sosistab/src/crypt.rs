@@ -75,13 +75,13 @@ impl StdAEAD {
     }
 
     /// Pad and encrypt.
-    pub fn pad_encrypt(&self, msg: impl Serialize, _target_len: usize) -> Bytes {
-        let mut target_len = rand::thread_rng().gen_range(0, 128);
+    pub fn pad_encrypt(&self, msg: impl Serialize, target_len: usize) -> Bytes {
+        let mut target_len = rand::thread_rng().gen_range(0, target_len);
         let mut plain = Vec::with_capacity(1500);
         bincode::serialize_into(&mut plain, &msg).unwrap();
         let plainlen = plain.len();
         if plain.len() > target_len {
-            target_len = plain.len() + rand::thread_rng().gen_range(0, 16);
+            target_len = plain.len() + rand::thread_rng().gen_range(0, 4);
         }
         plain.extend_from_slice(&vec![0; target_len - plain.len()]);
         let encrypted = self.encrypt(&plain, rand::thread_rng().gen());
@@ -95,64 +95,6 @@ impl StdAEAD {
         bincode::deserialize_from(plain.as_ref()).ok()
     }
 }
-
-// #[cfg(test)]
-// mod tests {
-//     extern crate test;
-//     use super::*;
-//     use aes_gcm::aead::{generic_array::GenericArray, Aead, NewAead};
-//     use aes_gcm::Aes256Gcm; // Or `Aes128Gcm`
-//                             // use chacha20poly1305::aead::{Aead, NewAead};
-//     use chacha20poly1305::{ChaCha20Poly1305, ChaCha8Poly1305, Key, Nonce}; // Or `XChaCha20Poly1305`
-//     use rand::prelude::*;
-
-//     #[bench]
-//     fn bench_stdaead_encrypt(b: &mut test::Bencher) {
-//         let mut aead = StdAEAD::new(b"helloworld");
-//         let mut rng = rand::thread_rng();
-//         b.iter(|| {
-//             std::hint::black_box(aead.encrypt(&[0; 1400], rng.gen()));
-//         })
-//     }
-
-//     #[test]
-//     fn stdaead_dencrypt() {
-//         let mut aead = StdAEAD::new(b"helloworld");
-//         let mut rng = rand::thread_rng();
-//         let ciph = aead.encrypt(&[0; 1400], rng.gen());
-//         aead.decrypt(&ciph).unwrap();
-//     }
-
-//     #[bench]
-//     fn bench_chacha8poly1305_encrypt(b: &mut test::Bencher) {
-//         let mut aead = ChaCha8Poly1305::new(Key::from_slice(b"an example very very secret key."));
-//         let nonce = Nonce::from_slice(b"unique nonce");
-//         b.iter(|| {
-//             let ptext: &[u8] = &[0u8; 1400];
-//             std::hint::black_box(aead.encrypt(nonce, ptext));
-//         })
-//     }
-
-//     #[bench]
-//     fn bench_chacha20poly1305_encrypt(b: &mut test::Bencher) {
-//         let mut aead = ChaCha20Poly1305::new(Key::from_slice(b"an example very very secret key."));
-//         let nonce = Nonce::from_slice(b"unique nonce");
-//         b.iter(|| {
-//             let ptext: &[u8] = &[0u8; 1400];
-//             std::hint::black_box(aead.encrypt(nonce, ptext));
-//         })
-//     }
-
-//     #[bench]
-//     fn bench_aesgcm_encrypt(b: &mut test::Bencher) {
-//         let mut aead = Aes256Gcm::new(Key::from_slice(b"an example very very secret key."));
-//         let nonce = Nonce::from_slice(b"unique nonce");
-//         b.iter(|| {
-//             let ptext: &[u8] = &[0u8; 1400];
-//             std::hint::black_box(aead.encrypt(nonce, ptext));
-//         })
-//     }
-// }
 
 #[derive(Debug, Clone)]
 /// Cookie is a generator of temporary symmetric keys.

@@ -38,7 +38,7 @@ pub async fn run_vpn(
     log::info!("negotiating VPN with client id {}...", client_id);
     let client_ip = loop {
         let hello = vpn_structs::Message::ClientHello { client_id };
-        mux.send_urel(bincode::serialize(&hello)?.into()).await?;
+        mux.send_urel(bincode::serialize(&hello)?.into())?;
         let resp = mux.recv_urel().timeout(Duration::from_secs(1)).await;
         if let Some(resp) = resp {
             let resp = resp?;
@@ -114,13 +114,11 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         if let Some(body) = body {
             ctx.stats.incr_total_tx(body.len() as u64);
             drop(
-                ctx.mux
-                    .send_urel(
-                        bincode::serialize(&vpn_structs::Message::Payload(body))
-                            .unwrap()
-                            .into(),
-                    )
-                    .await,
+                ctx.mux.send_urel(
+                    bincode::serialize(&vpn_structs::Message::Payload(body))
+                        .unwrap()
+                        .into(),
+                ),
             );
         }
     }

@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 pub async fn multiplex(
     session: Arc<Session>,
-    urel_send_recv: Receiver<Bytes>,
     urel_recv_send: Sender<Bytes>,
     conn_open_recv: Receiver<(Option<String>, Sender<RelConn>)>,
     conn_accept_send: Sender<RelConn>,
@@ -42,18 +41,16 @@ pub async fn multiplex(
                     } => {
                         if conn_tab.get_stream(stream_id).is_some() {
                             tracing::trace!("syn recv {} REACCEPT", stream_id);
-                            session
-                                .send_bytes(
-                                    bincode::serialize(&Message::Rel {
-                                        kind: RelKind::SynAck,
-                                        stream_id,
-                                        seqno: 0,
-                                        payload: Bytes::new(),
-                                    })
-                                    .unwrap()
-                                    .into(),
-                                )
-                                .await;
+                            session.send_bytes(
+                                bincode::serialize(&Message::Rel {
+                                    kind: RelKind::SynAck,
+                                    stream_id,
+                                    seqno: 0,
+                                    payload: Bytes::new(),
+                                })
+                                .unwrap()
+                                .into(),
+                            );
                         } else {
                             let dead_send = dead_send.clone();
                             tracing::trace!("syn recv {} ACCEPT", stream_id);
@@ -82,18 +79,16 @@ pub async fn multiplex(
                         } else {
                             tracing::trace!("discarding {:?} to nonexistent {}", kind, stream_id);
                             if kind != RelKind::Rst {
-                                session
-                                    .send_bytes(
-                                        bincode::serialize(&Message::Rel {
-                                            kind: RelKind::Rst,
-                                            stream_id,
-                                            seqno: 0,
-                                            payload: Bytes::new(),
-                                        })
-                                        .unwrap()
-                                        .into(),
-                                    )
-                                    .await;
+                                session.send_bytes(
+                                    bincode::serialize(&Message::Rel {
+                                        kind: RelKind::Rst,
+                                        stream_id,
+                                        seqno: 0,
+                                        payload: Bytes::new(),
+                                    })
+                                    .unwrap()
+                                    .into(),
+                                );
                             }
                         }
                     }
@@ -104,16 +99,7 @@ pub async fn multiplex(
         // fires on sending messages
         let send_evt = async {
             let to_send = glob_recv.recv().await?;
-            session
-                .send_bytes(bincode::serialize(&to_send).unwrap().into())
-                .await;
-            Ok::<(), anyhow::Error>(())
-        };
-        // fires on a new unreliable sending request
-        let urel_send_evt = async {
-            let to_send = urel_send_recv.recv().await?;
-            tracing::trace!("urel send {}B", to_send.len());
-            glob_send.send(Message::Urel(to_send)).await?;
+            session.send_bytes(bincode::serialize(&to_send).unwrap().into());
             Ok::<(), anyhow::Error>(())
         };
         // fires on a new stream open request
@@ -176,9 +162,7 @@ pub async fn multiplex(
             Ok(())
         };
         // await on them all
-        recv_evt
-            .or(urel_send_evt.or(send_evt.or(conn_open_evt.or(dead_evt))))
-            .await?;
+        recv_evt.or(send_evt.or(conn_open_evt.or(dead_evt))).await?;
     }
 }
 

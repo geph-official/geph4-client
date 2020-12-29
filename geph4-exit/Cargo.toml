@@ -36,6 +36,9 @@ bytes="0.6"
 lru="0.6"
 pnet_packet="0.27"
 rangemap="0.1"
+dashmap="4"
+
+contrie="0.1.4"
  
 aioutils={path="../lib/aioutils"}
 vpn_structs={path="../lib/vpn_structs"}

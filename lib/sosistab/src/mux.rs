@@ -7,9 +7,10 @@ mod relconn;
 mod structs;
 pub use relconn::RelConn;
 
+use self::structs::Message;
+
 /// A multiplex session over a sosistab session, implementing both reliable "streams" and unreliable messages.
 pub struct Multiplex {
-    urel_send: Sender<Bytes>,
     urel_recv: Receiver<Bytes>,
     conn_open: Sender<(Option<String>, Sender<RelConn>)>,
     conn_accept: Receiver<RelConn>,
@@ -24,7 +25,6 @@ fn to_ioerror<T: Into<Box<dyn std::error::Error + Send + Sync>>>(val: T) -> std:
 impl Multiplex {
     /// Creates a new multiplexed session
     pub fn new(session: Session) -> Self {
-        let (urel_send, urel_send_recv) = smol::channel::bounded(100);
         let (urel_recv_send, urel_recv) = smol::channel::bounded(1000);
         let (conn_open, conn_open_recv) = smol::channel::unbounded();
         let (conn_accept_send, conn_accept) = smol::channel::bounded(100);
@@ -33,7 +33,6 @@ impl Multiplex {
         let _task = runtime::spawn(async move {
             let retval = multiplex_actor::multiplex(
                 sess_cloned,
-                urel_send_recv,
                 urel_recv_send,
                 conn_open_recv,
                 conn_accept_send,
@@ -42,7 +41,6 @@ impl Multiplex {
             tracing::debug!("multiplex actor returned {:?}", retval);
         });
         Multiplex {
-            urel_send,
             urel_recv,
             conn_open,
             conn_accept,
@@ -53,8 +51,11 @@ impl Multiplex {
 
     /// Sends an unreliable message to the other side
     #[tracing::instrument(skip(self), level = "trace")]
-    pub async fn send_urel(&self, msg: Bytes) -> std::io::Result<()> {
-        self.urel_send.send(msg).await.map_err(to_ioerror)
+    pub fn send_urel(&self, msg: Bytes) -> std::io::Result<()> {
+        // self.urel_send.send(msg).await.map_err(to_ioerror)
+        self.sess_ref
+            .send_bytes(bincode::serialize(&Message::Urel(msg)).unwrap().into());
+        Ok(())
     }
 
     /// Receive an unreliable message

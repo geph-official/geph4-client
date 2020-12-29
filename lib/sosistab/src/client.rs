@@ -104,7 +104,7 @@ pub async fn connect_custom(
     unimplemented!()
 }
 
-const SHARDS: u8 = 5;
+const SHARDS: u8 = 1;
 const RESET_MILLIS: u128 = 5000;
 const REMIND_MILLIS: u128 = 1000;
 

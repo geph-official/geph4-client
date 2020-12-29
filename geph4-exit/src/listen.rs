@@ -237,7 +237,7 @@ async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
         sess,
         nursery,
     } = ctx;
-    let sess = sosistab::mux::Multiplex::new(sess);
+    let sess = Arc::new(sosistab::mux::Multiplex::new(sess));
     let nhandle = nursery.clone();
     let is_plus = authenticate_sess(root.binder_client.clone(), &sess)
         .timeout(Duration::from_secs(300))
@@ -300,7 +300,7 @@ async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
         }
     };
     let vpn_loop = handle_vpn_session(
-        &sess,
+        sess.clone(),
         root.exit_hostname.clone(),
         root.stat_client.clone(),
         root.port_whitelist,

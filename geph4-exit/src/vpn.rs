@@ -1,15 +1,16 @@
 use bytes::Bytes;
 use cidr::{Cidr, Ipv4Cidr};
+use dashmap::DashMap;
 use libc::{c_void, SOL_IP, SO_ORIGINAL_DST};
-use lru::LruCache;
+
 use once_cell::sync::Lazy;
 use os_socketaddr::OsSocketAddr;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::Mutex;
 use pnet_packet::{
     ip::IpNextHeaderProtocols, ipv4::Ipv4Packet, tcp::TcpPacket, udp::UdpPacket, Packet,
 };
 use rand::prelude::*;
-use smol::channel::Sender;
+
 use smol_timeout::TimeoutExt;
 use std::os::unix::io::AsRawFd;
 use std::{
@@ -87,7 +88,7 @@ pub async fn transparent_proxy_helper(google_proxy: Option<SocketAddr>) -> anyho
 
 /// Handles a VPN session
 pub async fn handle_vpn_session(
-    mux: &sosistab::mux::Multiplex,
+    mux: Arc<sosistab::mux::Multiplex>,
     exit_hostname: String,
     stat_client: Arc<statsd::Client>,
     port_whitelist: bool,
@@ -95,85 +96,86 @@ pub async fn handle_vpn_session(
     Lazy::force(&INCOMING_PKT_HANDLER);
     log::debug!("handle_vpn_session entered");
     scopeguard::defer!(log::debug!("handle_vpn_session exited"));
+
+    // set up IP address allocation
     let assigned_ip: Lazy<AssignedIpv4Addr> = Lazy::new(|| IpAddrAssigner::global().assign());
-    let (send_down, recv_down) = smol::channel::bounded(10);
+    let addr = assigned_ip.addr();
     let key = format!("exit_usage.{}", exit_hostname.replace(".", "-"));
-    let down_loop = async {
-        loop {
-            let bts: Bytes = recv_down.recv().await?;
-            stat_client.sampled_count(&key, bts.len() as f64, 0.1);
-            let pkt = Ipv4Packet::new(&bts).expect("don't send me invalid IPv4 packets!");
-            assert_eq!(pkt.get_destination(), assigned_ip.addr());
-            let msg = Message::Payload(bts);
-            mux.send_urel(bincode::serialize(&msg).unwrap().into())
-                .await?;
-        }
-    };
-    let up_loop = async {
-        loop {
-            let bts = mux.recv_urel().await?;
-            let msg: Message = bincode::deserialize(&bts)?;
-            match msg {
-                Message::ClientHello { .. } => {
-                    mux.send_urel(
-                        bincode::serialize(&Message::ServerHello {
-                            client_ip: *assigned_ip.clone(),
-                            gateway: "100.64.0.1".parse().unwrap(),
-                        })
-                        .unwrap()
-                        .into(),
-                    )
-                    .await?;
-                }
-                Message::Payload(bts) => {
-                    stat_client.sampled_count(&key, bts.len() as f64, 0.1);
-                    let pkt = Ipv4Packet::new(&bts);
-                    if let Some(pkt) = pkt {
-                        // source must be correct and destination must not be banned
-                        if pkt.get_source() != assigned_ip.addr()
-                            || pkt.get_destination().is_loopback()
-                            || pkt.get_destination().is_private()
-                            || pkt.get_destination().is_unspecified()
-                            || pkt.get_destination().is_broadcast()
-                        {
+    {
+        let key = key.clone();
+        let mux = mux.clone();
+        let stat_client = stat_client.clone();
+        INCOMING_MAP.insert(
+            addr,
+            Box::new(move |bts| {
+                stat_client.sampled_count(&key, bts.len() as f64, 0.1);
+                let pkt = Ipv4Packet::new(&bts).expect("don't send me invalid IPv4 packets!");
+                assert_eq!(pkt.get_destination(), addr);
+                let msg = Message::Payload(bts);
+                let _ = mux.send_urel(bincode::serialize(&msg).unwrap().into());
+            }),
+        );
+    }
+
+    loop {
+        let bts = mux.recv_urel().await?;
+        let msg: Message = bincode::deserialize(&bts)?;
+        match msg {
+            Message::ClientHello { .. } => {
+                mux.send_urel(
+                    bincode::serialize(&Message::ServerHello {
+                        client_ip: *assigned_ip.clone(),
+                        gateway: "100.64.0.1".parse().unwrap(),
+                    })
+                    .unwrap()
+                    .into(),
+                )?;
+            }
+            Message::Payload(bts) => {
+                stat_client.sampled_count(&key, bts.len() as f64, 0.1);
+                let pkt = Ipv4Packet::new(&bts);
+                if let Some(pkt) = pkt {
+                    // source must be correct and destination must not be banned
+                    if pkt.get_source() != assigned_ip.addr()
+                        || pkt.get_destination().is_loopback()
+                        || pkt.get_destination().is_private()
+                        || pkt.get_destination().is_unspecified()
+                        || pkt.get_destination().is_broadcast()
+                    {
+                        continue;
+                    }
+                    // must not be blacklisted
+                    let port = {
+                        match pkt.get_next_level_protocol() {
+                            IpNextHeaderProtocols::Tcp => {
+                                TcpPacket::new(&pkt.payload()).map(|v| v.get_destination())
+                            }
+                            IpNextHeaderProtocols::Udp => {
+                                UdpPacket::new(&pkt.payload()).map(|v| v.get_destination())
+                            }
+                            _ => None,
+                        }
+                    };
+                    if let Some(port) = port {
+                        if crate::lists::BLACK_PORTS.contains(&port) {
                             continue;
                         }
-                        // must not be blacklisted
-                        let port = {
-                            match pkt.get_next_level_protocol() {
-                                IpNextHeaderProtocols::Tcp => {
-                                    TcpPacket::new(&pkt.payload()).map(|v| v.get_destination())
-                                }
-                                IpNextHeaderProtocols::Udp => {
-                                    UdpPacket::new(&pkt.payload()).map(|v| v.get_destination())
-                                }
-                                _ => None,
-                            }
-                        };
-                        if let Some(port) = port {
-                            if crate::lists::BLACK_PORTS.contains(&port) {
-                                continue;
-                            }
-                            if port_whitelist && !crate::lists::WHITE_PORTS.contains(&port) {
-                                continue;
-                            }
+                        if port_whitelist && !crate::lists::WHITE_PORTS.contains(&port) {
+                            continue;
                         }
-                        RAW_TUN.write_raw(bts).await;
-                        INCOMING_MAP
-                            .write()
-                            .put(assigned_ip.addr(), send_down.clone());
                     }
+                    RAW_TUN.write_raw(bts).await;
                 }
-                _ => anyhow::bail!("message in invalid context"),
             }
+            _ => anyhow::bail!("message in invalid context"),
         }
-    };
-    smol::future::race(up_loop, down_loop).await
+    }
 }
 
 /// Mapping for incoming packets
-static INCOMING_MAP: Lazy<RwLock<LruCache<Ipv4Addr, Sender<Bytes>>>> =
-    Lazy::new(|| RwLock::new(LruCache::new(1000)));
+#[allow(clippy::clippy::type_complexity)]
+static INCOMING_MAP: Lazy<DashMap<Ipv4Addr, Box<dyn Fn(Bytes) + Send + Sync>>> =
+    Lazy::new(DashMap::new);
 
 /// Incoming packet handler
 static INCOMING_PKT_HANDLER: Lazy<smol::Task<()>> = Lazy::new(|| {
@@ -183,10 +185,9 @@ static INCOMING_PKT_HANDLER: Lazy<smol::Task<()>> = Lazy::new(|| {
                 .read_raw()
                 .await
                 .expect("cannot read from tun device");
-            let dest = Ipv4Packet::new(&pkt)
-                .map(|pkt| INCOMING_MAP.read().peek(&pkt.get_destination()).cloned());
+            let dest = Ipv4Packet::new(&pkt).map(|pkt| INCOMING_MAP.get(&pkt.get_destination()));
             if let Some(Some(dest)) = dest {
-                let _ = dest.try_send(pkt);
+                (dest.value())(pkt);
             }
         }
     })

@@ -51,7 +51,7 @@ pub struct Session {
 impl Session {
     /// Creates a Session.
     pub(crate) fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = smol::channel::bounded(20);
+        let (send_tosend, recv_tosend) = smol::channel::bounded(1000);
         let (send_input, recv_input) = smol::channel::bounded(500);
         let rate_limit = Arc::new(AtomicU32::new(100000));
         let recv_timeout = cfg.recv_timeout;
@@ -80,12 +80,10 @@ impl Session {
     }
 
     /// Takes a Bytes to be sent and stuffs it into the session.
-    pub async fn send_bytes(&self, to_send: Bytes) {
+    pub fn send_bytes(&self, to_send: Bytes) {
         if self.send_tosend.try_send(to_send).is_err() {
             tracing::trace!("overflowed send buffer at session!");
         }
-        smol::future::yield_now().await;
-        // drop(self.send_tosend.send(to_send).await)
     }
 
     /// Waits until the next application input is decoded by the session.

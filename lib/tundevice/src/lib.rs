@@ -47,8 +47,8 @@ impl TunDevice {
         };
         // spawn two threads
         let mut fd1 = fd.try_clone().unwrap();
-        let (send_write, recv_write) = flume::bounded::<Bytes>(1000);
-        let (send_read, recv_read) = flume::bounded::<Bytes>(1000);
+        let (send_write, recv_write) = flume::bounded::<Bytes>(10000);
+        let (send_read, recv_read) = flume::bounded::<Bytes>(10000);
         let mut fd2 = fd.try_clone().unwrap();
         std::thread::Builder::new()
             .name("tun-read".into())

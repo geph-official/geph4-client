@@ -145,6 +145,15 @@ checksum = "a4c527152e37cf757a3f78aae5a06fbeefdb07ccc535c980a3208ee3060dd544"
 
 [[package]]
 name = "arrayvec"
+version = "0.4.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cd9fd44efafa8690358b7408d253adf110036b88f55672a933f01d616ad9b1b9"
+dependencies = [
+ "nodrop",
+]
+
+[[package]]
+name = "arrayvec"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "23b62fc65de8e4e7f52534fb52b0f3ed04746ae267519eef2a83941e8085068b"
@@ -540,7 +549,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "afa748e348ad3be8263be728124b24a24f268266f6f5d58af9d75f6a40b5c587"
 dependencies = [
  "arrayref",
- "arrayvec",
+ "arrayvec 0.5.2",
  "constant_time_eq",
 ]
 
@@ -551,7 +560,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e9ff35b701f3914bdb8fad3368d822c766ef2858b2583198e41639b936f09d3f"
 dependencies = [
  "arrayref",
- "arrayvec",
+ "arrayvec 0.5.2",
  "cc",
  "cfg-if 0.1.10",
  "constant_time_eq",
@@ -812,6 +821,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
 
 [[package]]
+name = "contrie"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4658d3e5b0a1219f7c6f8af841d67507288008b76fce9cc2edb59f1a2e6123e"
+dependencies = [
+ "arrayvec 0.4.12",
+ "bitflags 1.2.1",
+ "crossbeam-epoch 0.7.2",
+ "smallvec 0.6.13",
+]
+
+[[package]]
 name = "conv"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -907,8 +928,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "94af6efb46fef72616855b036a624cf27ba656ffc9be1b9a3c931cfc7749a9a9"
 dependencies = [
  "cfg-if 1.0.0",
- "crossbeam-epoch",
+ "crossbeam-epoch 0.9.1",
  "crossbeam-utils 0.8.1",
+]
+
+[[package]]
+name = "crossbeam-epoch"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fedcd6772e37f3da2a9af9bf12ebe046c0dfe657992377b4df982a2b54cd37a9"
+dependencies = [
+ "arrayvec 0.4.12",
+ "cfg-if 0.1.10",
+ "crossbeam-utils 0.6.6",
+ "lazy_static",
+ "memoffset 0.5.6",
+ "scopeguard",
 ]
 
 [[package]]
@@ -921,7 +956,7 @@ dependencies = [
  "const_fn",
  "crossbeam-utils 0.8.1",
  "lazy_static",
- "memoffset",
+ "memoffset 0.6.1",
  "scopeguard",
 ]
 
@@ -934,6 +969,16 @@ dependencies = [
  "cfg-if 0.1.10",
  "crossbeam-utils 0.7.2",
  "maybe-uninit",
+]
+
+[[package]]
+name = "crossbeam-utils"
+version = "0.6.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "04973fa96e96579258a5091af6003abde64af786b860f18622b82e026cca60e6"
+dependencies = [
+ "cfg-if 0.1.10",
+ "lazy_static",
 ]
 
 [[package]]
@@ -1047,6 +1092,16 @@ checksum = "0f260e2fc850179ef410018660006951c1b55b79e8087e87111a2c388994b9b5"
 dependencies = [
  "ahash 0.3.8",
  "cfg-if 0.1.10",
+ "num_cpus",
+]
+
+[[package]]
+name = "dashmap"
+version = "4.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4b937cd1fbd1f194ac842196bd2529f21618088ee6d8bff6a46ece611451c96b"
+dependencies = [
+ "cfg-if 1.0.0",
  "num_cpus",
 ]
 
@@ -1684,6 +1739,8 @@ dependencies = [
  "bytes 0.6.0",
  "cap",
  "cidr",
+ "contrie",
+ "dashmap 4.0.1",
  "ed25519-dalek",
  "env_logger 0.7.1",
  "flate2",
@@ -2183,6 +2240,15 @@ checksum = "0ee1c47aaa256ecabcaea351eae4a9b01ef39ed810004e298d2511ed284b1525"
 
 [[package]]
 name = "memoffset"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "043175f069eda7b85febe4a74abbaeff828d9f8b448515d3151a14a3542811aa"
+dependencies = [
+ "autocfg 1.0.1",
+]
+
+[[package]]
+name = "memoffset"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "157b4208e3059a8f9e78d559edc658e13df41410cb3ae03979c83130067fdd87"
@@ -2343,6 +2409,12 @@ checksum = "b93853da6d84c2e3c7d730d6473e8817692dd89be387eb01b94d7f108ecb5b8c"
 dependencies = [
  "hashbrown 0.8.2",
 ]
+
+[[package]]
+name = "nodrop"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72ef4a56884ca558e5ddb05a1d1e7e1bfd9a68d9ed024c21704cc98872dae1bb"
 
 [[package]]
 name = "nonzero_ext"
@@ -3651,7 +3723,7 @@ dependencies = [
  "c2-chacha",
  "concurrent-queue",
  "constant_time_eq",
- "dashmap 3.11.10",
+ "dashmap 4.0.1",
  "env_logger 0.8.2",
  "event-listener",
  "futures-timer",
