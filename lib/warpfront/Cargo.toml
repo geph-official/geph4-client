@@ -10,7 +10,7 @@ edition = "2018"
 smol="1.2"
 bytes="0.6"
 anyhow="1"
-dashmap="1"
+dashmap="4"
 async-h1 = "2.1.2"
 http-types = "2.5.0"
 parking_lot="0.11"
@@ -22,6 +22,7 @@ bincode="1"
 serde={version="1", features=["derive"]}
 async-trait= "0.1.41"
 spiderchan={path="../spiderchan"}
+argh="0.1.4"
 
 [dependencies.async-tls]
 version = "0.10"

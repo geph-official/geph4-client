@@ -57,7 +57,7 @@ impl Warpfront {
 
     /// Add a new remote corresponding to a "fake" SocketAddr.
     pub fn add_remote(&self, fake_addr: SocketAddr, endpoint: WfEndpoint) {
-        self.remotes.insert(fake_addr, endpoint)
+        self.remotes.insert(fake_addr, endpoint);
     }
 }
 
