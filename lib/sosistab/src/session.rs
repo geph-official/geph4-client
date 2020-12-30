@@ -51,7 +51,7 @@ pub struct Session {
 impl Session {
     /// Creates a Session.
     pub(crate) fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = smol::channel::bounded(1000);
+        let (send_tosend, recv_tosend) = smol::channel::bounded(32);
         let (send_input, recv_input) = smol::channel::bounded(500);
         let rate_limit = Arc::new(AtomicU32::new(100000));
         let recv_timeout = cfg.recv_timeout;

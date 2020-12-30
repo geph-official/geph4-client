@@ -255,25 +255,30 @@ impl ListenerActor {
                                                         loop {
                                                             match session_output_recv.recv().await {
                                                                 Ok(dff) => {
-                                                                    let encrypted: Vec<_> = {
+                                                                    let remote_addr = {
                                                                         let addrs =
                                                                             locked_addrs.read();
+                                                                        loop {
+                                                                            assert!(
+                                                                                !addrs.is_empty()
+                                                                            );
+                                                                            ctr =
+                                                                                ctr.wrapping_add(1);
+                                                                            if let Some((
+                                                                                _,
+                                                                                remote_addr,
+                                                                            )) = addrs.get_index(
+                                                                                (ctr % (addrs.len()
+                                                                                    as u8))
+                                                                                    as usize,
+                                                                            ) {
+                                                                                break *remote_addr;
+                                                                            }
+                                                                        }
+                                                                    };
+                                                                    let encrypted: Vec<_> = {
                                                                         dff.into_iter()
                                                                             .map(|df| {
-                                                                                let remote_addr = loop {
-                                                                                    assert!(!addrs.is_empty());
-                                                                                    ctr = ctr.wrapping_add(1);
-                                                                                    if let Some((
-                                                                                        _,
-                                                                                        remote_addr,
-                                                                                    )) = addrs.get_index(
-                                                                                        (ctr % (addrs.len()
-                                                                                            as u8))
-                                                                                            as usize,
-                                                                                    ) {
-                                                                                        break *remote_addr;
-                                                                                    }
-                                                                                };
                                                                                 (
                                                                             dn_aead.pad_encrypt(
                                                                                 &df, 1000,

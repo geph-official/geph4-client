@@ -100,6 +100,9 @@ pub async fn handle_vpn_session(
     // set up IP address allocation
     let assigned_ip: Lazy<AssignedIpv4Addr> = Lazy::new(|| IpAddrAssigner::global().assign());
     let addr = assigned_ip.addr();
+    scopeguard::defer!({
+        INCOMING_MAP.remove(&addr);
+    });
     let key = format!("exit_usage.{}", exit_hostname.replace(".", "-"));
     {
         let key = key.clone();

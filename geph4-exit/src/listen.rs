@@ -194,7 +194,9 @@ async fn handle_control<'a>(
                     loop {
                         let sess = sosis_listener
                             .accept_session()
+                            .timeout(Duration::from_secs(86400))
                             .await
+                            .ok_or_else(|| anyhow::anyhow!("session timeout"))?
                             .ok_or_else(|| anyhow::anyhow!("could not accept sosis session"))?;
                         let ctx = ctx.clone();
                         nursery.spawn(OnError::Ignore, move |_| handle_session(ctx.new_sess(sess)));

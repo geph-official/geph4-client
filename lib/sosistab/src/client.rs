@@ -1,8 +1,9 @@
 use crate::*;
 use bytes::Bytes;
+use governor::{Quota, RateLimiter};
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
-use std::net::SocketAddr;
+use std::{net::SocketAddr, num::NonZeroU32};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -104,9 +105,8 @@ pub async fn connect_custom(
     unimplemented!()
 }
 
-const SHARDS: u8 = 1;
+const SHARDS: u8 = 16;
 const RESET_MILLIS: u128 = 5000;
-const REMIND_MILLIS: u128 = 1000;
 
 #[tracing::instrument(skip(laddr_gen), level = "trace")]
 async fn init_session(
@@ -116,11 +116,15 @@ async fn init_session(
     remote_addr: SocketAddr,
     laddr_gen: Arc<impl Fn() -> std::io::Result<SocketAddr> + Send + Sync + 'static>,
 ) -> std::io::Result<Session> {
+    let remind_ratelimit = Arc::new(RateLimiter::direct(
+        Quota::per_second(NonZeroU32::new(3).unwrap()).allow_burst(NonZeroU32::new(100).unwrap()),
+    ));
     let (send_frame_out, recv_frame_out) = smol::channel::bounded(1000);
     let (send_frame_in, recv_frame_in) = smol::channel::bounded::<msg::DataFrame>(1000);
     let backhaul_tasks: Vec<_> = (0..SHARDS)
         .map(|i| {
             runtime::spawn(client_backhaul_once(
+                remind_ratelimit.clone(),
                 cookie.clone(),
                 resume_token.clone(),
                 send_frame_in.clone(),
@@ -148,6 +152,13 @@ async fn init_session(
 #[allow(clippy::all)]
 #[tracing::instrument(skip(laddr_gen), level = "trace")]
 async fn client_backhaul_once(
+    remind_ratelimit: Arc<
+        RateLimiter<
+            governor::state::NotKeyed,
+            governor::state::InMemoryState,
+            governor::clock::DefaultClock,
+        >,
+    >,
     cookie: crypt::Cookie,
     resume_token: Bytes,
     send_frame_in: Sender<msg::DataFrame>,
@@ -162,7 +173,6 @@ async fn client_backhaul_once(
     let dn_crypter = Arc::new(crypt::StdAEAD::new(dn_key.as_bytes()));
     let up_crypter = Arc::new(crypt::StdAEAD::new(up_key.as_bytes()));
 
-    let mut last_remind = Instant::now();
     let mut last_reset = Instant::now();
     let mut updated = false;
     let mut socket: Arc<dyn Backhaul> =
@@ -181,7 +191,8 @@ async fn client_backhaul_once(
             let socket = &socket;
             async move {
                 let mut incoming = Vec::with_capacity(64);
-                for (buf, addr) in socket.recv_from_many().await.ok()? {
+                let packets = socket.recv_from_many().await.ok()?;
+                for (buf, addr) in packets {
                     if let Some(plain) = dn_crypter.pad_decrypt::<msg::DataFrame>(&buf) {
                         tracing::trace!(
                             "shard {} decrypted UDP message with len {}",
@@ -216,10 +227,7 @@ async fn client_backhaul_once(
             Some(Evt::Outgoing(bts)) => {
                 let bts: Vec<Bytes> = bts;
                 let now = Instant::now();
-                if now.saturating_duration_since(last_remind).as_millis() > REMIND_MILLIS
-                    || !updated
-                {
-                    last_remind = now;
+                if remind_ratelimit.check().is_ok() || !updated {
                     updated = true;
                     let g_encrypt = crypt::StdAEAD::new(&cookie.generate_c2s().next().unwrap());
                     if now.saturating_duration_since(last_reset).as_millis() > RESET_MILLIS {
