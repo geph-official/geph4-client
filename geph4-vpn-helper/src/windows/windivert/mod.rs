@@ -10,17 +10,17 @@ mod packet;
 pub use packet::*;
 mod socket;
 pub use socket::*;
+use winapi::um::errhandlingapi::GetLastError;
 
 #[derive(Debug, Error)]
 #[error("internal WinDivert error: {0}")]
-pub struct InternalError(bindings::DWORD);
+pub struct InternalError(pub bindings::DWORD);
 
 fn check_c_error<T>(retcode: T, is_success: impl FnOnce(&T) -> bool) -> Result<T, InternalError> {
     if is_success(&retcode) {
         Ok(retcode)
     } else {
-        // TODO we do this only because using GetLastError somehow causes a linker failure on the MSVC toolchain.
-        let err = 100;
+        let err = unsafe { GetLastError() };
         Err(InternalError(err))
     }
 }
@@ -41,8 +41,9 @@ impl Handle {
         flags: u64,
     ) -> Result<Self, InternalError> {
         let possibly_handle = unsafe {
+            let filter = CString::new(filter).unwrap();
             bindings::WinDivertOpen(
-                CString::new(filter).unwrap().as_ptr() as *const i8,
+                filter.as_ptr() as *const i8,
                 layer.to_windivert(),
                 priority,
                 flags,

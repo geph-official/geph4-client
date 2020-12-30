@@ -1780,6 +1780,7 @@ dependencies = [
  "defmac",
  "env_logger 0.8.2",
  "flume 0.10.0",
+ "governor",
  "log 0.4.11",
  "nix",
  "once_cell",

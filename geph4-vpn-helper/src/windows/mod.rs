@@ -9,12 +9,22 @@ use std::{
 };
 use vpn_structs::StdioMsg;
 mod windivert;
+use crate::windows::windivert::InternalError;
 use defmac::defmac;
+use governor::{Quota, RateLimiter};
 use pnet_packet::ip::IpNextHeaderProtocols;
 use pnet_packet::{ipv4::*, ipv6::*};
 use pnet_packet::{MutablePacket, Packet};
 use std::io::prelude::*;
+use std::io::BufReader;
+use std::num::NonZeroU32;
 use std::time::{Duration, Instant};
+
+/// A log rate limiter
+static LOG_LIMITER: Lazy<Box<dyn Fn() -> bool + 'static + Send + Sync>> = Lazy::new(|| {
+    let governor = RateLimiter::direct(Quota::per_second(NonZeroU32::new(10u32).unwrap()));
+    Box::new(move || governor.check().is_ok())
+});
 
 /// A thread-safe process ID table.
 #[derive(Clone, Debug, Default)]
@@ -56,6 +66,7 @@ static GEPH_IP: Lazy<RwLock<Option<Ipv4Addr>>> = Lazy::new(|| RwLock::new(None))
 static REAL_IP: Lazy<RwLock<Option<Ipv4Addr>>> = Lazy::new(|| RwLock::new(None));
 
 pub fn main() {
+    env_logger::init();
     // start child process
     let args: Vec<String> = std::env::args().collect();
     let child = std::process::Command::new(&args[1])
@@ -80,14 +91,17 @@ pub fn main() {
 }
 
 fn download_loop(mut geph_stdout: ChildStdout) {
-    let handle = windivert::PacketHandle::open("false", 0).unwrap();
+    let handle = windivert::PacketHandle::open("false", -200).unwrap();
+    let mut geph_stdout = BufReader::new(geph_stdout);
     loop {
         // read a message from Geph
         let msg = StdioMsg::read_blocking(&mut geph_stdout).unwrap();
         match msg.verb {
             0 => {
                 let mut packet = msg.body.to_vec();
-
+                if LOG_LIMITER() {
+                    log::debug!("Geph gave us packet of len {}", packet.len());
+                }
                 if fix_destination(&mut packet) {
                     handle.inject(&packet, false).unwrap();
                 }
@@ -97,7 +111,7 @@ fn download_loop(mut geph_stdout: ChildStdout) {
                 let ip_with_mask = String::from_utf8_lossy(&msg.body);
                 let ip_string = ip_with_mask.split('/').next().unwrap();
                 let actual_ip: Ipv4Addr = ip_string.parse().unwrap();
-                // println!("Geph assigned us GEPH_IP = {}", actual_ip);
+                log::debug!("Geph assigned us GEPH_IP = {}", actual_ip);
                 *GEPH_IP.write() = Some(actual_ip);
             }
         }
@@ -132,10 +146,9 @@ pub(crate) fn thread_sleep(duration: Duration) {
 }
 
 fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
-    let handle = Arc::new(windivert::PacketHandle::open("outbound and not loopback", 0).unwrap());
     let (send, recv) = flume::unbounded::<(Vec<u8>, Instant)>();
-    let hand2 = handle.clone();
     std::thread::spawn(move || {
+        let handle = windivert::PacketHandle::open("false", -100).unwrap();
         loop {
             let (mut pkt, time) = recv.recv().unwrap();
             // println!("received outbound of length {}", pkt.len());
@@ -145,18 +158,18 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
                 let mut loop_iter = 0;
                 let process_id = loop {
                     let process_id = GLOBAL_TABLE.get(pkt_addrs.source_addr, prot);
-                    if process_id.is_some() || time <= Instant::now() {
+                    if process_id.is_some() || time <= Instant::now() || prot == Prot::Icmp {
                         break process_id;
                     }
                     loop_iter += 1;
                     thread_sleep(Duration::from_millis(1));
                 };
-                if loop_iter > 0 {
-                    dbg!(loop_iter);
-                }
                 if let Some(pid) = process_id {
                     if pid == geph_pid {
-                        hand2.inject(&pkt, true).unwrap();
+                        if LOG_LIMITER() {
+                            log::debug!("bypassing Geph packet of length {}", pkt.len());
+                        }
+                        handle.inject(&pkt, true).unwrap();
                         continue;
                     }
                 }
@@ -164,10 +177,20 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
                     pnet_packet::ipv4::Ipv4Packet::new(&pkt).map(|parsed| parsed.get_source());
                 if let Some(packet_source) = packet_source {
                     // println!("setting REAL_IP = {}", packet_source);
+                    if LOG_LIMITER() {
+                        log::debug!("setting REAL_IP = {}", packet_source);
+                    }
                     *REAL_IP.write() = Some(packet_source);
                 }
 
                 if fix_source(&mut pkt) {
+                    if pkt.len() > 1280 {
+                        eprintln!("dropping upstream way-too-big packet");
+                        continue;
+                    }
+                    if LOG_LIMITER() {
+                        log::debug!("stuffing non-Geph packet of length {}", pkt.len());
+                    }
                     let msg = StdioMsg {
                         verb: 0,
                         body: pkt.into(),
@@ -178,10 +201,17 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
             }
         }
     });
+    let handle = windivert::PacketHandle::open("outbound and not loopback", 0).unwrap();
     loop {
-        let pkt = handle.receive().unwrap();
-        send.send((pkt, Instant::now() + Duration::from_millis(3)))
-            .unwrap();
+        let pkt = handle.receive();
+        match pkt {
+            Ok(pkt) => {
+                send.send((pkt, Instant::now() + Duration::from_millis(5)))
+                    .unwrap();
+            }
+            Err(InternalError(122)) => eprintln!("dropping way-too-big packet"),
+            Err(e) => panic!(e),
+        }
     }
 }
 
