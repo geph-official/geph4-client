@@ -65,8 +65,8 @@ struct RecentFilter {
 impl RecentFilter {
     fn new() -> Self {
         RecentFilter {
-            curr_bloom: bloomfilter::Bloom::new_for_fp_rate(100000, 0.01),
-            last_bloom: bloomfilter::Bloom::new_for_fp_rate(100000, 0.01),
+            curr_bloom: bloomfilter::Bloom::new_for_fp_rate(10000, 0.01),
+            last_bloom: bloomfilter::Bloom::new_for_fp_rate(10000, 0.01),
             curr_time: Instant::now(),
         }
     }
@@ -84,7 +84,7 @@ impl RecentFilter {
     }
 }
 
-type ShardedAddrs = IndexMap<u8, SocketAddr>;
+type ShardedAddrs = (IndexMap<u8, SocketAddr>, u8);
 
 struct ListenerActor {
     socket: Arc<dyn Backhaul>,
@@ -247,32 +247,52 @@ impl ListenerActor {
                                                 locked_addrs.insert(shard_id, addr);
                                                 // send for poll
                                                 let locked_addrs =
-                                                    Arc::new(RwLock::new(locked_addrs));
+                                                    Arc::new(RwLock::new((locked_addrs, shard_id)));
                                                 let output_poller = {
                                                     let locked_addrs = locked_addrs.clone();
                                                     runtime::spawn(async move {
                                                         let mut ctr = 0u8;
+                                                        let mut last_time = Instant::now();
                                                         loop {
+                                                            let now = Instant::now();
+                                                            let use_same_ctr = now
+                                                                .saturating_duration_since(
+                                                                    last_time,
+                                                                )
+                                                                .as_millis()
+                                                                > 100;
+                                                            last_time = now;
                                                             match session_output_recv.recv().await {
                                                                 Ok(dff) => {
                                                                     let remote_addr = {
                                                                         let addrs =
                                                                             locked_addrs.read();
                                                                         loop {
-                                                                            assert!(
-                                                                                !addrs.is_empty()
-                                                                            );
+                                                                            assert!(!addrs
+                                                                                .0
+                                                                                .is_empty());
                                                                             ctr =
                                                                                 ctr.wrapping_add(1);
-                                                                            if let Some((
-                                                                                _,
-                                                                                remote_addr,
-                                                                            )) = addrs.get_index(
-                                                                                (ctr % (addrs.len()
-                                                                                    as u8))
-                                                                                    as usize,
-                                                                            ) {
-                                                                                break *remote_addr;
+                                                                            if !use_same_ctr {
+                                                                                if let Some((
+                                                                                    _,
+                                                                                    remote_addr,
+                                                                                )) = addrs
+                                                                                    .0
+                                                                                    .get_index(
+                                                                                    (ctr % (addrs
+                                                                                        .0
+                                                                                        .len()
+                                                                                        as u8))
+                                                                                        as usize,
+                                                                                ) {
+                                                                                    break *remote_addr;
+                                                                                }
+                                                                            } else {
+                                                                                break *addrs
+                                                                                    .0
+                                                                                    .get(&addrs.1)
+                                                                                    .unwrap();
                                                                             }
                                                                         }
                                                                     };
@@ -389,7 +409,9 @@ impl SessionTable {
     #[tracing::instrument(skip(self), level = "trace")]
     async fn rebind(&mut self, addr: SocketAddr, shard_id: u8, token: Bytes) -> bool {
         if let Some((_, _, addrs)) = self.token_to_sess.get(&token) {
-            let old = addrs.write().insert(shard_id, addr);
+            let mut addrs = addrs.write();
+            addrs.1 = shard_id;
+            let old = addrs.0.insert(shard_id, addr);
             tracing::trace!("binding {}=>{}", shard_id, addr);
             if let Some(old) = old {
                 self.addr_to_token.remove(&old);
@@ -404,7 +426,7 @@ impl SessionTable {
     #[tracing::instrument(skip(self), level = "trace")]
     async fn delete(&mut self, token: Bytes) {
         if let Some((_, _, lock_addrs)) = self.token_to_sess.remove(&token) {
-            for (_, addr) in lock_addrs.read().iter() {
+            for (_, addr) in lock_addrs.read().0.iter() {
                 self.addr_to_token.remove(addr);
             }
         }

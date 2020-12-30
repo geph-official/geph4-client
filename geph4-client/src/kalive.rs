@@ -78,7 +78,7 @@ async fn keepalive_actor(
         )
         .await
         {
-            log::warn!("keepalive_actor restarting: {}", err);
+            log::warn!("keepalive_actor restarting: {:#?}", err);
             smol::Timer::after(Duration::from_secs(1)).await;
         }
     }
