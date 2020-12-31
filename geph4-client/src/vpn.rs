@@ -233,10 +233,10 @@ fn fix_dns_src(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Bytes
     Some(vv.into())
 }
 
-static STDIN: Lazy<AtomicStdin> = Lazy::new(AtomicStdin::new);
+pub static STDIN: Lazy<AtomicStdin> = Lazy::new(AtomicStdin::new);
 
 /// A type that wraps stdin and provides atomic packet recv operations to prevent cancellations from messing things up.
-struct AtomicStdin {
+pub struct AtomicStdin {
     incoming: Receiver<StdioMsg>,
     _task: smol::Task<Option<()>>,
 }
@@ -255,7 +255,7 @@ impl AtomicStdin {
             let mut stdin = STDIN.clone();
             loop {
                 let msg = StdioMsg::read(&mut stdin).await.unwrap();
-                send_incoming.send(msg).await.ok()?
+                let _ = send_incoming.try_send(msg);
             }
         });
         Self { incoming, _task }

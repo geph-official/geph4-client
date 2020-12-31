@@ -39,7 +39,8 @@ impl ProcessTable {
             return;
         }
         let mut mapping = self.mapping.write();
-        mapping.insert((local_port, protocol), process_id);
+        let exists = mapping.insert((local_port, protocol), process_id).is_some();
+        // eprintln!("INSERT proc table with {}; {}", mapping.len(), exists);
         RwLockWriteGuard::unlock_fair(mapping);
     }
 
@@ -165,9 +166,9 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
                     thread_sleep(Duration::from_millis(1));
                 };
                 if let Some(pid) = process_id {
-                    if pid == geph_pid {
+                    if pid == geph_pid || is_local_dest(&pkt) {
                         if LOG_LIMITER() {
-                            log::debug!("bypassing Geph packet of length {}", pkt.len());
+                            log::debug!("bypassing Geph/LAN packet of length {}", pkt.len());
                         }
                         handle.inject(&pkt, true).unwrap();
                         continue;
@@ -195,8 +196,8 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
                         verb: 0,
                         body: pkt.into(),
                     };
+                    let now = Instant::now();
                     msg.write_blocking(&mut geph_stdin).unwrap();
-                    geph_stdin.flush().unwrap();
                 }
             }
         }
@@ -230,6 +231,17 @@ fn socket_loop() {
             GLOBAL_TABLE.insert(evt.local_addr.port(), protocol, evt.process_id);
         }
     }
+}
+
+fn is_local_dest(packet: &[u8]) -> bool {
+    let parsed = pnet_packet::ipv4::Ipv4Packet::new(packet);
+    if let Some(parsed) = parsed {
+        let dest: Ipv4Addr = parsed.get_destination();
+        if dest.is_broadcast() || dest.is_link_local() || dest.is_private() {
+            return true;
+        }
+    }
+    return false;
 }
 
 fn fix_destination(packet: &mut [u8]) -> bool {
