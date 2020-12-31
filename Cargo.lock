@@ -124,9 +124,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.36"
+version = "1.0.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68803225a7b13e47191bab76f2687382b60d259e8cf37f6e1893658b84bb9479"
+checksum = "ee67c11feeac938fae061b232e38e0b6d94f97a9df10e6271319325ac4c56a86"
 
 [[package]]
 name = "argh"
@@ -1385,9 +1385,9 @@ dependencies = [
 
 [[package]]
 name = "flexi_logger"
-version = "0.16.2"
+version = "0.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c37586928c27a25ff5fce49ff3f8e071b3beeef48b4f004fe7d40d75a26e3db5"
+checksum = "291b6ce7b3ed2dda82efa6aee4c6bdb55fd11bc88b06c55b01851e94b96e5322"
 dependencies = [
  "atty",
  "chrono",
@@ -1413,13 +1413,14 @@ dependencies = [
 
 [[package]]
 name = "flume"
-version = "0.10.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e727ae0c455db3603e32c03fa722a8ccbd616b394eca686d76f9b2c9a91bb91"
+checksum = "0362ef9c4c1fa854ff95b4cb78045a86e810d804dc04937961988b45427104a9"
 dependencies = [
  "futures-core",
  "futures-sink",
- "nanorand 0.5.1",
+ "nanorand 0.5.2",
+ "pin-project 1.0.2",
  "spinning_top",
 ]
 
@@ -1659,7 +1660,7 @@ dependencies = [
  "blake3",
  "ed25519-dalek",
  "env_logger 0.7.1",
- "flume 0.10.0",
+ "flume 0.10.1",
  "hex",
  "log 0.4.11",
  "serde",
@@ -1673,7 +1674,7 @@ dependencies = [
 
 [[package]]
 name = "geph4-client"
-version = "0.399.25"
+version = "0.399.26"
 dependencies = [
  "aioutils",
  "anyhow",
@@ -1774,7 +1775,7 @@ dependencies = [
  "crossbeam-utils 0.8.1",
  "defmac",
  "env_logger 0.8.2",
- "flume 0.10.0",
+ "flume 0.10.1",
  "governor",
  "log 0.4.11",
  "nix",
@@ -1815,10 +1816,11 @@ dependencies = [
 
 [[package]]
 name = "ghash"
-version = "0.3.0"
+version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6e27f0689a6e15944bdce7e45425efb87eaa8ab0c6e87f11d0987a9133e2531"
+checksum = "97304e4cd182c3846f7575ced3890c53012ce534ad9114046b0a9e00bb30a375"
 dependencies = [
+ "opaque-debug",
  "polyval",
 ]
 
@@ -2057,9 +2059,9 @@ dependencies = [
 
 [[package]]
 name = "itoa"
-version = "0.4.6"
+version = "0.4.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc6f3ad7b9d11a0c00842ff8de1b60ee58661048eb8049ed33c73594f359d7e6"
+checksum = "dd25036021b0de88a0aff6b850051563c6516d0bf53f8638938edbb9de732736"
 
 [[package]]
 name = "jemalloc-sys"
@@ -2319,18 +2321,18 @@ dependencies = [
 
 [[package]]
 name = "nanorand"
-version = "0.5.1"
+version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3173d7bb904c5a3a2f9167eb936916a39e97124846b8316223323aed9a34d1e7"
+checksum = "ac1378b66f7c93a1c0f8464a19bf47df8795083842e5090f4b7305973d5a22d0"
 dependencies = [
  "getrandom 0.2.0",
 ]
 
 [[package]]
 name = "native-tls"
-version = "0.2.6"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6fcc7939b5edc4e4f86b1b4a04bb1498afaaf871b1a6691838ed06fcb48d3a3f"
+checksum = "b8d96b2e1c8da3957d58100b09f102c6d9cfdfced01b7ec5a8974044bb09dbd4"
 dependencies = [
  "lazy_static",
  "libc",
@@ -2744,11 +2746,12 @@ dependencies = [
 
 [[package]]
 name = "polyval"
-version = "0.4.3"
+version = "0.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4fd92d8e0c06d08525d2e2643cc2b5c80c69ae8eb12c18272d501cd7079ccc0"
+checksum = "eebcc4aa140b9abd2bc40d9c3f7ccec842679cd79045ac3a7ac698c1a064b7cd"
 dependencies = [
  "cpuid-bool 0.2.0",
+ "opaque-debug",
  "universal-hash",
 ]
 
@@ -3449,9 +3452,9 @@ dependencies = [
 
 [[package]]
 name = "serde_json"
-version = "1.0.60"
+version = "1.0.61"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1500e84d27fe482ed1dc791a56eddc2f230046a040fa908c08bda1d9fb615779"
+checksum = "4fceb2595057b6891a4ee808f70054bd2d12f0e97f1cbb78689b59f676df325a"
 dependencies = [
  "itoa",
  "ryu",
@@ -3503,9 +3506,9 @@ dependencies = [
 
 [[package]]
 name = "signal-hook"
-version = "0.1.16"
+version = "0.1.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "604508c1418b99dfe1925ca9224829bb2a8a9a04dda655cc01fcad46f4ab05ed"
+checksum = "7e31d442c16f047a671b5a71e2161d6e68814012b7f5379d269ebd915fac2729"
 dependencies = [
  "libc",
  "signal-hook-registry",
@@ -3513,9 +3516,9 @@ dependencies = [
 
 [[package]]
 name = "signal-hook-registry"
-version = "1.2.2"
+version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ce32ea0c6c56d5eacaeb814fbed9960547021d3edd010ded1425f180536b20ab"
+checksum = "16f1d0fef1604ba8f7a073c7e701f213e056707210e9020af4528e0101ce11a6"
 dependencies = [
  "libc",
 ]
@@ -3736,9 +3739,9 @@ checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
 
 [[package]]
 name = "standback"
-version = "0.2.13"
+version = "0.2.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cf906c8b8fc3f6ecd1046e01da1d8ddec83e48c8b08b84dcc02b585a6bedf5a8"
+checksum = "c66a8cff4fa24853fdf6b51f75c6d7f8206d7c75cab4e467bcd7f25c2b1febe0"
 dependencies = [
  "version_check",
 ]
@@ -3864,9 +3867,9 @@ checksum = "1e81da0851ada1f3e9d4312c704aa4f8806f0f9d69faaf8df2f3464b4a9437c2"
 
 [[package]]
 name = "syn"
-version = "1.0.55"
+version = "1.0.56"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a571a711dddd09019ccc628e1b17fe87c59b09d513c06c026877aa708334f37a"
+checksum = "a9802ddde94170d186eeee5005b798d9c159fa970403f1be19976d0cfb939b72"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3990,18 +3993,18 @@ dependencies = [
 
 [[package]]
 name = "thiserror"
-version = "1.0.22"
+version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0e9ae34b84616eedaaf1e9dd6026dbe00dcafa92aa0c8077cb69df1fcfe5e53e"
+checksum = "76cc616c6abf8c8928e2fdcc0dbfab37175edd8fb49a4641066ad1364fdab146"
 dependencies = [
  "thiserror-impl",
 ]
 
 [[package]]
 name = "thiserror-impl"
-version = "1.0.22"
+version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ba20f23e85b10754cd195504aebf6a27e2e6cbe28c17778a0c930724628dd56"
+checksum = "9be73a2caec27583d0046ef3796c3794f868a5bc813db689eed00c7631275cd1"
 dependencies = [
  "proc-macro2",
  "quote",
