@@ -166,7 +166,8 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
                     thread_sleep(Duration::from_millis(1));
                 };
                 if let Some(pid) = process_id {
-                    if pid == geph_pid || is_local_dest(&pkt) {
+                    let is_dns = pkt_addrs.destination_addr.port() == 53;
+                    if pid == geph_pid || (is_local_dest(&pkt) && !is_dns) {
                         if LOG_LIMITER() {
                             log::debug!("bypassing Geph/LAN packet of length {}", pkt.len());
                         }
