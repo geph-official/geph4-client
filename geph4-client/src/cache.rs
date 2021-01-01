@@ -119,6 +119,16 @@ impl ClientCache {
         .await
     }
 
+    /// Gets a list of free exits.
+    pub async fn get_free_exits(&self) -> anyhow::Result<Vec<ExitDescriptor>> {
+        self.get_cached(
+            "cache.freeexits",
+            self.get_free_exits_fresh(),
+            Duration::from_secs(3600),
+        )
+        .await
+    }
+
     /// Gets a list of bridges.
     pub async fn get_bridges(&self, exit_hostname: &str) -> anyhow::Result<Vec<BridgeDescriptor>> {
         let tok = self.get_auth_token().await?;
@@ -206,6 +216,15 @@ impl ClientCache {
     async fn get_exits_fresh(&self) -> anyhow::Result<Vec<ExitDescriptor>> {
         let binder_client = self.binder_client.clone();
         let res = timeout(binder_client.request(BinderRequestData::GetExits)).await??;
+        match res {
+            binder_transport::BinderResponse::GetExitsResp(exits) => Ok(exits),
+            other => anyhow::bail!("unexpected response {:?}", other),
+        }
+    }
+
+    async fn get_free_exits_fresh(&self) -> anyhow::Result<Vec<ExitDescriptor>> {
+        let binder_client = self.binder_client.clone();
+        let res = timeout(binder_client.request(BinderRequestData::GetFreeExits)).await??;
         match res {
             binder_transport::BinderResponse::GetExitsResp(exits) => Ok(exits),
             other => anyhow::bail!("unexpected response {:?}", other),

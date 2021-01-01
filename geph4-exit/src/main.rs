@@ -41,7 +41,7 @@ struct Opt {
     #[structopt(long)]
     exit_hostname: String,
 
-    /// Speed limit for free users, in KB/s.
+    /// Speed limit for free users, in KB/s. If zero, completely blocks free users.
     #[structopt(long, default_value = "200")]
     free_limit: u32,
 
@@ -101,7 +101,6 @@ fn main() -> anyhow::Result<()> {
             &[],
         ));
         let exits = {
-            let binder_client = binder_client.clone();
             let resp = binder_client.request(BinderRequestData::GetExits).await?;
             match resp {
                 BinderResponse::GetExitsResp(exits) => exits,
@@ -114,7 +113,7 @@ fn main() -> anyhow::Result<()> {
             .find(|e| e.signing_key == signing_sk.public)
             .is_none()
         {
-            log::warn!("this exit is not found at the binder; you should manually add it")
+            anyhow::bail!("this exit is not found at the binder; you should manually add it first")
         }
         // listen
         listen::main_loop(

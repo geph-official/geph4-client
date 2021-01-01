@@ -24,7 +24,7 @@ pub async fn main_sync(opt: SyncOpt) -> anyhow::Result<()> {
     if let Err(err) = attempt(&client_cache).await {
         let mut haha = HashMap::new();
         haha.insert("error".to_string(), err.to_string());
-        let json = serde_json::to_string_pretty(&haha)?;
+        let json = serde_json::to_string(&haha)?;
         println!("{}", json);
     }
     Ok(())
@@ -33,8 +33,9 @@ pub async fn main_sync(opt: SyncOpt) -> anyhow::Result<()> {
 async fn attempt(ccache: &ClientCache) -> anyhow::Result<()> {
     let atok = ccache.get_auth_token().await?;
     let exits = ccache.get_exits().await?;
+    let exits_free = ccache.get_free_exits().await?;
 
-    let json = serde_json::to_string_pretty(&(atok.user_info, exits))?;
+    let json = serde_json::to_string(&(atok.user_info, exits, exits_free))?;
     println!("{}", json);
     Ok(())
 }

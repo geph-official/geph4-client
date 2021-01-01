@@ -119,6 +119,10 @@ fn handle_request_once(serv: &impl BinderServer, core: &BinderCore) -> anyhow::R
             let response = core.get_exits(false)?;
             Ok(BinderResponse::GetExitsResp(response))
         }),
+        BinderRequestData::GetFreeExits => db_retry(|| {
+            let response = core.get_exits(true)?;
+            Ok(BinderResponse::GetExitsResp(response))
+        }),
         // get bridges
         BinderRequestData::GetBridges {
             level,

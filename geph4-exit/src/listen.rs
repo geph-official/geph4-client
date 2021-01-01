@@ -247,6 +247,9 @@ async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("authentication timeout"))??;
     log::info!("authenticated a new session (is_plus = {})", is_plus);
     if !is_plus {
+        if root.free_limit == 0 {
+            anyhow::bail!("not accepting free users here")
+        }
         sess.get_session().set_ratelimit(root.free_limit);
     }
 

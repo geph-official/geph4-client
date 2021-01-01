@@ -1674,7 +1674,7 @@ dependencies = [
 
 [[package]]
 name = "geph4-client"
-version = "0.399.26"
+version = "4.0.0"
 dependencies = [
  "aioutils",
  "anyhow",

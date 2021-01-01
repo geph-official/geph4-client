@@ -72,6 +72,9 @@ pub enum BinderRequestData {
         unblinded_signature: mizaru::UnblindedSignature,
         exit_hostname: String,
     },
+
+    /// Get all free exits
+    GetFreeExits,
 }
 
 impl BinderRequestData {
@@ -105,6 +108,7 @@ impl BinderRequestData {
             BinderRequestData::GetEpochKey { .. } => true,
             BinderRequestData::GetCaptcha { .. } => true,
             BinderRequestData::GetExits { .. } => true,
+            BinderRequestData::GetFreeExits { .. } => true,
             BinderRequestData::GetBridges { .. } => true,
             // BinderRequestData::Authenticate { .. } => true,
             // BinderRequestData::Validate { .. } => true,
