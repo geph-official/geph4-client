@@ -34,12 +34,11 @@ impl VarRateLimit {
             timer: smol::Timer::at(Instant::now()),
         }
     }
-
-    #[tracing::instrument(skip(self), level = "trace")]
     pub async fn wait(&mut self, speed: u32) {
         if speed > 10000 {
             return;
         }
+        tracing::warn!("actually waiting, {}", speed);
         self.timer.set_at(self.next_time);
         (&mut self.timer).await;
         self.next_time = Instant::now()

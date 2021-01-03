@@ -1,7 +1,7 @@
 use std::{pin::Pin, time::Duration};
 
 use serde::{de::DeserializeOwned, Serialize};
-use smol::prelude::*;
+use smol::{channel::Receiver, prelude::*};
 
 mod dns;
 pub use dns::*;
@@ -95,4 +95,15 @@ pub fn connify<T: AsyncRead + AsyncWrite + 'static + Send>(conn: T) -> ConnLike 
 
 pub fn to_ioerror<T: Into<Box<dyn std::error::Error + Send + Sync>>>(e: T) -> std::io::Error {
     std::io::Error::new(std::io::ErrorKind::Other, e)
+}
+
+/// Reads from an async_channel::Receiver, but returns a vector of all available items instead of just one to save on context-switching.
+pub async fn recv_chan_many<T>(ch: Receiver<T>) -> Result<Vec<T>, smol::channel::RecvError> {
+    let mut toret = Vec::with_capacity(1);
+    toret.push(ch.recv().await?);
+    // push as many as possible
+    while let Ok(val) = ch.try_recv() {
+        toret.push(val);
+    }
+    Ok(toret)
 }
