@@ -3,9 +3,11 @@ use parking_lot::Mutex;
 use std::{iter::once, mem::MaybeUninit};
 
 use super::{bindings, Handle, InternalError, Layer};
+use std::collections::VecDeque;
 
 pub struct PacketHandle {
     handle: Handle,
+    buffer: VecDeque<Vec<u8>>,
 }
 //
 // unsafe impl Sync for PacketHandle {}
@@ -20,10 +22,11 @@ impl PacketHandle {
         let flag: u32 = 0;
         Ok(Self {
             handle: Handle::open(filter, Layer::Network, priority, flag as _)?,
+            buffer: VecDeque::new(),
         })
     }
 
-    pub fn receive(&self) -> Result<Vec<u8>, InternalError> {
+    pub fn receive(&mut self) -> Result<Vec<u8>, InternalError> {
         let mut packet: Vec<u8> = vec![0; 2048];
         let mut addr: MaybeUninit<bindings::WINDIVERT_ADDRESS> = MaybeUninit::uninit();
         let packet_len = self.handle.receive(Some(&mut packet), Some(&mut addr))?;

@@ -16,7 +16,7 @@ use pnet_packet::ip::IpNextHeaderProtocols;
 use pnet_packet::{ipv4::*, ipv6::*};
 use pnet_packet::{MutablePacket, Packet};
 use std::io::prelude::*;
-use std::io::BufReader;
+use std::io::{BufReader, BufWriter};
 use std::num::NonZeroU32;
 use std::time::{Duration, Instant};
 
@@ -92,8 +92,18 @@ pub fn main() {
 }
 
 fn download_loop(mut geph_stdout: ChildStdout) {
-    let handle = windivert::PacketHandle::open("false", -200).unwrap();
-    let mut geph_stdout = BufReader::new(geph_stdout);
+    let (send, recv) = flume::unbounded::<Vec<u8>>();
+    for _ in 0..6 {
+        let recv = recv.clone();
+        std::thread::spawn(move || {
+            let handle = windivert::PacketHandle::open("false", -200).unwrap();
+            loop {
+                let packet = recv.recv().unwrap();
+                handle.inject(&packet, false).unwrap();
+            }
+        });
+    }
+    let mut geph_stdout = BufReader::with_capacity(1024 * 1024, geph_stdout);
     loop {
         // read a message from Geph
         let msg = StdioMsg::read_blocking(&mut geph_stdout).unwrap();
@@ -104,7 +114,7 @@ fn download_loop(mut geph_stdout: ChildStdout) {
                     log::debug!("Geph gave us packet of len {}", packet.len());
                 }
                 if fix_destination(&mut packet) {
-                    handle.inject(&packet, false).unwrap();
+                    send.send(packet).unwrap();
                 }
             }
             _ => {
@@ -148,62 +158,75 @@ pub(crate) fn thread_sleep(duration: Duration) {
 
 fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
     let (send, recv) = flume::unbounded::<(Vec<u8>, Instant)>();
+    let mut geph_stdin = BufWriter::with_capacity(1024 * 1024, geph_stdin);
     std::thread::spawn(move || {
         let handle = windivert::PacketHandle::open("false", -100).unwrap();
         loop {
-            let (mut pkt, time) = recv.recv().unwrap();
-            // println!("received outbound of length {}", pkt.len());
-            let pkt_addrs = get_packet_addrs(&pkt);
+            // we collect a vector of bytevectors
+            let mut items = Vec::with_capacity(1);
+            items.push(recv.recv().unwrap());
+            while let Ok(item) = recv.try_recv() {
+                items.push(item);
+            }
+            // if items.len() > 1 {
+            //     eprintln!("upload {} items", items.len());
+            // }
+            for (mut pkt, time) in items {
+                // println!("received outbound of length {}", pkt.len());
+                let pkt_addrs = get_packet_addrs(&pkt);
 
-            if let Some((pkt_addrs, prot)) = pkt_addrs {
-                let mut loop_iter = 0;
-                let process_id = loop {
-                    let process_id = GLOBAL_TABLE.get(pkt_addrs.source_addr, prot);
-                    if process_id.is_some() || time <= Instant::now() || prot == Prot::Icmp {
-                        break process_id;
-                    }
-                    loop_iter += 1;
-                    thread_sleep(Duration::from_millis(1));
-                };
-                if let Some(pid) = process_id {
-                    let is_dns = pkt_addrs.destination_addr.port() == 53;
-                    if pid == geph_pid || (is_local_dest(&pkt) && !is_dns) {
-                        if LOG_LIMITER() {
-                            log::debug!("bypassing Geph/LAN packet of length {}", pkt.len());
+                if let Some((pkt_addrs, prot)) = pkt_addrs {
+                    let mut loop_iter = 0;
+                    let process_id = loop {
+                        let process_id = GLOBAL_TABLE.get(pkt_addrs.source_addr, prot);
+                        if process_id.is_some() || time <= Instant::now() || prot == Prot::Icmp {
+                            break process_id;
                         }
-                        handle.inject(&pkt, true).unwrap();
-                        continue;
-                    }
-                }
-                let packet_source: Option<Ipv4Addr> =
-                    pnet_packet::ipv4::Ipv4Packet::new(&pkt).map(|parsed| parsed.get_source());
-                if let Some(packet_source) = packet_source {
-                    // println!("setting REAL_IP = {}", packet_source);
-                    if LOG_LIMITER() {
-                        log::debug!("setting REAL_IP = {}", packet_source);
-                    }
-                    *REAL_IP.write() = Some(packet_source);
-                }
-
-                if fix_source(&mut pkt) {
-                    if pkt.len() > 1280 {
-                        eprintln!("dropping upstream way-too-big packet");
-                        continue;
-                    }
-                    if LOG_LIMITER() {
-                        log::debug!("stuffing non-Geph packet of length {}", pkt.len());
-                    }
-                    let msg = StdioMsg {
-                        verb: 0,
-                        body: pkt.into(),
+                        loop_iter += 1;
+                        thread_sleep(Duration::from_millis(1));
                     };
-                    let now = Instant::now();
-                    msg.write_blocking(&mut geph_stdin).unwrap();
+                    if let Some(pid) = process_id {
+                        let is_dns = pkt_addrs.destination_addr.port() == 53;
+                        if pid == geph_pid || (is_local_dest(&pkt) && !is_dns) {
+                            if LOG_LIMITER() {
+                                log::debug!("bypassing Geph/LAN packet of length {}", pkt.len());
+                            }
+                            handle.inject(&pkt, true).unwrap();
+                            continue;
+                        }
+                    }
+                    let packet_source: Option<Ipv4Addr> =
+                        pnet_packet::ipv4::Ipv4Packet::new(&pkt).map(|parsed| parsed.get_source());
+                    if let Some(packet_source) = packet_source {
+                        // println!("setting REAL_IP = {}", packet_source);
+                        if LOG_LIMITER() {
+                            log::debug!("setting REAL_IP = {}", packet_source);
+                        }
+                        *REAL_IP.write() = Some(packet_source);
+                    }
+
+                    if fix_source(&mut pkt) {
+                        if pkt.len() > 1280 {
+                            eprintln!("dropping upstream way-too-big packet");
+                            continue;
+                        }
+                        if LOG_LIMITER() {
+                            log::debug!("stuffing non-Geph packet of length {}", pkt.len());
+                        }
+                        let msg = StdioMsg {
+                            verb: 0,
+                            body: pkt.into(),
+                        };
+                        let now = Instant::now();
+                        msg.write_blocking(&mut geph_stdin).unwrap();
+                    }
                 }
             }
+            geph_stdin.flush().unwrap();
+            // thread_sleep(Duration::from_millis(1));
         }
     });
-    let handle = windivert::PacketHandle::open("outbound and not loopback", 0).unwrap();
+    let mut handle = windivert::PacketHandle::open("outbound and not loopback", 0).unwrap();
     loop {
         let pkt = handle.receive();
         match pkt {

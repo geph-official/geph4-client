@@ -33,6 +33,7 @@ pub async fn run_vpn(
     stats: Arc<StatCollector>,
     mux: Arc<sosistab::mux::Multiplex>,
 ) -> anyhow::Result<()> {
+    Lazy::force(&STDIN);
     // first we negotiate the vpn
     let client_id: u128 = rand::random();
     log::info!("negotiating VPN with client id {}...", client_id);
