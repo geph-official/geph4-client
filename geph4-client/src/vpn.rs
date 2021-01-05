@@ -20,6 +20,7 @@ use std::{
 use vpn_structs::StdioMsg;
 
 use crate::{stats::StatCollector, GEXEC};
+use std::io::Write;
 
 #[derive(Clone, Copy)]
 struct VpnContext<'a> {
@@ -33,7 +34,6 @@ pub async fn run_vpn(
     stats: Arc<StatCollector>,
     mux: Arc<sosistab::mux::Multiplex>,
 ) -> anyhow::Result<()> {
-    Lazy::force(&STDIN);
     // first we negotiate the vpn
     let client_id: u128 = rand::random();
     log::info!("negotiating VPN with client id {}...", client_id);
@@ -56,7 +56,6 @@ pub async fn run_vpn(
         body: format!("{}/10", client_ip).as_bytes().to_vec().into(),
     };
     {
-        use std::io::Write;
         let mut stdout = std::io::stdout();
         msg.write_blocking(&mut stdout).unwrap();
         stdout.flush().unwrap();
@@ -127,31 +126,40 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
 
 /// down loop for vpn
 async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
+    let mut stdout = std::io::stdout();
     for count in 0u64.. {
         if count % 1000 == 1 {
             let sess_stats = ctx.mux.get_session().latest_stat().unwrap();
             log::debug!(
-                "VPN received {} pkts; ping {} ms, loss {:.2}%",
+                "VPN received {} batches; ping {} ms, loss {:.2}%",
                 count,
                 sess_stats.ping.as_millis(),
                 sess_stats.total_loss * 100.0,
             );
         }
-        let bts = ctx.mux.recv_urel().await?;
-        if let vpn_structs::Message::Payload(bts) = bincode::deserialize(&bts)? {
-            ctx.stats.incr_total_rx(bts.len() as u64);
-            let bts = if let Some(bts) = fix_dns_src(&bts, ctx.dns_nat) {
-                bts
-            } else {
-                bts
-            };
-            let msg = StdioMsg { verb: 0, body: bts };
-            {
-                use std::io::Write;
-                let mut stdout = std::io::stdout();
-                msg.write_blocking(&mut stdout).unwrap();
-                stdout.flush().unwrap();
+        let mut batch = vec![ctx.mux.recv_urel().await?];
+        while let Ok(val) = ctx.mux.try_recv_urel() {
+            batch.push(val);
+        }
+        // buffer
+        let mut buff: Vec<u8> = Vec::with_capacity(32768);
+        for bts in batch {
+            if let vpn_structs::Message::Payload(bts) = bincode::deserialize(&bts)? {
+                ctx.stats.incr_total_rx(bts.len() as u64);
+                let bts = if let Some(bts) = fix_dns_src(&bts, ctx.dns_nat) {
+                    bts
+                } else {
+                    bts
+                };
+                let msg = StdioMsg { verb: 0, body: bts };
+                {
+                    msg.write_blocking(&mut buff).unwrap();
+                }
             }
+        }
+        {
+            stdout.write_all(&buff).unwrap();
+            stdout.flush().unwrap();
         }
     }
     unreachable!()

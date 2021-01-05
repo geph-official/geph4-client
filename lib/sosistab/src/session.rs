@@ -5,10 +5,12 @@ use crate::{
 };
 use crate::{msg::DataFrame, stats::TimeSeries};
 use bytes::Bytes;
+use governor::{Quota, RateLimiter};
 use parking_lot::{Mutex, RwLock};
 use rustc_hash::FxHashMap;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
+use std::num::NonZeroU32;
 use std::{
     collections::{HashSet, VecDeque},
     time::Instant,
@@ -51,7 +53,7 @@ pub struct Session {
 impl Session {
     /// Creates a Session.
     pub(crate) fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = smol::channel::bounded(32);
+        let (send_tosend, recv_tosend) = smol::channel::bounded(200);
         let (send_input, recv_input) = smol::channel::bounded(500);
         let rate_limit = Arc::new(AtomicU32::new(100000));
         let recv_timeout = cfg.recv_timeout;
@@ -82,7 +84,7 @@ impl Session {
     /// Takes a Bytes to be sent and stuffs it into the session.
     pub fn send_bytes(&self, to_send: Bytes) {
         if self.send_tosend.try_send(to_send).is_err() {
-            tracing::trace!("overflowed send buffer at session!");
+            tracing::warn!("overflowed send buffer at session!");
         }
     }
 
@@ -183,8 +185,17 @@ async fn session_send_loop(
     let mut run_no = 0u64;
     let mut to_send = Vec::new();
     let mut abs_timeout = smol::Timer::after(get_timeout(measured_loss.load(Ordering::Relaxed)));
-
+    // let send_batch_gov = RateLimiter::direct(Quota::per_second(NonZeroU32::new(50u32).unwrap()));
     loop {
+        // to_send.clear();
+        // to_send.push(recv_tosend.recv().await.ok()?);
+        // while let Ok(val) = recv_tosend.try_recv() {
+        //     to_send.push(val);
+        // }
+        // send_batch_gov.until_ready().await;
+        // if to_send.len() > 1 {
+        //     tracing::warn!("to send {} pkts", to_send.len());
+        // }
         // obtain a vector of bytes to send
         let to_send = {
             to_send.clear();

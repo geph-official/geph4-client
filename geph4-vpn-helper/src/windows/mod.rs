@@ -11,6 +11,7 @@ use vpn_structs::StdioMsg;
 mod windivert;
 use crate::windows::windivert::InternalError;
 use defmac::defmac;
+use env_logger::Env;
 use governor::{Quota, RateLimiter};
 use pnet_packet::ip::IpNextHeaderProtocols;
 use pnet_packet::{ipv4::*, ipv6::*};
@@ -67,7 +68,8 @@ static GEPH_IP: Lazy<RwLock<Option<Ipv4Addr>>> = Lazy::new(|| RwLock::new(None))
 static REAL_IP: Lazy<RwLock<Option<Ipv4Addr>>> = Lazy::new(|| RwLock::new(None));
 
 pub fn main() {
-    env_logger::init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("geph4_vpn_helper=debug,warn"))
+        .init();
     // start child process
     let args: Vec<String> = std::env::args().collect();
     let child = std::process::Command::new(&args[1])
@@ -184,6 +186,9 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
                         }
                         loop_iter += 1;
                         thread_sleep(Duration::from_millis(1));
+                        if LOG_LIMITER() {
+                            log::debug!("")
+                        }
                     };
                     if let Some(pid) = process_id {
                         let is_dns = pkt_addrs.destination_addr.port() == 53;
@@ -198,16 +203,16 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
                     let packet_source: Option<Ipv4Addr> =
                         pnet_packet::ipv4::Ipv4Packet::new(&pkt).map(|parsed| parsed.get_source());
                     if let Some(packet_source) = packet_source {
-                        // println!("setting REAL_IP = {}", packet_source);
-                        if LOG_LIMITER() {
-                            log::debug!("setting REAL_IP = {}", packet_source);
-                        }
                         *REAL_IP.write() = Some(packet_source);
                     }
 
                     if fix_source(&mut pkt) {
                         if pkt.len() > 1280 {
-                            eprintln!("dropping upstream way-too-big packet");
+                            log::debug!(
+                                "dropping upstream way-too-big packet (src={:?}, prot={:?})",
+                                packet_source,
+                                prot
+                            );
                             continue;
                         }
                         if LOG_LIMITER() {

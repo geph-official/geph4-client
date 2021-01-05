@@ -221,7 +221,11 @@ async fn client_backhaul_once(
         match smol::future::race(down, up).await {
             Some(Evt::Incoming(df)) => {
                 for df in df {
-                    send_frame_in.send(df).await.ok()?;
+                    let _ = send_frame_in.try_send(df);
+                    let len = send_frame_in.len();
+                    // if len > 100 {
+                    //     tracing::warn!("{} pkts queued downstream", len);
+                    // }
                 }
             }
             Some(Evt::Outgoing(bts)) => {

@@ -41,6 +41,8 @@ pub(crate) async fn new_udp_socket_bind(
     )
     .unwrap();
     drop(socket.set_only_v6(false));
+    socket.set_recv_buffer_size(5 * 1024 * 1024).unwrap();
+    socket.set_send_buffer_size(5 * 1024 * 1024).unwrap();
     socket.bind(&addr.into())?;
     Ok(socket.into_udp_socket().try_into().unwrap())
 }
