@@ -127,23 +127,27 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
 /// down loop for vpn
 async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     let mut stdout = std::io::stdout();
-    for count in 0u64.. {
-        if count % 1000 == 1 {
-            let sess_stats = ctx.mux.get_session().latest_stat().unwrap();
-            log::debug!(
-                "VPN received {} batches; ping {} ms, loss {:.2}%",
-                count,
-                sess_stats.ping.as_millis(),
-                sess_stats.total_loss * 100.0,
-            );
-        }
+    let mut count = 0u64;
+    loop {
         let mut batch = vec![ctx.mux.recv_urel().await?];
         while let Ok(val) = ctx.mux.try_recv_urel() {
             batch.push(val);
         }
         // buffer
         let mut buff: Vec<u8> = Vec::with_capacity(32768);
+        let bsize = batch.len();
         for bts in batch {
+            count += 1;
+            if count % 1000 == 1 {
+                let sess_stats = ctx.mux.get_session().latest_stat().unwrap();
+                log::debug!(
+                    "VPN received {} pkts (bsize={}); ping {} ms, loss {:.2}%",
+                    count,
+                    bsize,
+                    sess_stats.ping.as_millis(),
+                    sess_stats.total_loss * 100.0,
+                );
+            }
             if let vpn_structs::Message::Payload(bts) = bincode::deserialize(&bts)? {
                 ctx.stats.incr_total_rx(bts.len() as u64);
                 let bts = if let Some(bts) = fix_dns_src(&bts, ctx.dns_nat) {
@@ -161,8 +165,8 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
             stdout.write_all(&buff).unwrap();
             stdout.flush().unwrap();
         }
+        // smol::Timer::after(Duration::from_millis(20)).await;
     }
-    unreachable!()
 }
 
 /// returns ok if it's an ack that needs to be decimated

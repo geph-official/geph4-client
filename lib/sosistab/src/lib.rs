@@ -35,7 +35,7 @@ impl VarRateLimit {
         }
     }
     pub async fn wait(&mut self, speed: u32) {
-        if speed > 10000 {
+        if speed > 20000 {
             return;
         }
         self.timer.set_at(self.next_time);

@@ -222,10 +222,6 @@ async fn client_backhaul_once(
             Some(Evt::Incoming(df)) => {
                 for df in df {
                     let _ = send_frame_in.try_send(df);
-                    let len = send_frame_in.len();
-                    // if len > 100 {
-                    //     tracing::warn!("{} pkts queued downstream", len);
-                    // }
                 }
             }
             Some(Evt::Outgoing(bts)) => {

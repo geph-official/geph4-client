@@ -7,14 +7,14 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-smol="1"
-serde="1"
-anyhow="1"
-bincode="1"
-smol-timeout="0.6"
-async-dup="1.2"
+smol= "1.2.5"
+serde= "1.0.118"
+anyhow= "1.0.37"
+bincode= "1.3.1"
+smol-timeout= "0.6.0"
+async-dup= "1.2.2"
 
 [target.'cfg(windows)'.dependencies]
-dnsclient="0.1"
+dnsclient= "0.1.9"
 
-log="0.4"
+log= "0.4.11"

@@ -7,11 +7,11 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-anyhow = "1.0.33"
-smol = "1.2.4"
+anyhow = "1.0.37"
+smol = "1.2.5"
 log = "0.4.11"
-env_logger = "0.7.1"
-structopt = "0.3.19"
+env_logger = "0.8.2"
+structopt = "0.3.21"
 x25519-dalek={ version = "1.1.0", features = ["serde"] }
 ed25519-dalek={ version = "1.0.1", features = ["serde"] }
 binder_transport = {path="../lib/binder_transport"}
@@ -19,9 +19,9 @@ bincode = "1.3.1"
 hex = "0.4.2"
 socksv5 = "0.2.0"
 sosistab={path="../lib/sosistab"}
-serde = "1.0.116"
+serde = "1.0.118"
 blake3 = "0.3.7"
-ureq = "1.5.1"
-flume = "0.10"
+ureq = "1.5"
+flume = "0.10.1"
 
 aioutils={path="../lib/aioutils"}

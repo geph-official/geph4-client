@@ -8,45 +8,45 @@ edition = "2018"
 
 [dependencies]
 binder_transport = {path="../lib/binder_transport"}
-smol= "1.2.4"
-env_logger = "0.7.1"
+smol= "1.2.5"
+env_logger = "0.8.2"
 log= "0.4.11"
-structopt= "0.3.19"
+structopt= "0.3.21"
 ed25519-dalek={ version = "1.0.1", features = ["serde"] }
-rand= "0.7.3"
+rand= "0.7"
 bincode= "1.3.1"
-anyhow= "1.0.33"
+anyhow= "1.0.37"
 hex= "0.4.2"
 x25519-dalek={ version = "1.1.0", features = ["serde"] }
 sosistab={path="../lib/sosistab"}
 blake3= "0.3.7"
-serde= "1.0.116"
+serde= "1.0.118"
 mizaru={path="../lib/mizaru"}
-once_cell= "1.4.1"
+once_cell= "1.5.2"
 smolscale = {path="../lib/smolscale"}
 smol-timeout = "0.6.0"
 statsd = "0.14.0"
 num_cpus= "1.13.0"
-scopeguard="1"
-parking_lot="0.11"
-cap="0.1"
+scopeguard= "1.1.0"
+parking_lot= "0.11.1"
+cap= "0.1.0"
 tundevice={path="../lib/tundevice"}
-cidr="0.1"
-bytes="0.6"
-lru="0.6"
-pnet_packet="0.27"
-rangemap="0.1"
-dashmap="4"
+cidr= "0.1.1"
+bytes= "1.0.0"
+lru= "0.6.3"
+pnet_packet= "0.27.2"
+rangemap= "0.1.8"
+dashmap= "4.0.1"
 
-contrie="0.1.4"
+contrie= "0.1.4"
  
 aioutils={path="../lib/aioutils"}
 vpn_structs={path="../lib/vpn_structs"}
 
-libc="0.2.80"
-os_socketaddr="0.1"
-ureq="1"
-flate2="1"
-async-dup="1"
+libc= "0.2.81"
+os_socketaddr= "0.1.1"
+ureq= "1.5"
+flate2= "1.0.19"
+async-dup= "1.2.2"
 
 jemallocator = "0.3.2"

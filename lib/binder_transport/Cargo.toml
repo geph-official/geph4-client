@@ -8,27 +8,27 @@ edition = "2018"
 
 [dependencies]
 rsa = { version = "0.3.0", features = ["serde"] }
-smol = "1.2.4"
-serde = { version = "1.0.116", features = ["derive"] }
-derivative = "2.1.1"
+smol = "1.2.5"
+serde = { version = "1.0.118", features = ["derive"] }
+derivative = "2.1.3"
 x25519-dalek = { version = "1.1.0", features = ["serde"] }
 ed25519-dalek = { version = "1.0.1", features = ["serde"] }
 bincode = "1.3.1"
 blake3 = "0.3.7"
-chacha20poly1305 = "0.7.0"
-async-h1 = "2.1.2"
-http-types = "2.5.0"
+chacha20poly1305 = "0.7.1"
+async-h1 = "2.3.0"
+http-types = "2.9.0"
 log = "0.4.11"
-rand = "0.7.3"
-env_logger = "0.7.1"
+rand = "0.7"
+env_logger = "0.8.2"
 mizaru={path="../mizaru"}
 aioutils={path="../aioutils"}
-thiserror= "1.0.21"
-rsa-fdh = "0.4.1"
-async-trait="0.1"
+thiserror= "1.0.23"
+rsa-fdh = "0.5.0"
+async-trait= "0.1.42"
 
 
 [dependencies.async-tls]
-version = "0.11"
+version = "0.11.0"
 default-features = false
 features = ["client"]

@@ -5,12 +5,10 @@ use crate::{
 };
 use crate::{msg::DataFrame, stats::TimeSeries};
 use bytes::Bytes;
-use governor::{Quota, RateLimiter};
 use parking_lot::{Mutex, RwLock};
 use rustc_hash::FxHashMap;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
-use std::num::NonZeroU32;
 use std::{
     collections::{HashSet, VecDeque},
     time::Instant,
@@ -21,15 +19,15 @@ use std::{
 };
 use std::{sync::Arc, time::Duration};
 
-// async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T {
-//     match fut.await {
-//         Ok(res) => res,
-//         Err(_) => {
-//             smol::future::pending::<()>().await;
-//             unreachable!();
-//         }
-//     }
-// }
+async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T {
+    match fut.await {
+        Ok(res) => res,
+        Err(_) => {
+            smol::future::pending::<()>().await;
+            unreachable!();
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub(crate) struct SessionConfig {
@@ -53,7 +51,7 @@ pub struct Session {
 impl Session {
     /// Creates a Session.
     pub(crate) fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = smol::channel::bounded(200);
+        let (send_tosend, recv_tosend) = smol::channel::bounded(500);
         let (send_input, recv_input) = smol::channel::bounded(500);
         let rate_limit = Arc::new(AtomicU32::new(100000));
         let recv_timeout = cfg.recv_timeout;
@@ -211,7 +209,7 @@ async fn session_send_loop(
                         true
                     }
                     .or(async {
-                        to_send.push(recv_tosend.recv().await.ok()?);
+                        to_send.push(infal(recv_tosend.recv()).await);
                         false
                     });
                     if break_now.await || to_send.len() >= 32 {

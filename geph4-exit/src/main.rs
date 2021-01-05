@@ -60,7 +60,7 @@ pub static ALLOCATOR: Cap<Jemalloc> = Cap::new(Jemalloc, usize::max_value());
 fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let stat_client = statsd::Client::new(opt.statsd_addr, "geph4")?;
-    env_logger::from_env(Env::default().default_filter_or("geph4_exit=debug,warn")).init();
+    env_logger::Builder::from_env(Env::default().default_filter_or("geph4_exit=debug,warn")).init();
     smol::future::block_on(smolscale::spawn(async move {
         smolscale::spawn(vpn::transparent_proxy_helper(opt.google_proxy)).detach();
         log::info!("geph4-exit starting...");

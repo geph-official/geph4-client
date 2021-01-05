@@ -1,4 +1,3 @@
-use blake3::traits::digest::Digest;
 use bytes::{Bytes, BytesMut};
 use c2_chacha::stream_cipher::{NewStreamCipher, SyncStreamCipher};
 use c2_chacha::ChaCha12;

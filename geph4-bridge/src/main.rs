@@ -31,7 +31,7 @@ struct Opt {
 fn main() -> anyhow::Result<()> {
     smol::block_on(async move {
         let opt: Opt = Opt::from_args();
-        env_logger::from_env(Env::default().default_filter_or("geph4_bridge=info")).init();
+        env_logger::Builder::from_env(Env::default().default_filter_or("geph4_bridge=info")).init();
         run_command("iptables -t nat -F");
         run_command("iptables -t nat -A POSTROUTING -j MASQUERADE --random");
         let binder_client = Arc::new(binder_transport::HttpClient::new(

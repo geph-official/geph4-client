@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-async-channel="1.5"
-async-executor="1.4"
-parking_lot="0.11"
-futures-lite="1"
+async-channel= "1.5.1"
+async-executor= "1.4.0"
+parking_lot= "0.11.1"
+futures-lite= "1.11.3"
