@@ -64,6 +64,11 @@ impl Multiplex {
         self.urel_recv.recv().await.map_err(to_ioerror)
     }
 
+    /// Receive an unreliable message if there is one available.
+    pub fn try_recv_urel(&self) -> std::io::Result<Bytes> {
+        self.urel_recv.try_recv().map_err(to_ioerror)
+    }
+
     /// Gets a reference to the underlying Session
     pub fn get_session(&self) -> &Session {
         &self.sess_ref
