@@ -19,15 +19,15 @@ use std::{
 };
 use std::{sync::Arc, time::Duration};
 
-async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T {
-    match fut.await {
-        Ok(res) => res,
-        Err(_) => {
-            smol::future::pending::<()>().await;
-            unreachable!();
-        }
-    }
-}
+// async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T {
+//     match fut.await {
+//         Ok(res) => res,
+//         Err(_) => {
+//             smol::future::pending::<()>().await;
+//             unreachable!();
+//         }
+//     }
+// }
 
 #[derive(Debug, Clone)]
 pub(crate) struct SessionConfig {
@@ -190,7 +190,7 @@ async fn session_send_loop(
             to_send.clear();
             // get as much tosend as possible within the timeout
             // this lets us do it at maximum efficiency
-            to_send.push(infal(recv_tosend.recv()).await);
+            to_send.push(recv_tosend.recv().await.ok()?);
             let loss = measured_loss.load(Ordering::Relaxed);
             if loss > 0 {
                 abs_timeout.set_after(get_timeout(loss));
@@ -200,7 +200,7 @@ async fn session_send_loop(
                         true
                     }
                     .or(async {
-                        to_send.push(infal(recv_tosend.recv()).await);
+                        to_send.push(recv_tosend.recv().await.ok()?);
                         false
                     });
                     if break_now.await || to_send.len() >= 32 {

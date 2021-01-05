@@ -153,14 +153,18 @@ async fn handle_control<'a>(
     let challenge_string: [u8; 32] = rand::thread_rng().gen();
     client
         .write_all(&challenge_string)
+        .timeout(Duration::from_secs(10))
         .await
-        .context("failed to write challenge")?;
+        .ok_or_else(|| anyhow::anyhow!("challenge send timeout"))
+        .context("failed to write challenge")??;
     // then, we read back a challenge
     let mut challenge_response = [0u8; 32];
     client
         .read_exact(&mut challenge_response)
+        .timeout(Duration::from_secs(10))
         .await
-        .context("failed to read challenge response")?;
+        .ok_or_else(|| anyhow::anyhow!("challenge recv timeout"))
+        .context("failed to read challenge response")??;
     // verify the challenge
     let correct_response = blake3::keyed_hash(&challenge_string, &bridge_secret);
     if *correct_response.as_bytes() != challenge_response {
@@ -171,8 +175,8 @@ async fn handle_control<'a>(
     loop {
         let (their_addr, their_group): (SocketAddr, String) = aioutils::read_pascalish(&mut client)
             .or(async {
-                smol::Timer::after(Duration::from_secs(60)).await;
-                anyhow::bail!("timeout")
+                smol::Timer::after(Duration::from_secs(600)).await;
+                anyhow::bail!("timeout read")
             })
             .await?;
         log::debug!("bridge in group {} to forward {}", their_group, their_addr);
@@ -194,9 +198,7 @@ async fn handle_control<'a>(
                     loop {
                         let sess = sosis_listener
                             .accept_session()
-                            .timeout(Duration::from_secs(86400))
                             .await
-                            .ok_or_else(|| anyhow::anyhow!("session timeout"))?
                             .ok_or_else(|| anyhow::anyhow!("could not accept sosis session"))?;
                         let ctx = ctx.clone();
                         nursery.spawn(OnError::Ignore, move |_| handle_session(ctx.new_sess(sess)));
@@ -207,7 +209,12 @@ async fn handle_control<'a>(
         }
         // send to the other side and then binder
         let (port, sosistab_pk, _) = info.as_ref().unwrap();
-        aioutils::write_pascalish(&mut client, &(port, sosistab_pk)).await?;
+        aioutils::write_pascalish(&mut client, &(port, sosistab_pk))
+            .or(async {
+                smol::Timer::after(Duration::from_secs(600)).await;
+                anyhow::bail!("timeout write")
+            })
+            .await?;
         let route_unixtime = SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()

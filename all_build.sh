@@ -1,5 +1,6 @@
 #!/bin/sh
 sh osx_build.sh
+cross build --release --locked --target x86_64-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml
 cross build --release --locked --target i686-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml
 cross build --release  --locked  --target x86_64-unknown-linux-musl --manifest-path=geph4-client/Cargo.toml
 cross build --release --locked  --target x86_64-unknown-linux-gnu --manifest-path=geph4-vpn-helper/Cargo.toml
@@ -14,6 +15,7 @@ mv ~/repo/target/armv7-unknown-linux-musleabihf/release/geph4-client ~/repo/OUTP
 mv ~/repo/target/x86_64-unknown-linux-musl/release/geph4-bridge ~/repo/OUTPUT/geph4-bridge-linux-amd64
 mv ~/repo/target/armv7-linux-androideabi/release/geph4-client ~/repo/OUTPUT/geph4-client-android-armv7
 mv ~/repo/target/aarch64-linux-android/release/geph4-client ~/repo/OUTPUT/geph4-client-android-aarch64
+mv ~/repo/target/x86_64-pc-windows-gnu/release/geph4-client.exe ~/repo/OUTPUT/geph4-client-windows-amd64.exe
 mv ~/repo/target/i686-pc-windows-gnu/release/geph4-client.exe ~/repo/OUTPUT/geph4-client-windows-i386.exe
 mv ~/repo/target/x86_64-apple-darwin/release/geph4-client ~/repo/OUTPUT/geph4-client-macos-amd64
 exit 0
