@@ -105,8 +105,8 @@ pub async fn connect_custom(
     unimplemented!()
 }
 
-const SHARDS: u8 = 8;
-const RESET_MILLIS: u128 = 15000;
+const SHARDS: u8 = 1;
+const RESET_MILLIS: u128 = 1000;
 
 #[tracing::instrument(skip(laddr_gen), level = "trace")]
 async fn init_session(
@@ -116,9 +116,9 @@ async fn init_session(
     remote_addr: SocketAddr,
     laddr_gen: Arc<impl Fn() -> std::io::Result<SocketAddr> + Send + Sync + 'static>,
 ) -> std::io::Result<Session> {
-    let remind_ratelimit = Arc::new(RateLimiter::direct(
-        Quota::per_second(NonZeroU32::new(3).unwrap()).allow_burst(NonZeroU32::new(10).unwrap()),
-    ));
+    let remind_ratelimit = Arc::new(RateLimiter::direct(Quota::per_second(
+        NonZeroU32::new(3).unwrap(),
+    )));
     let (send_frame_out, recv_frame_out) = smol::channel::bounded(1000);
     let (send_frame_in, recv_frame_in) = smol::channel::bounded::<msg::DataFrame>(1000);
     let backhaul_tasks: Vec<_> = (0..SHARDS)

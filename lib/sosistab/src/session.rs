@@ -271,7 +271,7 @@ async fn session_recv_loop(
     let mut loss_calc = LossCalculator::new();
     let mut timer = smol::Timer::after(recv_timeout);
     // let mut shaper = VarRateLimit::new();
-    loop {
+    for counter in 0u128.. {
         let timer_ref = &mut timer;
         let new_frame = async { cfg.recv_frame.recv().await.ok() }
             .or(async {
@@ -284,6 +284,13 @@ async fn session_recv_loop(
                 None
             })
             .await?;
+        let process_time = Instant::now();
+        let counter = counter;
+        let _finish_process = scopeguard::guard(process_time, move |pt| {
+            if counter % 1000 == 0 {
+                tracing::warn!("process_time = {}ns", pt.elapsed().as_nanos())
+            }
+        });
         *last_recv.lock() = SystemTime::now();
         timer.set_after(recv_timeout);
         // shaper.wait(rate_limit.load(Ordering::Relaxed)).await;
@@ -322,6 +329,7 @@ async fn session_recv_loop(
             }
         }
     }
+    unreachable!();
 }
 /// A reordering-resistant FEC reconstructor
 #[derive(Default)]

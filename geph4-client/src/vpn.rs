@@ -1,5 +1,6 @@
 use async_net::Ipv4Addr;
 use bytes::Bytes;
+use governor::{Quota, RateLimiter};
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};
 use pnet_packet::{
@@ -14,8 +15,8 @@ use smol::{channel::Receiver, prelude::*};
 use smol_timeout::TimeoutExt;
 use sosistab::mux::Multiplex;
 use std::{
-    collections::HashMap, collections::VecDeque, io::Stdin, sync::Arc, time::Duration,
-    time::Instant,
+    collections::HashMap, collections::VecDeque, io::Stdin, num::NonZeroU32, sync::Arc,
+    time::Duration, time::Instant,
 };
 use vpn_structs::StdioMsg;
 
@@ -73,21 +74,12 @@ pub async fn run_vpn(
 
 /// up loop for vpn
 async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
-    let ack_queue = Mutex::new(VecDeque::new());
-    let mut ack_time = Instant::now();
+    let limiter = RateLimiter::direct(Quota::per_second(NonZeroU32::new(500u32).unwrap()));
     loop {
         let stdin_fut = async {
             let msg = STDIN.recv().await;
             // ACK decimation
-            if ack_decimate(&msg.body).is_some() {
-                {
-                    let mut ack_queue = ack_queue.lock();
-                    ack_queue.push_back(msg.body);
-                    while ack_queue.len() > 10 {
-                        // drop head
-                        ack_queue.pop_front();
-                    }
-                }
+            if ack_decimate(&msg.body).is_some() && limiter.check().is_err() {
                 Ok(None)
             } else {
                 // fix dns
@@ -99,18 +91,7 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
                 Ok::<Option<Bytes>, anyhow::Error>(Some(body))
             }
         };
-        let ack_fut = async {
-            // limiter.until_ready().await;
-            smol::Timer::at(ack_time).await;
-            let item = ack_queue.lock().pop_front();
-            if let Some(item) = item {
-                ack_time = Instant::now() + Duration::from_millis(1);
-                Ok(Some(item))
-            } else {
-                smol::future::pending().await
-            }
-        };
-        let body = ack_fut.or(stdin_fut).await?;
+        let body = stdin_fut.await?;
         if let Some(body) = body {
             ctx.stats.incr_total_tx(body.len() as u64);
             drop(
@@ -128,13 +109,14 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
 async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     let mut stdout = std::io::stdout();
     let mut count = 0u64;
+    let mut buff = Vec::with_capacity(32768);
     loop {
+        buff.clear();
         let mut batch = vec![ctx.mux.recv_urel().await?];
         while let Ok(val) = ctx.mux.try_recv_urel() {
             batch.push(val);
         }
         // buffer
-        let mut buff: Vec<u8> = Vec::with_capacity(32768);
         let bsize = batch.len();
         for bts in batch {
             count += 1;
@@ -165,7 +147,6 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
             stdout.write_all(&buff).unwrap();
             stdout.flush().unwrap();
         }
-        // smol::Timer::after(Duration::from_millis(20)).await;
     }
 }
 
