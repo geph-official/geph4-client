@@ -2,7 +2,7 @@ use async_net::Ipv4Addr;
 use bytes::Bytes;
 use governor::{Quota, RateLimiter};
 use once_cell::sync::Lazy;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use pnet_packet::{
     ip::IpNextHeaderProtocols,
     ipv4::{Ipv4Packet, MutableIpv4Packet},
@@ -14,10 +14,7 @@ use pnet_packet::{
 use smol::{channel::Receiver, prelude::*};
 use smol_timeout::TimeoutExt;
 use sosistab::mux::Multiplex;
-use std::{
-    collections::HashMap, collections::VecDeque, io::Stdin, num::NonZeroU32, sync::Arc,
-    time::Duration, time::Instant,
-};
+use std::{collections::HashMap, io::Stdin, num::NonZeroU32, sync::Arc, time::Duration};
 use vpn_structs::StdioMsg;
 
 use crate::{stats::StatCollector, GEXEC};

@@ -4,7 +4,7 @@ use c2_chacha::ChaCha12;
 use rand::prelude::*;
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::time::{Instant, SystemTime};
+use std::time::SystemTime;
 
 pub const UP_KEY: &[u8; 32] = b"upload--------------------------";
 pub const DN_KEY: &[u8; 32] = b"download------------------------";

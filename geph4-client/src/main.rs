@@ -91,7 +91,7 @@ fn main() -> anyhow::Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
 
-    for _ in 1..num_cpus::get() {
+    for _ in 1..num_cpus::get_physical() {
         std::thread::spawn(|| smol::block_on(GEXEC.run(smol::future::pending::<()>())));
     }
 

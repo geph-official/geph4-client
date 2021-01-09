@@ -157,23 +157,19 @@ async fn handle_stats(
             if let Some(detail) = detail {
                 let detail = detail?;
                 let mut sosistab_buf = Vec::new();
-                writeln!(
-                    sosistab_buf,
-                    "time,last_recv,total_recv,total_parity,total_loss,ping"
-                )?;
+                writeln!(sosistab_buf, "time,last_recv,total_recv,total_loss,ping")?;
                 if let Some(first) = detail.first() {
                     let first_time = first.time;
                     for item in detail.iter() {
                         writeln!(
                             sosistab_buf,
-                            "{},{},{},{},{},{}",
+                            "{},{},{},{},{}",
                             item.time
                                 .duration_since(first_time)
                                 .unwrap_or_default()
                                 .as_secs_f64(),
                             item.last_recv,
                             item.total_recv,
-                            item.total_parity,
                             item.total_loss,
                             item.ping.as_secs_f64() * 1000.0,
                         )?;
