@@ -49,6 +49,7 @@ governor= "0.3.1"
 async-dup= "1.2.2"
 bytes= "1.0.0"
 statsd = "0.14.0"
+smolscale={path="../lib/smolscale"}
 
 [dependencies.async-tls]
 version = "0.11.0"

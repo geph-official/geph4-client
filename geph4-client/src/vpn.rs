@@ -17,7 +17,7 @@ use sosistab::mux::Multiplex;
 use std::{collections::HashMap, io::Stdin, num::NonZeroU32, sync::Arc, time::Duration};
 use vpn_structs::StdioMsg;
 
-use crate::{stats::StatCollector, GEXEC};
+use crate::stats::StatCollector;
 use std::io::Write;
 
 #[derive(Clone, Copy)]
@@ -118,14 +118,16 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         for bts in batch {
             count += 1;
             if count % 1000 == 1 {
-                let sess_stats = ctx.mux.get_session().latest_stat().unwrap();
-                log::debug!(
-                    "VPN received {} pkts (bsize={}); ping {} ms, loss {:.2}%",
-                    count,
-                    bsize,
-                    sess_stats.ping.as_millis(),
-                    sess_stats.total_loss * 100.0,
-                );
+                let sess_stats = ctx.mux.get_session().latest_stat();
+                if let Some(sess_stats) = sess_stats {
+                    log::debug!(
+                        "VPN received {} pkts (bsize={}); ping {} ms, loss {:.2}%",
+                        count,
+                        bsize,
+                        sess_stats.ping.as_millis(),
+                        sess_stats.total_loss * 100.0,
+                    );
+                }
             }
             if let vpn_structs::Message::Payload(bts) = bincode::deserialize(&bts)? {
                 ctx.stats.incr_total_rx(bts.len() as u64);
@@ -242,7 +244,7 @@ impl AtomicStdin {
                 )))
             });
         let (send_incoming, incoming) = smol::channel::bounded(1000);
-        let _task = GEXEC.spawn(async move {
+        let _task = smolscale::spawn(async move {
             let mut stdin = STDIN.clone();
             loop {
                 let msg = StdioMsg::read(&mut stdin).await.unwrap();

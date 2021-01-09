@@ -28,7 +28,6 @@ enum Opt {
     BinderProxy(main_binderproxy::BinderProxyOpt),
 }
 
-pub static GEXEC: smol::Executor<'static> = smol::Executor::new();
 fn main() -> anyhow::Result<()> {
     // fixes timer resolution on Windows
     #[cfg(windows)]
@@ -36,7 +35,6 @@ fn main() -> anyhow::Result<()> {
         winapi::um::timeapi::timeBeginPeriod(1);
     }
 
-    sosistab::runtime::set_smol_executor(&GEXEC);
     // the logging function
     fn logger(
         write: &mut dyn Write,
@@ -91,11 +89,7 @@ fn main() -> anyhow::Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
 
-    for _ in 1..num_cpus::get_physical() {
-        std::thread::spawn(|| smol::block_on(GEXEC.run(smol::future::pending::<()>())));
-    }
-
-    smol::block_on(GEXEC.run(async move {
+    smolscale::block_on(async move {
         match opt {
             Opt::Connect(opt) => loop {
                 if let Err(err) = main_connect::main_connect(opt.clone()).await {
@@ -106,7 +100,7 @@ fn main() -> anyhow::Result<()> {
             Opt::Sync(opt) => main_sync::main_sync(opt).await,
             Opt::BinderProxy(opt) => main_binderproxy::main_binderproxy(opt).await,
         }
-    }))
+    })
 }
 
 #[derive(Debug, StructOpt, Clone)]

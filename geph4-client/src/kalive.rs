@@ -1,4 +1,4 @@
-use crate::{cache::ClientCache, GEXEC};
+use crate::cache::ClientCache;
 use crate::{stats::StatCollector, vpn::run_vpn};
 use anyhow::Context;
 use smol::channel::{Receiver, Sender};
@@ -28,7 +28,7 @@ impl Keepalive {
         Keepalive {
             open_socks5_conn: send,
             get_stats: send_stats,
-            _task: Arc::new(GEXEC.spawn(keepalive_actor(
+            _task: Arc::new(smolscale::spawn(keepalive_actor(
                 stats,
                 exit_host.to_string(),
                 use_bridges,
@@ -121,7 +121,7 @@ async fn keepalive_actor_once(
             .into_iter()
             .map(|desc| {
                 let send = send.clone();
-                GEXEC.spawn(async move {
+                smolscale::spawn(async move {
                     log::debug!("connecting through {}...", desc.endpoint);
                     drop(
                         send.send((
@@ -216,7 +216,7 @@ async fn keepalive_actor_once(
         let mux = mux.clone();
         let send_death = send_death.clone();
         let stats = stats.clone();
-        _nuunuu = Some(GEXEC.spawn(async move {
+        _nuunuu = Some(smolscale::spawn(async move {
             if let Err(err) = run_vpn(stats, mux).await {
                 drop(send_death.try_send(err));
             }

@@ -1629,6 +1629,7 @@ dependencies = [
  "sha2",
  "smol",
  "smol-timeout",
+ "smolscale",
  "socket2",
  "socksv5",
  "sosistab",

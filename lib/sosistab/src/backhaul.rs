@@ -82,62 +82,62 @@ impl Backhaul for Async<UdpSocket> {
         .await
     }
 
-    // #[cfg(any(target_os = "linux", target_os = "android"))]
-    // async fn recv_from_many(&self) -> io::Result<Vec<(Bytes, SocketAddr)>> {
-    //     use nix::sys::socket::RecvMmsgData;
-    //     use nix::sys::uio::IoVec;
-    //     use std::os::unix::prelude::*;
-    //     const MAX_LEN: usize = 16;
-    //     self.read_with(|sock| {
-    //         // get fd
-    //         let fd: RawFd = sock.as_raw_fd();
-    //         // create a byte buffer
-    //         let mut byte_buffer = vec![0u8; 2048 * MAX_LEN];
-    //         // split into slices
-    //         let response: Vec<(usize, Option<nix::sys::socket::SockAddr>)> = {
-    //             let byte_slices: Vec<&mut [u8]> = byte_buffer.chunks_exact_mut(2048).collect();
-    //             let mut iovs: Vec<[IoVec<&mut [u8]>; 1]> = byte_slices
-    //                 .into_iter()
-    //                 .map(|v| [IoVec::from_mut_slice(v)])
-    //                 .collect();
-    //             let mut rmds: Vec<RecvMmsgData<'_, &mut [IoVec<&mut [u8]>]>> = iovs
-    //                 .iter_mut()
-    //                 .map(|iov| {
-    //                     let iov: &mut [IoVec<&mut [u8]>] = iov;
-    //                     RecvMmsgData {
-    //                         iov,
-    //                         cmsg_buffer: None,
-    //                     }
-    //                 })
-    //                 .collect();
-    //             // now do the read
-    //             let response = nix::sys::socket::recvmmsg(
-    //                 fd,
-    //                 &mut rmds,
-    //                 nix::sys::socket::MsgFlags::empty(),
-    //                 None,
-    //             )
-    //             .map_err(to_ioerror)?;
-    //             response.into_iter().map(|v| (v.bytes, v.address)).collect()
-    //         };
-    //         assert!(response.len() <= MAX_LEN);
-    //         let bts = Bytes::from(byte_buffer);
-    //         Ok(response
-    //             .into_iter()
-    //             .enumerate()
-    //             .filter_map(|(i, rm)| {
-    //                 let bts = bts.slice(2048 * i..2048 * i + rm.0);
-    //                 let sockaddr = rm.1?;
-    //                 if let nix::sys::socket::SockAddr::Inet(inetaddr) = sockaddr {
-    //                     Some((bts, inetaddr.to_std()))
-    //                 } else {
-    //                     None
-    //                 }
-    //             })
-    //             .collect())
-    //     })
-    //     .await
-    // }
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    async fn recv_from_many(&self) -> io::Result<Vec<(Bytes, SocketAddr)>> {
+        use nix::sys::socket::RecvMmsgData;
+        use nix::sys::uio::IoVec;
+        use std::os::unix::prelude::*;
+        const MAX_LEN: usize = 16;
+        self.read_with(|sock| {
+            // get fd
+            let fd: RawFd = sock.as_raw_fd();
+            // create a byte buffer
+            let mut byte_buffer = vec![0u8; 2048 * MAX_LEN];
+            // split into slices
+            let response: Vec<(usize, Option<nix::sys::socket::SockAddr>)> = {
+                let byte_slices: Vec<&mut [u8]> = byte_buffer.chunks_exact_mut(2048).collect();
+                let mut iovs: Vec<[IoVec<&mut [u8]>; 1]> = byte_slices
+                    .into_iter()
+                    .map(|v| [IoVec::from_mut_slice(v)])
+                    .collect();
+                let mut rmds: Vec<RecvMmsgData<'_, &mut [IoVec<&mut [u8]>]>> = iovs
+                    .iter_mut()
+                    .map(|iov| {
+                        let iov: &mut [IoVec<&mut [u8]>] = iov;
+                        RecvMmsgData {
+                            iov,
+                            cmsg_buffer: None,
+                        }
+                    })
+                    .collect();
+                // now do the read
+                let response = nix::sys::socket::recvmmsg(
+                    fd,
+                    &mut rmds,
+                    nix::sys::socket::MsgFlags::empty(),
+                    None,
+                )
+                .map_err(to_ioerror)?;
+                response.into_iter().map(|v| (v.bytes, v.address)).collect()
+            };
+            assert!(response.len() <= MAX_LEN);
+            let bts = Bytes::from(byte_buffer);
+            Ok(response
+                .into_iter()
+                .enumerate()
+                .filter_map(|(i, rm)| {
+                    let bts = bts.slice(2048 * i..2048 * i + rm.0);
+                    let sockaddr = rm.1?;
+                    if let nix::sys::socket::SockAddr::Inet(inetaddr) = sockaddr {
+                        Some((bts, inetaddr.to_std()))
+                    } else {
+                        None
+                    }
+                })
+                .collect())
+        })
+        .await
+    }
 }
 
 #[cfg(target_family = "unix")]

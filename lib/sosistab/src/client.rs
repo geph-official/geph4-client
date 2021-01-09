@@ -119,8 +119,8 @@ async fn init_session(
     let remind_ratelimit = Arc::new(RateLimiter::direct(Quota::per_second(
         NonZeroU32::new(3).unwrap(),
     )));
-    let (send_frame_out, recv_frame_out) = smol::channel::bounded(1000);
-    let (send_frame_in, recv_frame_in) = smol::channel::bounded::<msg::DataFrame>(1000);
+    let (send_frame_out, recv_frame_out) = smol::channel::unbounded();
+    let (send_frame_in, recv_frame_in) = smol::channel::unbounded();
     let backhaul_tasks: Vec<_> = (0..SHARDS)
         .map(|i| {
             runtime::spawn(client_backhaul_once(
@@ -221,7 +221,7 @@ async fn client_backhaul_once(
         match smol::future::race(down, up).await {
             Some(Evt::Incoming(df)) => {
                 for df in df {
-                    let _ = send_frame_in.try_send(df);
+                    let _ = send_frame_in.send(df).await;
                 }
             }
             Some(Evt::Outgoing(bts)) => {
