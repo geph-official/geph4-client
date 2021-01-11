@@ -65,8 +65,8 @@ struct RecentFilter {
 impl RecentFilter {
     fn new() -> Self {
         RecentFilter {
-            curr_bloom: bloomfilter::Bloom::new_for_fp_rate(10000, 0.01),
-            last_bloom: bloomfilter::Bloom::new_for_fp_rate(10000, 0.01),
+            curr_bloom: bloomfilter::Bloom::new_for_fp_rate(100000, 0.01),
+            last_bloom: bloomfilter::Bloom::new_for_fp_rate(100000, 0.01),
             curr_time: Instant::now(),
         }
     }
@@ -139,7 +139,9 @@ impl ListenerActor {
                             // try feeding it into the session
                             if let Some(dframe) = sess_crypt.pad_decrypt::<msg::DataFrame>(&buffer)
                             {
-                                drop(sess.send(dframe).await);
+                                for dframe in dframe {
+                                    drop(sess.send(dframe).await);
+                                }
                                 continue;
                             } else {
                                 tracing::trace!("{} NOT associated with existing session", addr);
@@ -156,7 +158,7 @@ impl ListenerActor {
                             if let Some(handshake) =
                                 crypter.pad_decrypt::<msg::HandshakeFrame>(&buffer)
                             {
-                                match handshake {
+                                match handshake[0].clone() {
                                     ClientHello {
                                         long_pk,
                                         eph_pk,
@@ -195,8 +197,8 @@ impl ListenerActor {
                                             eph_pk: (&my_eph_sk).into(),
                                             resume_token: token,
                                         };
-                                        let reply =
-                                            crypt::StdAEAD::new(&s2c_key).pad_encrypt(&reply, 1000);
+                                        let reply = crypt::StdAEAD::new(&s2c_key)
+                                            .pad_encrypt(&[reply], 1000);
                                         write_socket
                                             .lock()
                                             .await
@@ -301,7 +303,7 @@ impl ListenerActor {
                                                                             .map(|df| {
                                                                                 (
                                                                             dn_aead.pad_encrypt(
-                                                                                &df, 1000,
+                                                                                &[df], 1000,
                                                                             ),
                                                                             remote_addr,
                                                                         )
@@ -332,6 +334,7 @@ impl ListenerActor {
                                                     recv_frame: session_input_recv,
                                                     recv_timeout: Duration::from_secs(3600),
                                                     statistics: 128,
+                                                    use_batching: Arc::new(true.into()),
                                                 });
                                                 let send_dead_clo = send_dead.clone();
                                                 let resume_token_clo = resume_token.clone();

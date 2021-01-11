@@ -1,3 +1,4 @@
+use bincode::{DefaultOptions, Options};
 use bytes::{Bytes, BytesMut};
 use c2_chacha::stream_cipher::{NewStreamCipher, SyncStreamCipher};
 use c2_chacha::ChaCha12;
@@ -75,24 +76,45 @@ impl StdAEAD {
     }
 
     /// Pad and encrypt.
-    pub fn pad_encrypt(&self, msg: impl Serialize, target_len: usize) -> Bytes {
+    pub fn pad_encrypt(&self, msgs: &[impl Serialize], target_len: usize) -> Bytes {
         let mut target_len = rand::thread_rng().gen_range(0, target_len);
         let mut plain = Vec::with_capacity(1500);
-        bincode::serialize_into(&mut plain, &msg).unwrap();
+        for msg in msgs {
+            bincode::serialize_into(&mut plain, &msg).unwrap();
+        }
         let plainlen = plain.len();
         if plain.len() > target_len {
             target_len = plain.len() + rand::thread_rng().gen_range(0, 4);
         }
-        plain.extend_from_slice(&vec![0; target_len - plain.len()]);
+        plain.extend_from_slice(&vec![0xff; target_len - plain.len()]);
         let encrypted = self.encrypt(&plain, rand::thread_rng().gen());
         tracing::trace!("PAD and ENCRYPT {} => {}", plainlen, encrypted.len());
         encrypted
     }
 
     /// Decrypt and depad.
-    pub fn pad_decrypt<T: DeserializeOwned>(&self, ctext: &[u8]) -> Option<T> {
+    pub fn pad_decrypt<T: DeserializeOwned>(&self, ctext: &[u8]) -> Option<Vec<T>> {
         let plain = self.decrypt(ctext)?;
-        bincode::deserialize_from(plain.as_ref()).ok()
+        // Some(vec![bincode::deserialize(&plain).ok()?])
+        // eprintln!("plain gotten");
+        let mut reader = plain.as_ref();
+        let mut output = Vec::with_capacity(1);
+        while !reader.is_empty() {
+            let cfg = DefaultOptions::new()
+                .with_fixint_encoding()
+                .with_limit(10000)
+                .allow_trailing_bytes();
+            let boolayah: Option<T> = cfg.deserialize_from(&mut reader).ok();
+            if let Some(boolayah) = boolayah {
+                output.push(boolayah);
+            } else {
+                break;
+            }
+        }
+        if output.is_empty() {
+            return None;
+        }
+        Some(output)
     }
 }
 

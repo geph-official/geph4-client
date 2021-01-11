@@ -41,9 +41,10 @@ pub async fn connect_custom(
     };
     let mut buf = [0u8; 2048];
     for timeout_factor in (0u32..).map(|x| 2u64.pow(x)) {
+        dbg!(timeout_factor);
         // send hello
         let init_hello = crypt::StdAEAD::new(&cookie.generate_c2s().next().unwrap())
-            .pad_encrypt(&init_hello, 1000);
+            .pad_encrypt(&std::slice::from_ref(&init_hello), 1000);
         udp_socket.send_to(&init_hello, server_addr).await?;
         tracing::trace!("sent client hello");
         // wait for response
@@ -62,30 +63,33 @@ pub async fn connect_custom(
                 let buf = &buf[..n];
                 for possible_key in cookie.generate_s2c() {
                     let decrypter = crypt::StdAEAD::new(&possible_key);
-                    let response: Option<msg::HandshakeFrame> = decrypter.pad_decrypt(buf);
-                    if let Some(msg::HandshakeFrame::ServerHello {
-                        long_pk,
-                        eph_pk,
-                        resume_token,
-                    }) = response
-                    {
-                        tracing::trace!("obtained response from server");
-                        if long_pk.as_bytes() != pubkey.as_bytes() {
-                            return Err(std::io::Error::new(
-                                std::io::ErrorKind::ConnectionRefused,
-                                "bad pubkey",
-                            ));
-                        }
-                        let shared_sec =
-                            crypt::triple_ecdh(&my_long_sk, &my_eph_sk, &long_pk, &eph_pk);
-                        return init_session(
-                            cookie,
+                    let response = decrypter.pad_decrypt(buf);
+                    for response in response.unwrap_or_default() {
+                        if let msg::HandshakeFrame::ServerHello {
+                            long_pk,
+                            eph_pk,
                             resume_token,
-                            shared_sec,
-                            server_addr,
-                            Arc::new(laddr_gen),
-                        )
-                        .await;
+                        } = response
+                        {
+                            tracing::trace!("obtained response from server");
+                            if long_pk.as_bytes() != pubkey.as_bytes() {
+                                return Err(std::io::Error::new(
+                                    std::io::ErrorKind::ConnectionRefused,
+                                    "bad pubkey",
+                                ));
+                            }
+                            let shared_sec =
+                                crypt::triple_ecdh(&my_long_sk, &my_eph_sk, &long_pk, &eph_pk);
+                            tracing::warn!("GONNA START SESSION NOW!");
+                            return init_session(
+                                cookie,
+                                resume_token,
+                                shared_sec,
+                                server_addr,
+                                Arc::new(laddr_gen),
+                            )
+                            .await;
+                        }
                     }
                 }
             }
@@ -105,7 +109,7 @@ pub async fn connect_custom(
     unimplemented!()
 }
 
-const SHARDS: u8 = 1;
+const SHARDS: u8 = 8;
 const RESET_MILLIS: u128 = 1000;
 
 #[tracing::instrument(skip(laddr_gen), level = "trace")]
@@ -137,11 +141,12 @@ async fn init_session(
         })
         .collect();
     let mut session = Session::new(SessionConfig {
-        target_loss: 0.01,
+        target_loss: 0.05,
         send_frame: send_frame_out,
         recv_frame: recv_frame_in,
         recv_timeout: Duration::from_secs(300),
         statistics: 40000,
+        use_batching: Arc::new(true.into()),
     });
     session.on_drop(move || {
         drop(backhaul_tasks);
@@ -199,7 +204,7 @@ async fn client_backhaul_once(
                             shard_id,
                             buf.len()
                         );
-                        incoming.push(plain);
+                        incoming.extend(plain);
                     } else {
                         tracing::warn!("anomalous UDP packet of len {} from {}", buf.len(), addr);
                         smol::future::pending().await
@@ -211,9 +216,26 @@ async fn client_backhaul_once(
         let up_crypter = up_crypter.clone();
         let up = async {
             let dff = recv_frame_out.recv().await.ok()?;
-            let encrypted = dff
+
+            // client always batch. coalesce things like that
+            let mut batches: Vec<Vec<msg::DataFrame>> = Vec::with_capacity(1);
+            for df in dff {
+                // if this batch is too big
+                if batches.last().is_none() || df.body.len() > 200 {
+                    batches.push(vec![df]);
+                    continue;
+                }
+                let last_batch = batches.last_mut().unwrap();
+                // compute the projected size
+                let projected_size: usize = last_batch.iter().map(|v| v.body.len() + 50).sum();
+                if projected_size < 1000 && df.body.len() < 200 {
+                    last_batch.push(df);
+                }
+            }
+
+            let encrypted = batches
                 .into_iter()
-                .map(|df| up_crypter.pad_encrypt(df, 1000))
+                .map(|df| up_crypter.pad_encrypt(&df, 1000))
                 .collect();
             Some(Evt::Outgoing(encrypted))
         };
@@ -245,11 +267,13 @@ async fn client_backhaul_once(
                                         dn_crypter.pad_decrypt::<msg::DataFrame>(&buf)
                                     {
                                         tracing::trace!(
-                                            "shard {} decrypted UDP message with len {}",
+                                            "shard {} decrypted UDP messages with len {}",
                                             shard_id,
                                             buf.len()
                                         );
-                                        drop(send_frame_in.send(plain).await)
+                                        for plain in plain {
+                                            drop(send_frame_in.send(plain).await)
+                                        }
                                     }
                                 }
                             }
@@ -273,10 +297,10 @@ async fn client_backhaul_once(
                         socket
                             .send_to(
                                 g_encrypt.pad_encrypt(
-                                    msg::HandshakeFrame::ClientResume {
+                                    &[msg::HandshakeFrame::ClientResume {
                                         resume_token: resume_token.clone(),
                                         shard_id,
-                                    },
+                                    }],
                                     1000,
                                 ),
                                 remote_addr,

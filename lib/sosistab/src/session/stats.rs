@@ -136,7 +136,7 @@ impl SendLossCalc {
         let now = Instant::now();
         if total_seqno > self.last_total_seqno + 100
             && top_seqno > self.last_top_seqno + 100
-            && now.saturating_duration_since(self.last_time).as_millis() > 2000
+            && now.saturating_duration_since(self.last_time).as_millis() > 500
         {
             let delta_top = top_seqno.saturating_sub(self.last_top_seqno) as f64;
             let delta_total = total_seqno.saturating_sub(self.last_total_seqno) as f64;

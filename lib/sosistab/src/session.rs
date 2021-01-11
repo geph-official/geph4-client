@@ -3,6 +3,7 @@ use crate::runtime;
 use crate::{fec::FrameEncoder, VarRateLimit};
 use bytes::Bytes;
 use concurrent_queue::ConcurrentQueue;
+use governor::{Quota, RateLimiter};
 use machine::RecvMachine;
 use parking_lot::Mutex;
 
@@ -11,7 +12,8 @@ use smol::prelude::*;
 use stats::StatGatherer;
 
 use std::{
-    sync::atomic::{AtomicU32, Ordering},
+    num::NonZeroU32,
+    sync::atomic::{AtomicBool, AtomicU32, Ordering},
     time::SystemTime,
 };
 use std::{sync::Arc, time::Duration};
@@ -38,6 +40,7 @@ pub(crate) struct SessionConfig {
     pub recv_frame: Receiver<DataFrame>,
     pub recv_timeout: Duration,
     pub statistics: usize,
+    pub use_batching: Arc<AtomicBool>,
 }
 
 /// Representation of an isolated session that deals only in DataFrames and abstracts away all I/O concerns. It's the user's responsibility to poll the session. Otherwise, it might not make progress and will drop packets.
@@ -91,9 +94,7 @@ impl Session {
 
     /// Takes a Bytes to be sent and stuffs it into the session.
     pub fn send_bytes(&self, to_send: Bytes) {
-        if self.send_tosend.try_send(to_send).is_err() {
-            tracing::warn!("overflowed send buffer at session!");
-        }
+        let _ = self.send_tosend.try_send(to_send);
         *self.last_send.lock() = SystemTime::now();
     }
 
@@ -176,50 +177,26 @@ async fn session_send_loop(
     last_send: &Mutex<SystemTime>,
     recv_timeout: Duration,
 ) -> Option<()> {
-    fn get_timeout(loss: u8) -> Duration {
-        let loss = loss as u64;
-        // if loss is zero, then we return 5
-        if loss == 0 {
-            Duration::from_millis(0)
-        } else {
-            // around 50 ms for full loss
-            Duration::from_millis(loss * loss / 1500 + 5)
-        }
-    }
-
     let mut shaper = VarRateLimit::new();
 
     let mut frame_no = 0u64;
     let mut run_no = 0u64;
     let mut to_send = Vec::new();
-    let mut abs_timeout = smol::Timer::after(get_timeout(statg.loss_u8()));
+
+    let limiter = RateLimiter::direct(Quota::per_second(NonZeroU32::new(500u32).unwrap()));
     loop {
         // obtain a vector of bytes to send
         let loss = statg.loss_u8();
-        let to_send = {
-            to_send.clear();
-            // get as much tosend as possible within the timeout
-            // this lets us do it at maximum efficiency
-            to_send.push(recv_tosend.recv().await.ok()?);
-            if loss > 0 {
-                abs_timeout.set_after(get_timeout(loss));
-                loop {
-                    let break_now = async {
-                        (&mut abs_timeout).await;
-                        true
-                    }
-                    .or(async {
-                        to_send.push(infal(recv_tosend.recv()).await);
-                        false
-                    });
-                    if break_now.await || to_send.len() >= 32 {
-                        break &to_send;
-                    }
-                }
+        to_send.clear();
+        to_send.push(recv_tosend.recv().await.ok()?);
+        while to_send.len() < 32 {
+            if let Ok(val) = recv_tosend.try_recv() {
+                to_send.push(val)
             } else {
-                &to_send
+                break;
             }
-        };
+        }
+        limiter.until_ready().await;
         let now = SystemTime::now();
         if let Ok(elapsed) = now.duration_since(*last_send.lock()) {
             if elapsed > recv_timeout {
@@ -227,7 +204,7 @@ async fn session_send_loop(
                 return None;
             }
         }
-        // encode into raptor
+        // encode using fec
         let encoded = FrameEncoder::new(loss_to_u8(cfg.target_loss)).encode(loss, &to_send);
         let mut tosend = Vec::with_capacity(encoded.len());
         for (idx, bts) in encoded.iter().enumerate() {
@@ -245,7 +222,14 @@ async fn session_send_loop(
             statg.ping_send(frame_no);
             frame_no += 1;
         }
-        cfg.send_frame.send(tosend).await.ok()?;
+
+        if cfg.use_batching.load(Ordering::Relaxed) {
+            cfg.send_frame.send(tosend).await.ok()?;
+        } else {
+            for tosend in tosend {
+                cfg.send_frame.send(vec![tosend]).await.ok()?;
+            }
+        }
         run_no += 1;
     }
 }

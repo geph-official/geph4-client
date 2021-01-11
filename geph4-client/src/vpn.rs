@@ -76,17 +76,17 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         let stdin_fut = async {
             let msg = STDIN.recv().await;
             // ACK decimation
-            if ack_decimate(&msg.body).is_some() && limiter.check().is_err() {
-                Ok(None)
+            // if ack_decimate(&msg.body).is_some() && limiter.check().is_err() {
+            //     Ok(None)
+            // } else {
+            // fix dns
+            let body = if let Some(body) = fix_dns_dest(&msg.body, ctx.dns_nat) {
+                body
             } else {
-                // fix dns
-                let body = if let Some(body) = fix_dns_dest(&msg.body, ctx.dns_nat) {
-                    body
-                } else {
-                    msg.body
-                };
-                Ok::<Option<Bytes>, anyhow::Error>(Some(body))
-            }
+                msg.body
+            };
+            Ok::<Option<Bytes>, anyhow::Error>(Some(body))
+            // }
         };
         let body = stdin_fut.await?;
         if let Some(body) = body {

@@ -19,7 +19,6 @@ impl RecvMachine {
     /// Processes a single frame. If successfully decoded, return the inner data.
     pub fn process(&mut self, frame: &DataFrame) -> Option<Vec<Bytes>> {
         if !self.replay_filter.add(frame.frame_no) {
-            tracing::warn!("replay filter caught repeat of {}", frame.frame_no);
             return None;
         }
         self.ping_calc.incoming(frame);
