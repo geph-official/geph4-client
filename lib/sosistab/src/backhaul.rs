@@ -87,7 +87,7 @@ impl Backhaul for Async<UdpSocket> {
         use nix::sys::socket::RecvMmsgData;
         use nix::sys::uio::IoVec;
         use std::os::unix::prelude::*;
-        const MAX_LEN: usize = 16;
+        const MAX_LEN: usize = 64;
         self.read_with(|sock| {
             // get fd
             let fd: RawFd = sock.as_raw_fd();
