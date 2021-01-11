@@ -43,44 +43,44 @@ impl Backhaul for Async<UdpSocket> {
         Ok((buf.freeze().slice(0..n), origin))
     }
 
-    // #[cfg(any(target_os = "linux", target_os = "android"))]
-    // async fn send_to_many(&self, to_send: &[(Bytes, SocketAddr)]) -> io::Result<()> {
-    //     use nix::sys::socket::SendMmsgData;
-    //     use nix::sys::socket::{ControlMessage, InetAddr, SockAddr};
-    //     use nix::sys::uio::IoVec;
-    //     use std::os::unix::prelude::*;
-    //     if to_send.len() == 1 {
-    //         return Backhaul::send_to(self, to_send[0].0.clone(), to_send[0].1).await;
-    //     }
-    //     // non-blocking
-    //     self.write_with(|sock| {
-    //         tracing::debug!("send_to_many({})", to_send.len());
-    //         let fd: RawFd = sock.as_raw_fd();
-    //         let iov: Vec<[IoVec<&[u8]>; 1]> = to_send
-    //             .iter()
-    //             .map(|(bts, _)| [IoVec::from_slice(bts)])
-    //             .collect();
-    //         let control_msgs: Vec<ControlMessage<'static>> = vec![];
-    //         let smd: Vec<_> = iov
-    //             .iter()
-    //             .zip(to_send.iter())
-    //             .map(|(iov, (_, addr))| {
-    //                 let iov: &[IoVec<&[u8]>] = iov;
-    //                 let cmsgs: &[ControlMessage<'static>] = &control_msgs;
-    //                 SendMmsgData {
-    //                     iov,
-    //                     cmsgs,
-    //                     addr: Some(SockAddr::new_inet(InetAddr::from_std(addr))),
-    //                     _lt: PhantomData::default(),
-    //                 }
-    //             })
-    //             .collect();
-    //         nix::sys::socket::sendmmsg(fd, smd.iter(), nix::sys::socket::MsgFlags::empty())
-    //             .map_err(to_ioerror)?;
-    //         Ok(())
-    //     })
-    //     .await
-    // }
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    async fn send_to_many(&self, to_send: &[(Bytes, SocketAddr)]) -> io::Result<()> {
+        use nix::sys::socket::SendMmsgData;
+        use nix::sys::socket::{ControlMessage, InetAddr, SockAddr};
+        use nix::sys::uio::IoVec;
+        use std::os::unix::prelude::*;
+        if to_send.len() == 1 {
+            return Backhaul::send_to(self, to_send[0].0.clone(), to_send[0].1).await;
+        }
+        // non-blocking
+        self.write_with(|sock| {
+            tracing::debug!("send_to_many({})", to_send.len());
+            let fd: RawFd = sock.as_raw_fd();
+            let iov: Vec<[IoVec<&[u8]>; 1]> = to_send
+                .iter()
+                .map(|(bts, _)| [IoVec::from_slice(bts)])
+                .collect();
+            let control_msgs: Vec<ControlMessage<'static>> = vec![];
+            let smd: Vec<_> = iov
+                .iter()
+                .zip(to_send.iter())
+                .map(|(iov, (_, addr))| {
+                    let iov: &[IoVec<&[u8]>] = iov;
+                    let cmsgs: &[ControlMessage<'static>] = &control_msgs;
+                    SendMmsgData {
+                        iov,
+                        cmsgs,
+                        addr: Some(SockAddr::new_inet(InetAddr::from_std(addr))),
+                        _lt: PhantomData::default(),
+                    }
+                })
+                .collect();
+            nix::sys::socket::sendmmsg(fd, smd.iter(), nix::sys::socket::MsgFlags::empty())
+                .map_err(to_ioerror)?;
+            Ok(())
+        })
+        .await
+    }
 
     #[cfg(any(target_os = "linux", target_os = "android"))]
     async fn recv_from_many(&self) -> io::Result<Vec<(Bytes, SocketAddr)>> {

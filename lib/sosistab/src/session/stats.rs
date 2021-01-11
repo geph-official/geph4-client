@@ -140,7 +140,7 @@ impl SendLossCalc {
         {
             let delta_top = top_seqno.saturating_sub(self.last_top_seqno) as f64;
             let delta_total = total_seqno.saturating_sub(self.last_total_seqno) as f64;
-            tracing::debug!(
+            tracing::warn!(
                 "updating loss calculator with {}/{}",
                 delta_total,
                 delta_top
@@ -149,13 +149,13 @@ impl SendLossCalc {
             self.last_total_seqno = total_seqno;
             let loss_sample = 1.0 - delta_total / delta_top.max(delta_total);
             self.loss_samples.push_back(loss_sample);
-            if self.loss_samples.len() > 64 {
+            if self.loss_samples.len() > 8 {
                 self.loss_samples.pop_front();
             }
             let median = {
                 let mut lala: Vec<f64> = self.loss_samples.iter().cloned().collect();
                 lala.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-                lala[lala.len() / 4]
+                lala[0]
             };
             self.median = median;
             self.last_time = now;

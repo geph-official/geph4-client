@@ -204,7 +204,7 @@ async fn session_send_loop(
                 return None;
             }
         }
-        // encode using fec
+        // encode into raptor
         let encoded = FrameEncoder::new(loss_to_u8(cfg.target_loss)).encode(loss, &to_send);
         let mut tosend = Vec::with_capacity(encoded.len());
         for (idx, bts) in encoded.iter().enumerate() {
