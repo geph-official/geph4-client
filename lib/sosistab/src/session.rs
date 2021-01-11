@@ -183,7 +183,7 @@ async fn session_send_loop(
     let mut run_no = 0u64;
     let mut to_send = Vec::new();
 
-    let limiter = RateLimiter::direct(Quota::per_second(NonZeroU32::new(500u32).unwrap()));
+    let limiter = RateLimiter::direct(Quota::per_second(NonZeroU32::new(1000u32).unwrap()));
     loop {
         // obtain a vector of bytes to send
         let loss = statg.loss_u8();
