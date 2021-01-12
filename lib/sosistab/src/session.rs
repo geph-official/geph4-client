@@ -41,7 +41,7 @@ pub struct Session {
     machine: Mutex<RecvMachine>,
     machine_output: ConcurrentQueue<Bytes>,
     rate_limit: Arc<AtomicU32>,
-    last_send: Arc<Mutex<SystemTime>>,
+    last_recv: Arc<Mutex<SystemTime>>,
     recv_timeout: Duration,
     _dropper: Vec<Box<dyn FnOnce() + Send + Sync + 'static>>,
     _task: smol::Task<()>,
@@ -55,7 +55,7 @@ impl Session {
         let recv_timeout = cfg.recv_timeout;
         let statistics = Arc::new(Mutex::new(TimeSeries::new(cfg.statistics)));
         let machine = Mutex::new(RecvMachine::default());
-        let last_send = Arc::new(Mutex::new(SystemTime::now()));
+        let last_recv = Arc::new(Mutex::new(SystemTime::now()));
         let recv_frame = cfg.recv_frame.clone();
         let task = runtime::spawn(session_loop(
             cfg,
@@ -63,7 +63,7 @@ impl Session {
             recv_tosend,
             rate_limit.clone(),
             recv_timeout,
-            last_send.clone(),
+            last_recv.clone(),
         ));
         Session {
             send_tosend,
@@ -71,7 +71,7 @@ impl Session {
             recv_frame,
             machine,
             machine_output: ConcurrentQueue::unbounded(),
-            last_send,
+            last_recv,
             statistics,
             recv_timeout,
             _dropper: Vec::new(),
@@ -86,8 +86,11 @@ impl Session {
 
     /// Takes a Bytes to be sent and stuffs it into the session.
     pub fn send_bytes(&self, to_send: Bytes) {
-        let _ = self.send_tosend.try_send(to_send);
-        *self.last_send.lock() = SystemTime::now();
+        if let Err(err) = self.send_tosend.try_send(to_send) {
+            if let smol::channel::TrySendError::Closed(_) = err {
+                self.recv_frame.close();
+            }
+        }
     }
 
     /// Waits until the next application input is decoded by the session.
@@ -112,6 +115,7 @@ impl Session {
                 break Some(b);
             }
             // receive more stuff
+            *self.last_recv.lock() = SystemTime::now();
             let frame = self.recv_frame.recv().timeout(self.recv_timeout).await;
             if let Some(frame) = frame {
                 let frame = frame.ok()?;
