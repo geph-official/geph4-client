@@ -8,7 +8,7 @@ use machine::RecvMachine;
 use parking_lot::Mutex;
 
 use smol::channel::{Receiver, Sender};
-use smol::prelude::*;
+use smol_timeout::TimeoutExt;
 use stats::StatGatherer;
 
 use std::{
@@ -42,6 +42,7 @@ pub struct Session {
     machine_output: ConcurrentQueue<Bytes>,
     rate_limit: Arc<AtomicU32>,
     last_send: Arc<Mutex<SystemTime>>,
+    recv_timeout: Duration,
     _dropper: Vec<Box<dyn FnOnce() + Send + Sync + 'static>>,
     _task: smol::Task<()>,
 }
@@ -72,6 +73,7 @@ impl Session {
             machine_output: ConcurrentQueue::unbounded(),
             last_send,
             statistics,
+            recv_timeout,
             _dropper: Vec::new(),
             _task: task,
         }
@@ -110,13 +112,19 @@ impl Session {
                 break Some(b);
             }
             // receive more stuff
-            let frame = self.recv_frame.recv().await.ok()?;
-            let mut machine = self.machine.lock();
-            let out = machine.process(&frame);
-            if let Some(out) = out {
-                for o in out {
-                    self.machine_output.push(o).unwrap();
+            let frame = self.recv_frame.recv().timeout(self.recv_timeout).await;
+            if let Some(frame) = frame {
+                let frame = frame.ok()?;
+                let mut machine = self.machine.lock();
+                let out = machine.process(&frame);
+                if let Some(out) = out {
+                    for o in out {
+                        self.machine_output.push(o).unwrap();
+                    }
                 }
+            } else {
+                self.recv_frame.close();
+                return None;
             }
         }
     }
