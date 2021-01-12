@@ -97,6 +97,10 @@ impl TunDevice {
             .output()
             .expect("cannot bring up interface!");
         Command::new("/usr/bin/env")
+            .args(&["ip", "addr", "flush", "dev", &self.name])
+            .output()
+            .expect("cannot assign IP to interface!");
+        Command::new("/usr/bin/env")
             .args(&["ip", "addr", "add", cidr_str, "dev", &self.name])
             .output()
             .expect("cannot assign IP to interface!");
