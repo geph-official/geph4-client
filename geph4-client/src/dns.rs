@@ -73,12 +73,12 @@ impl DnsPool {
                 _ => {
                     let tcp_conn = self
                         .keepalive
-                        .connect("ordns.he.net:853")
+                        .connect("1.0.0.1:853")
                         .timeout(dns_timeout)
                         .await?
                         .ok()?;
                     TlsConnector::default()
-                        .connect("ordns.he.net", tcp_conn)
+                        .connect("cloudflare-dns.com", tcp_conn)
                         .await
                         .ok()?
                 }

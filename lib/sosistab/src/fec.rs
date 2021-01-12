@@ -172,7 +172,11 @@ impl FrameDecoder {
             tracing::trace!("decode with pad len {}", pkt.len());
             self.space = vec![vec![0u8; pkt.len()]; self.data_shards + self.parity_shards]
         }
-        if self.done || pkt_idx > self.space.len() || pkt_idx > self.present.len() {
+        if self.done
+            || pkt_idx > self.space.len()
+            || pkt_idx > self.present.len()
+            || self.space[pkt_idx].len() != pkt.len()
+        {
             return None;
         }
         // decompress without allocation

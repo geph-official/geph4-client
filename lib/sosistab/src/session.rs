@@ -23,16 +23,6 @@ use self::stats::TimeSeries;
 mod machine;
 mod stats;
 
-async fn infal<T, E, F: Future<Output = std::result::Result<T, E>>>(fut: F) -> T {
-    match fut.await {
-        Ok(res) => res,
-        Err(_) => {
-            smol::future::pending::<()>().await;
-            unreachable!();
-        }
-    }
-}
-
 #[derive(Debug, Clone)]
 pub(crate) struct SessionConfig {
     pub target_loss: f64,
@@ -59,7 +49,7 @@ pub struct Session {
 impl Session {
     /// Creates a Session.
     pub(crate) fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = smol::channel::bounded(500);
+        let (send_tosend, recv_tosend) = smol::channel::bounded(200);
         let rate_limit = Arc::new(AtomicU32::new(100000));
         let recv_timeout = cfg.recv_timeout;
         let statistics = Arc::new(Mutex::new(TimeSeries::new(cfg.statistics)));
@@ -168,6 +158,8 @@ async fn session_loop(
     .await;
 }
 
+const BURST_SIZE: usize = 32;
+
 #[tracing::instrument(skip(statg))]
 async fn session_send_loop(
     cfg: SessionConfig,
@@ -183,20 +175,29 @@ async fn session_send_loop(
     let mut run_no = 0u64;
     let mut to_send = Vec::new();
 
-    let limiter = RateLimiter::direct(Quota::per_second(NonZeroU32::new(1000u32).unwrap()));
+    let limiter = RateLimiter::direct_with_clock(
+        Quota::per_second(NonZeroU32::new(100u32).unwrap()),
+        &governor::clock::MonotonicClock,
+    );
     loop {
         // obtain a vector of bytes to send
         let loss = statg.loss_u8();
         to_send.clear();
         to_send.push(recv_tosend.recv().await.ok()?);
-        while to_send.len() < 32 {
+        while to_send.len() < BURST_SIZE {
             if let Ok(val) = recv_tosend.try_recv() {
                 to_send.push(val)
             } else {
                 break;
             }
         }
-        limiter.until_ready().await;
+        // we limit bursts that are less than half full only. this is so that we don't accidentally "rate limit" stuff
+        if to_send.len() < BURST_SIZE / 2 {
+            // we use smol to wait to be more efficient
+            while let Err(err) = limiter.check() {
+                smol::Timer::at(err.earliest_possible()).await;
+            }
+        }
         let now = SystemTime::now();
         if let Ok(elapsed) = now.duration_since(*last_send.lock()) {
             if elapsed > recv_timeout {

@@ -47,6 +47,8 @@ async fn setup_iptables() {
     iptables -t mangle -D OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
     iptables -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
     # block non-nobody ipv6 completely
+    ip6tables -D OUTPUT -o lo -j ACCEPT
+    ip6tables -A OUTPUT -o lo -j ACCEPT
     ip6tables -D OUTPUT -m owner ! --uid-owner nobody -j REJECT
     ip6tables -A OUTPUT -m owner ! --uid-owner nobody -j REJECT
     ";
@@ -70,6 +72,7 @@ async fn clear_iptables() {
     # clamp MTU
     iptables -t mangle -D OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
     # ipv6
+    ip6tables -D OUTPUT -o lo -j ACCEPT
     ip6tables -D OUTPUT -m owner ! --uid-owner nobody -j REJECT
     ";
     run_sh(to_run).await;
