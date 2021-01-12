@@ -115,7 +115,6 @@ impl Session {
                 break Some(b);
             }
             // receive more stuff
-            *self.last_recv.lock() = SystemTime::now();
             let frame = self.recv_frame.recv().timeout(self.recv_timeout).await;
             if let Some(frame) = frame {
                 let frame = frame.ok()?;
@@ -125,8 +124,10 @@ impl Session {
                     for o in out {
                         self.machine_output.push(o).unwrap();
                     }
+                    *self.last_recv.lock() = SystemTime::now();
                 }
             } else {
+                tracing::warn!("OH NO TIME TO DIEEE!");
                 self.recv_frame.close();
                 return None;
             }
