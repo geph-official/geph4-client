@@ -95,6 +95,35 @@ impl Handle {
         check_c_error(maybe_injected, |b| *b > 0)?;
         Ok(())
     }
+
+    pub fn send_multi<P: AsRef<[u8]>>(
+        &self,
+        packets: &[P],
+        addr: WINDIVERT_ADDRESS,
+    ) -> Result<(), InternalError> {
+        let packet_count = packets.len();
+        let mut concatenated = Vec::with_capacity(packets.iter().map(|v| v.as_ref().len()).sum());
+        for p in packets {
+            concatenated.extend_from_slice(p.as_ref());
+        }
+        let mut addrs: Vec<_> = (0..packet_count).map(|_| addr.clone()).collect();
+        let mut send_len = 0;
+        let maybe_injected = unsafe {
+            bindings::WinDivertSendEx(
+                self.handle,
+                concatenated.as_ptr() as _,
+                concatenated.len() as _,
+                &mut send_len,
+                0,
+                addrs.as_ptr() as _,
+                (packet_count * std::mem::size_of::<WINDIVERT_ADDRESS>()) as _,
+                std::ptr::null_mut() as _,
+            )
+        };
+
+        check_c_error(maybe_injected, |b| *b > 0)?;
+        Ok(())
+    }
 }
 
 /// This prevents us from ever forgetting to close a handle.

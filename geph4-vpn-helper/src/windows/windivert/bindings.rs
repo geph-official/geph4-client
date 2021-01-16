@@ -92,7 +92,144 @@ pub type UINT8 = ::std::os::raw::c_uchar;
 pub type UINT16 = ::std::os::raw::c_ushort;
 pub type UINT32 = ::std::os::raw::c_uint;
 pub type UINT64 = ::std::os::raw::c_ulonglong;
+pub type ULONG_PTR = ::std::os::raw::c_ulonglong;
+pub type PVOID = *mut ::std::os::raw::c_void;
 pub type HANDLE = *mut ::std::os::raw::c_void;
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub struct _OVERLAPPED {
+    pub Internal: ULONG_PTR,
+    pub InternalHigh: ULONG_PTR,
+    pub __bindgen_anon_1: _OVERLAPPED__bindgen_ty_1,
+    pub hEvent: HANDLE,
+}
+#[repr(C)]
+#[derive(Copy, Clone)]
+pub union _OVERLAPPED__bindgen_ty_1 {
+    pub __bindgen_anon_1: _OVERLAPPED__bindgen_ty_1__bindgen_ty_1,
+    pub Pointer: PVOID,
+    _bindgen_union_align: u64,
+}
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct _OVERLAPPED__bindgen_ty_1__bindgen_ty_1 {
+    pub Offset: DWORD,
+    pub OffsetHigh: DWORD,
+}
+#[test]
+fn bindgen_test_layout__OVERLAPPED__bindgen_ty_1__bindgen_ty_1() {
+    assert_eq!(
+        ::std::mem::size_of::<_OVERLAPPED__bindgen_ty_1__bindgen_ty_1>(),
+        8usize,
+        concat!(
+            "Size of: ",
+            stringify!(_OVERLAPPED__bindgen_ty_1__bindgen_ty_1)
+        )
+    );
+    assert_eq!(
+        ::std::mem::align_of::<_OVERLAPPED__bindgen_ty_1__bindgen_ty_1>(),
+        4usize,
+        concat!(
+            "Alignment of ",
+            stringify!(_OVERLAPPED__bindgen_ty_1__bindgen_ty_1)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(::std::ptr::null::<_OVERLAPPED__bindgen_ty_1__bindgen_ty_1>())).Offset as *const _
+                as usize
+        },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(_OVERLAPPED__bindgen_ty_1__bindgen_ty_1),
+            "::",
+            stringify!(Offset)
+        )
+    );
+    assert_eq!(
+        unsafe {
+            &(*(::std::ptr::null::<_OVERLAPPED__bindgen_ty_1__bindgen_ty_1>())).OffsetHigh
+                as *const _ as usize
+        },
+        4usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(_OVERLAPPED__bindgen_ty_1__bindgen_ty_1),
+            "::",
+            stringify!(OffsetHigh)
+        )
+    );
+}
+#[test]
+fn bindgen_test_layout__OVERLAPPED__bindgen_ty_1() {
+    assert_eq!(
+        ::std::mem::size_of::<_OVERLAPPED__bindgen_ty_1>(),
+        8usize,
+        concat!("Size of: ", stringify!(_OVERLAPPED__bindgen_ty_1))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<_OVERLAPPED__bindgen_ty_1>(),
+        8usize,
+        concat!("Alignment of ", stringify!(_OVERLAPPED__bindgen_ty_1))
+    );
+    assert_eq!(
+        unsafe {
+            &(*(::std::ptr::null::<_OVERLAPPED__bindgen_ty_1>())).Pointer as *const _ as usize
+        },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(_OVERLAPPED__bindgen_ty_1),
+            "::",
+            stringify!(Pointer)
+        )
+    );
+}
+#[test]
+fn bindgen_test_layout__OVERLAPPED() {
+    assert_eq!(
+        ::std::mem::size_of::<_OVERLAPPED>(),
+        32usize,
+        concat!("Size of: ", stringify!(_OVERLAPPED))
+    );
+    assert_eq!(
+        ::std::mem::align_of::<_OVERLAPPED>(),
+        8usize,
+        concat!("Alignment of ", stringify!(_OVERLAPPED))
+    );
+    assert_eq!(
+        unsafe { &(*(::std::ptr::null::<_OVERLAPPED>())).Internal as *const _ as usize },
+        0usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(_OVERLAPPED),
+            "::",
+            stringify!(Internal)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(::std::ptr::null::<_OVERLAPPED>())).InternalHigh as *const _ as usize },
+        8usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(_OVERLAPPED),
+            "::",
+            stringify!(InternalHigh)
+        )
+    );
+    assert_eq!(
+        unsafe { &(*(::std::ptr::null::<_OVERLAPPED>())).hEvent as *const _ as usize },
+        24usize,
+        concat!(
+            "Offset of field: ",
+            stringify!(_OVERLAPPED),
+            "::",
+            stringify!(hEvent)
+        )
+    );
+}
+pub type LPOVERLAPPED = *mut _OVERLAPPED;
 extern "C" {
     pub fn GetLastError() -> DWORD;
 }
@@ -776,12 +913,36 @@ extern "C" {
     ) -> BOOL;
 }
 extern "C" {
+    pub fn WinDivertRecvEx(
+        handle: HANDLE,
+        pPacket: *mut ::std::os::raw::c_void,
+        packetLen: UINT,
+        pRecvLen: *mut UINT,
+        flags: UINT64,
+        pAddr: *mut WINDIVERT_ADDRESS,
+        pAddrLen: *mut UINT,
+        lpOverlapped: LPOVERLAPPED,
+    ) -> BOOL;
+}
+extern "C" {
     pub fn WinDivertSend(
         handle: HANDLE,
         pPacket: *const ::std::os::raw::c_void,
         packetLen: UINT,
         pSendLen: *mut UINT,
         pAddr: *const WINDIVERT_ADDRESS,
+    ) -> BOOL;
+}
+extern "C" {
+    pub fn WinDivertSendEx(
+        handle: HANDLE,
+        pPacket: *const ::std::os::raw::c_void,
+        packetLen: UINT,
+        pSendLen: *mut UINT,
+        flags: UINT64,
+        pAddr: *const WINDIVERT_ADDRESS,
+        addrLen: UINT,
+        lpOverlapped: LPOVERLAPPED,
     ) -> BOOL;
 }
 extern "C" {
