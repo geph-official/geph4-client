@@ -24,16 +24,7 @@
   <component name="ChangeListManager">
     <list default="true" id="5850310f-e94d-4302-a15f-6523445cdbc9" name="Default Changelist" comment="">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Cargo.lock" beforeDir="false" afterPath="$PROJECT_DIR$/Cargo.lock" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/geph4-client/src/main.rs" beforeDir="false" afterPath="$PROJECT_DIR$/geph4-client/src/main.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/geph4-client/src/vpn.rs" beforeDir="false" afterPath="$PROJECT_DIR$/geph4-client/src/vpn.rs" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/geph4-vpn-helper/src/windows/mod.rs" beforeDir="false" afterPath="$PROJECT_DIR$/geph4-vpn-helper/src/windows/mod.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lib/sosistab/Cargo.toml" beforeDir="false" afterPath="$PROJECT_DIR$/lib/sosistab/Cargo.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lib/sosistab/src/client.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lib/sosistab/src/client.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lib/sosistab/src/crypt.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lib/sosistab/src/crypt.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lib/sosistab/src/mux.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lib/sosistab/src/mux.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lib/sosistab/src/runtime.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lib/sosistab/src/runtime.rs" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/lib/sosistab/src/session.rs" beforeDir="false" afterPath="$PROJECT_DIR$/lib/sosistab/src/session.rs" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />

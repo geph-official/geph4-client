@@ -70,6 +70,9 @@ static REAL_IP: Lazy<RwLock<Option<Ipv4Addr>>> = Lazy::new(|| RwLock::new(None))
 pub fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("geph4_vpn_helper=debug,warn"))
         .init();
+    std::thread::spawn(socket_loop);
+    // sleep a little while to make sure we don't miss socket events
+    std::thread::sleep(Duration::from_millis(300));
     // start child process
     let args: Vec<String> = std::env::args().collect();
     let child = std::process::Command::new(&args[1])
@@ -82,11 +85,6 @@ pub fn main() {
     let geph_pid = child.id();
     let geph_stdout = child.stdout.unwrap();
 
-    // spin up a thread to handle flow information
-    // std::thread::spawn(flow_loop);
-    // spin up another thread to handle socket information
-    std::thread::spawn(socket_loop);
-
     std::thread::spawn(|| download_loop(geph_stdout));
 
     // main loop handles packets
@@ -94,17 +92,7 @@ pub fn main() {
 }
 
 fn download_loop(mut geph_stdout: ChildStdout) {
-    let (send, recv) = flume::unbounded::<Vec<u8>>();
-    for _ in 0..6 {
-        let recv = recv.clone();
-        std::thread::spawn(move || {
-            let handle = windivert::PacketHandle::open("false", -200).unwrap();
-            loop {
-                let packet = recv.recv().unwrap();
-                handle.inject(&packet, false).unwrap();
-            }
-        });
-    }
+    let handle = windivert::PacketHandle::open("false", -200).unwrap();
     let mut geph_stdout = BufReader::with_capacity(1024 * 1024, geph_stdout);
     loop {
         // read a message from Geph
@@ -116,7 +104,7 @@ fn download_loop(mut geph_stdout: ChildStdout) {
                     log::debug!("Geph gave us packet of len {}", packet.len());
                 }
                 if fix_destination(&mut packet) {
-                    send.send(packet).unwrap();
+                    handle.inject(&packet, false).unwrap();
                 }
             }
             _ => {
