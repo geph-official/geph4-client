@@ -3,7 +3,7 @@ use crate::runtime;
 use crate::{fec::FrameEncoder, VarRateLimit};
 use bytes::Bytes;
 use concurrent_queue::ConcurrentQueue;
-use governor::{Quota, RateLimiter};
+use governor::{NegativeMultiDecision, Quota, RateLimiter};
 use machine::RecvMachine;
 use parking_lot::Mutex;
 
@@ -182,21 +182,23 @@ async fn session_send_loop(
     last_send: &Mutex<SystemTime>,
     recv_timeout: Duration,
 ) -> Option<()> {
-    let mut shaper = VarRateLimit::new();
-
     let mut frame_no = 0u64;
     let mut run_no = 0u64;
     let mut to_send = Vec::new();
 
-    let limiter = RateLimiter::direct_with_clock(
+    let batch_limiter = RateLimiter::direct_with_clock(
         Quota::per_second(NonZeroU32::new(100u32).unwrap())
             .allow_burst(NonZeroU32::new(10u32).unwrap()),
+        &governor::clock::MonotonicClock,
+    );
+
+    let policy_limiter = RateLimiter::direct_with_clock(
+        Quota::per_second(NonZeroU32::new(10000u32).unwrap()),
         &governor::clock::MonotonicClock,
     );
     loop {
         // obtain a vector of bytes to send
         let loss = statg.loss_u8();
-        dbg!(loss);
         to_send.clear();
         to_send.push(recv_tosend.recv().await.ok()?);
         while to_send.len() < BURST_SIZE {
@@ -209,7 +211,7 @@ async fn session_send_loop(
         // we limit bursts that are less than half full only. this is so that we don't accidentally "rate limit" stuff
         if to_send.len() < BURST_SIZE / 2 {
             // we use smol to wait to be more efficient
-            while let Err(err) = limiter.check() {
+            while let Err(err) = batch_limiter.check() {
                 smol::Timer::at(err.earliest_possible()).await;
             }
         }
@@ -224,6 +226,19 @@ async fn session_send_loop(
         let encoded = FrameEncoder::new(loss_to_u8(cfg.target_loss)).encode(loss, &to_send);
         let mut tosend = Vec::with_capacity(encoded.len());
         for (idx, bts) in encoded.iter().enumerate() {
+            // limit
+            let limit = rate_limit.load(Ordering::Relaxed);
+            if limit < 1000 {
+                if recv_tosend.len() > 100 {
+                    continue;
+                }
+                let multiplier = 10000 / limit;
+                while let Err(NegativeMultiDecision::BatchNonConforming(_, err)) =
+                    policy_limiter.check_n(NonZeroU32::new(multiplier).unwrap())
+                {
+                    smol::Timer::at(err.earliest_possible()).await;
+                }
+            }
             tosend.push(DataFrame {
                 frame_no,
                 run_no,
@@ -234,7 +249,6 @@ async fn session_send_loop(
                 total_recv_frames: statg.total_recv_frames(),
                 body: bts.clone(),
             });
-            shaper.wait(rate_limit.load(Ordering::Relaxed)).await;
             statg.ping_send(frame_no);
             frame_no += 1;
         }

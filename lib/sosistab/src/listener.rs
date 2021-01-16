@@ -239,7 +239,7 @@ impl ListenerActor {
                                                     crypt::StdAEAD::new(dn_key.as_bytes());
                                                 let write_socket = write_socket.clone();
                                                 let (session_input, session_input_recv) =
-                                                    smol::channel::bounded(100);
+                                                    smol::channel::bounded(1000);
                                                 // create session
                                                 let (session_output_send, session_output_recv) =
                                                     smol::channel::bounded::<Vec<msg::DataFrame>>(

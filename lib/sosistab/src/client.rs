@@ -221,16 +221,15 @@ async fn client_backhaul_once(
             let mut batches: Vec<Vec<msg::DataFrame>> = Vec::with_capacity(1);
             for df in dff {
                 // if this batch is too big
-                if batches.last().is_none() || df.body.len() > 200 {
-                    batches.push(vec![df]);
-                    continue;
+                if let Some(last_batch) = batches.last_mut() {
+                    // compute the projected size
+                    let projected_size: usize = last_batch.iter().map(|v| v.body.len() + 50).sum();
+                    if projected_size < 1000 && df.body.len() < 200 {
+                        last_batch.push(df);
+                        continue;
+                    }
                 }
-                let last_batch = batches.last_mut().unwrap();
-                // compute the projected size
-                let projected_size: usize = last_batch.iter().map(|v| v.body.len() + 50).sum();
-                if projected_size < 1000 && df.body.len() < 200 {
-                    last_batch.push(df);
-                }
+                batches.push(vec![df]);
             }
 
             let encrypted = batches

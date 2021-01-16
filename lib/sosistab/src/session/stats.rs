@@ -140,7 +140,7 @@ impl SendLossCalc {
         {
             let delta_top = top_seqno.saturating_sub(self.last_top_seqno) as f64;
             let delta_total = total_seqno.saturating_sub(self.last_total_seqno) as f64;
-            tracing::trace!(
+            tracing::debug!(
                 "updating loss calculator with {}/{}",
                 delta_total,
                 delta_top
