@@ -76,7 +76,7 @@ impl ConnVars {
         if self.slow_start && self.cwnd < self.ssthresh {
             self.cwnd += 1.0
         } else {
-            let n = (0.23 * self.cwnd.powf(0.8)).max(1.0);
+            let n = (0.23 * self.cwnd.powf(0.8)).max(1.0) * 3.0;
             self.cwnd += n / self.cwnd;
         }
     }

@@ -189,12 +189,14 @@ async fn session_send_loop(
     let mut to_send = Vec::new();
 
     let limiter = RateLimiter::direct_with_clock(
-        Quota::per_second(NonZeroU32::new(100u32).unwrap()),
+        Quota::per_second(NonZeroU32::new(100u32).unwrap())
+            .allow_burst(NonZeroU32::new(10u32).unwrap()),
         &governor::clock::MonotonicClock,
     );
     loop {
         // obtain a vector of bytes to send
         let loss = statg.loss_u8();
+        dbg!(loss);
         to_send.clear();
         to_send.push(recv_tosend.recv().await.ok()?);
         while to_send.len() < BURST_SIZE {
