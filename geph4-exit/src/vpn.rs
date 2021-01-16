@@ -53,12 +53,12 @@ pub async fn transparent_proxy_helper(google_proxy: Option<SocketAddr>) -> anyho
                     return None;
                 }
             };
-            log::debug!("helper got destination {}", addr);
             if addr.port() == 10000 {
                 return None;
             }
 
             let asn = crate::asn::get_asn(addr.ip());
+            log::debug!("helper got destination {} (AS{})", addr, asn);
             let to_conn = if let Some(proxy) = google_proxy {
                 if addr.port() == 443 && asn == crate::asn::GOOGLE_ASN {
                     proxy

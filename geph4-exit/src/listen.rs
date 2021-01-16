@@ -388,7 +388,7 @@ async fn handle_proxy_stream(
     };
     let remote = smol::net::TcpStream::connect(&to_conn)
         .or(async {
-            smol::Timer::after(Duration::from_secs(10)).await;
+            smol::Timer::after(Duration::from_secs(60)).await;
             Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
                 "timed out remote",
@@ -396,12 +396,8 @@ async fn handle_proxy_stream(
         })
         .await?;
     // this is fine because just connecting to a local service is not a security problem
-    if &to_prox != "127.0.0.1:3128" {
-        if let Ok(peer_addr) = remote.peer_addr() {
-            if peer_addr.ip().is_loopback() || peer_addr.ip().is_multicast() {
-                anyhow::bail!("attempted a connection to a non-global IP address")
-            }
-        }
+    if &to_prox != "127.0.0.1:3128" && (addr.ip().is_loopback() || addr.ip().is_multicast()) {
+        anyhow::bail!("attempted a connection to a non-global IP address")
     }
 
     remote.set_nodelay(true)?;
