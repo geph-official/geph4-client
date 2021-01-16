@@ -94,6 +94,18 @@ pub fn main() {
 fn download_loop(mut geph_stdout: ChildStdout) {
     let handle = windivert::PacketHandle::open("false", -200).unwrap();
     let mut geph_stdout = BufReader::with_capacity(1024 * 1024, geph_stdout);
+    let (send, recv) = flume::unbounded();
+    std::thread::spawn(move || loop {
+        let mut batch = vec![recv.recv().unwrap()];
+        while let Ok(v) = recv.try_recv() {
+            batch.push(v);
+            if batch.len() >= 200 {
+                break;
+            }
+        }
+        handle.inject_multi(&batch, false).unwrap();
+        thread_sleep(Duration::from_millis(5));
+    });
     loop {
         // read a message from Geph
         let msg = StdioMsg::read_blocking(&mut geph_stdout).unwrap();
@@ -104,7 +116,7 @@ fn download_loop(mut geph_stdout: ChildStdout) {
                     log::debug!("Geph gave us packet of len {}", packet.len());
                 }
                 if fix_destination(&mut packet) {
-                    handle.inject(&packet, false).unwrap();
+                    send.send(packet).unwrap();
                 }
             }
             _ => {
@@ -153,7 +165,7 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
         let handle = windivert::PacketHandle::open("false", -100).unwrap();
         loop {
             // we collect a vector of bytevectors
-            let mut items = Vec::with_capacity(1);
+            let mut items = Vec::with_capacity(16);
             items.push(recv.recv().unwrap());
             while let Ok(item) = recv.try_recv() {
                 items.push(item);
@@ -161,6 +173,7 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
             // if items.len() > 1 {
             //     eprintln!("upload {} items", items.len());
             // }
+            let mut to_inject = Vec::with_capacity(items.len());
             for (mut pkt, time) in items {
                 // println!("received outbound of length {}", pkt.len());
                 let pkt_addrs = get_packet_addrs(&pkt);
@@ -184,7 +197,7 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
                             if LOG_LIMITER() {
                                 log::debug!("bypassing Geph/LAN packet of length {}", pkt.len());
                             }
-                            handle.inject(&pkt, true).unwrap();
+                            to_inject.push(pkt);
                             continue;
                         }
                     }
@@ -214,6 +227,9 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
                         msg.write_blocking(&mut geph_stdin).unwrap();
                     }
                 }
+            }
+            if !to_inject.is_empty() {
+                handle.inject_multi(&to_inject, true).unwrap();
             }
             geph_stdin.flush().unwrap();
             // thread_sleep(Duration::from_millis(1));
@@ -254,7 +270,7 @@ fn is_local_dest(packet: &[u8]) -> bool {
     let parsed = pnet_packet::ipv4::Ipv4Packet::new(packet);
     if let Some(parsed) = parsed {
         let dest: Ipv4Addr = parsed.get_destination();
-        if dest.is_broadcast() || dest.is_link_local() || dest.is_private() {
+        if dest.is_broadcast() || dest.is_link_local() || dest.is_private() || dest.is_loopback() {
             return true;
         }
     }

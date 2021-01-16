@@ -50,4 +50,23 @@ impl PacketHandle {
         };
         Ok(())
     }
+
+    pub fn inject_multi<P: AsRef<[u8]>>(
+        &self,
+        packets: &[P],
+        is_outbound: bool,
+    ) -> Result<(), InternalError> {
+        if let Some(mut addr) = *LAST_RECV_ADDR.lock() {
+            addr.set_Outbound(is_outbound as _);
+            addr.set_Impostor(1);
+            addr.set_IPChecksum(0);
+            addr.set_TCPChecksum(0);
+            addr.set_UDPChecksum(0);
+            self.handle.send_multi(packets, addr)?;
+        // println!("injecting a packet of length {}", packet.len());
+        } else {
+            log::warn!("ignoring packets because we don't know how to inject");
+        };
+        Ok(())
+    }
 }
