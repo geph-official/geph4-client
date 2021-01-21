@@ -122,8 +122,16 @@ pub async fn main_loop<'a>(
         let sosis_listener = sosistab::Listener::listen(
             "[::0]:19831",
             ctx1.sosistab_sk.clone(),
-            move |len, _| stat.sampled_count(&flow_key, len as f64, 0.1),
-            move |len, _| stat2.sampled_count(&fk2, len as f64, 0.1),
+            move |len, _| {
+                if fastrand::f32() < 0.05 {
+                    stat.count(&flow_key, len as f64 * 20.0)
+                }
+            },
+            move |len, _| {
+                if fastrand::f32() < 0.05 {
+                    stat2.count(&fk2, len as f64 * 20.0)
+                }
+            },
         )
         .await;
         log::debug!("sosis_listener initialized");
@@ -219,8 +227,16 @@ async fn handle_control<'a>(
             let sosis_listener = sosistab::Listener::listen(
                 "[::0]:0",
                 sosis_secret.clone(),
-                move |len, _| stat.sampled_count(&flow_key, len as f64, 0.01),
-                move |len, _| stat2.sampled_count(&fk2, len as f64, 0.01),
+                move |len, _| {
+                    if fastrand::f32() < 0.05 {
+                        stat.count(&flow_key, len as f64 * 20.0)
+                    }
+                },
+                move |len, _| {
+                    if fastrand::f32() < 0.05 {
+                        stat2.count(&fk2, len as f64 * 20.0)
+                    }
+                },
             )
             .await;
             let (send, recv) = smol::channel::bounded(1);
@@ -442,10 +458,14 @@ async fn handle_proxy_stream(
     // copy the streams
     smol::future::race(
         aioutils::copy_with_stats(remote.clone(), client.clone(), |n| {
-            stat_client.sampled_count(&key, n as f64, 0.01);
+            if fastrand::f32() < 0.05 {
+                stat_client.count(&key, n as f64 * 20.0)
+            }
         }),
         aioutils::copy_with_stats(client, remote, |n| {
-            stat_client.sampled_count(&key, n as f64, 0.01);
+            if fastrand::f32() < 0.05 {
+                stat_client.count(&key, n as f64 * 20.0)
+            }
         }),
     )
     .await?;

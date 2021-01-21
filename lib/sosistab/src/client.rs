@@ -283,7 +283,6 @@ async fn client_backhaul_once(
                             }
                             .or(async {
                                 smol::Timer::after(Duration::from_secs(60)).await;
-                                tracing::warn!("dropping old socket");
                                 None
                             }),
                         );

@@ -50,3 +50,4 @@ flate2= "1.0.19"
 async-dup= "1.2.2"
 
 jemallocator = "0.3.2"
+fastrand="1"

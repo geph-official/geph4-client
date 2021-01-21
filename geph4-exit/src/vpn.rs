@@ -111,7 +111,9 @@ pub async fn handle_vpn_session(
         INCOMING_MAP.insert(
             addr,
             Box::new(move |bts| {
-                stat_client.sampled_count(&key, bts.len() as f64, 0.01);
+                if fastrand::f32() < 0.05 {
+                    stat_client.count(&key, bts.len() as f64 * 20.0)
+                }
                 let pkt = Ipv4Packet::new(&bts).expect("don't send me invalid IPv4 packets!");
                 assert_eq!(pkt.get_destination(), addr);
                 let msg = Message::Payload(bts);
@@ -135,7 +137,9 @@ pub async fn handle_vpn_session(
                 )?;
             }
             Message::Payload(bts) => {
-                stat_client.sampled_count(&key, bts.len() as f64, 0.01);
+                if fastrand::f32() < 0.05 {
+                    stat_client.count(&key, bts.len() as f64 * 20.0)
+                }
                 let pkt = Ipv4Packet::new(&bts);
                 if let Some(pkt) = pkt {
                     // source must be correct and destination must not be banned

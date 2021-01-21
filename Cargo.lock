@@ -1668,6 +1668,7 @@ dependencies = [
  "dashmap 4.0.2",
  "ed25519-dalek",
  "env_logger",
+ "fastrand",
  "flate2",
  "hex",
  "jemallocator",
