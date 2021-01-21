@@ -111,7 +111,7 @@ pub async fn handle_vpn_session(
         INCOMING_MAP.insert(
             addr,
             Box::new(move |bts| {
-                stat_client.sampled_count(&key, bts.len() as f64, 0.1);
+                stat_client.sampled_count(&key, bts.len() as f64, 0.01);
                 let pkt = Ipv4Packet::new(&bts).expect("don't send me invalid IPv4 packets!");
                 assert_eq!(pkt.get_destination(), addr);
                 let msg = Message::Payload(bts);
@@ -135,7 +135,7 @@ pub async fn handle_vpn_session(
                 )?;
             }
             Message::Payload(bts) => {
-                stat_client.sampled_count(&key, bts.len() as f64, 0.1);
+                stat_client.sampled_count(&key, bts.len() as f64, 0.01);
                 let pkt = Ipv4Packet::new(&bts);
                 if let Some(pkt) = pkt {
                     // source must be correct and destination must not be banned
@@ -161,9 +161,11 @@ pub async fn handle_vpn_session(
                     };
                     if let Some(port) = port {
                         if crate::lists::BLACK_PORTS.contains(&port) {
+                            log::warn!("blocking packet on port {}", port);
                             continue;
                         }
                         if port_whitelist && !crate::lists::WHITE_PORTS.contains(&port) {
+                            log::warn!("blocking packet on port {}", port);
                             continue;
                         }
                     }

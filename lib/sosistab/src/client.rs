@@ -1,6 +1,7 @@
 use crate::*;
 use bytes::Bytes;
 use governor::{Quota, RateLimiter};
+use rand::prelude::*;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use std::{net::SocketAddr, num::NonZeroU32};
@@ -190,6 +191,8 @@ async fn client_backhaul_once(
         Outgoing(Vec<Bytes>),
     };
 
+    let mut my_reset_millis = rand::thread_rng().gen_range(RESET_MILLIS / 2, RESET_MILLIS);
+
     loop {
         let down = {
             let dn_crypter = dn_crypter.clone();
@@ -251,7 +254,9 @@ async fn client_backhaul_once(
                 if remind_ratelimit.check().is_ok() || !updated {
                     updated = true;
                     let g_encrypt = crypt::StdAEAD::new(&cookie.generate_c2s().next().unwrap());
-                    if now.saturating_duration_since(last_reset).as_millis() > RESET_MILLIS {
+                    if now.saturating_duration_since(last_reset).as_millis() > my_reset_millis {
+                        my_reset_millis =
+                            rand::thread_rng().gen_range(RESET_MILLIS / 2, RESET_MILLIS);
                         last_reset = now;
                         // also replace the UDP socket!
                         let old_socket = socket.clone();
@@ -277,7 +282,8 @@ async fn client_backhaul_once(
                                 }
                             }
                             .or(async {
-                                smol::Timer::after(Duration::from_secs(5)).await;
+                                smol::Timer::after(Duration::from_secs(60)).await;
+                                tracing::warn!("dropping old socket");
                                 None
                             }),
                         );

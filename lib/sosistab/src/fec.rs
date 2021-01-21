@@ -1,9 +1,14 @@
 use bytes::{Bytes, BytesMut};
+use governor::{
+    clock::MonotonicClock,
+    state::{InMemoryState, NotKeyed},
+    Quota, RateLimiter,
+};
 use once_cell::sync::Lazy;
 use probability::distribution::Distribution;
 use reed_solomon_erasure::galois_8;
-use std::convert::TryInto;
 use std::{collections::HashMap, sync::Arc};
+use std::{convert::TryInto, num::NonZeroU32};
 /// A forward error correction encoder. Retains internal state for memoization, memory pooling etc.
 #[derive(Debug)]
 pub struct FrameEncoder {
@@ -13,6 +18,8 @@ pub struct FrameEncoder {
     target_loss: u8,
     // encoder pool
     rs_encoders: HashMap<(usize, usize), galois_8::ReedSolomon>,
+    // rate limiter
+    parity_rate_limit: RateLimiter<NotKeyed, InMemoryState, MonotonicClock>,
 }
 
 impl FrameEncoder {
@@ -23,6 +30,11 @@ impl FrameEncoder {
             rate_table: HashMap::new(),
             target_loss,
             rs_encoders: HashMap::new(),
+            parity_rate_limit: RateLimiter::direct_with_clock(
+                Quota::per_second(NonZeroU32::new(300u32).unwrap())
+                    .allow_burst(NonZeroU32::new(10000u32).unwrap()),
+                &governor::clock::MonotonicClock,
+            ),
         }
     }
 
@@ -70,7 +82,7 @@ impl FrameEncoder {
     /// Calculates the number of repair blocks needed to properly reconstruct a run of packets.
     fn repair_len(&mut self, measured_loss: u8, run_len: usize) -> usize {
         let target_loss = self.target_loss;
-        (*self
+        let toret = (*self
             .rate_table
             .entry((measured_loss, run_len))
             .or_insert_with(|| {
@@ -86,7 +98,21 @@ impl FrameEncoder {
                 }
                 panic!()
             }))
-        .min(255 - run_len)
+        .min(255 - run_len);
+        // if toret > 0
+        //     && self
+        //         .parity_rate_limit
+        //         .check_n((toret as u32).try_into().unwrap())
+        //         .is_err()
+        //     && self
+        //         .parity_rate_limit
+        //         .check_n((toret as u32).try_into().unwrap())
+        //         .is_err()
+        // {
+        //     tracing::warn!("ratelimiting parity");
+        //     return 0;
+        // }
+        toret
     }
 }
 

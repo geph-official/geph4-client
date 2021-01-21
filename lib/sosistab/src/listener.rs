@@ -28,6 +28,8 @@ impl Listener {
     pub async fn listen(
         addr: impl AsyncToSocketAddrs,
         long_sk: x25519_dalek::StaticSecret,
+        on_recv: impl Fn(usize, SocketAddr) + 'static + Send + Sync,
+        on_send: impl Fn(usize, SocketAddr) + 'static + Send + Sync,
     ) -> Self {
         // let addr = async_net::resolve(addr).await;
         let socket = runtime::new_udp_socket_bind(addr).await.unwrap();
@@ -36,7 +38,7 @@ impl Listener {
         let (send, recv) = smol::channel::unbounded();
         let task = runtime::spawn(
             ListenerActor {
-                socket: Arc::new(socket),
+                socket: Arc::new(StatsBackhaul::new(socket, on_recv, on_send)),
                 cookie,
                 long_sk,
             }
@@ -118,7 +120,6 @@ impl ListenerActor {
         }
 
         loop {
-            smol::future::yield_now().await;
             let event = smol::future::race(
                 async {
                     Some(Evt::NewRecv(
@@ -354,7 +355,7 @@ impl ListenerActor {
                                                     .await;
                                                 drop(accepted.send(session).await);
                                             } else {
-                                                tracing::warn!(
+                                                tracing::trace!(
                                                     "ClientResume from {} can't be decrypted",
                                                     addr
                                                 );

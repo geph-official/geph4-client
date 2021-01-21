@@ -180,7 +180,7 @@ fn fix_dns_dest(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Byte
     let mut vv = bts.to_vec();
     let mut parsed = MutableIpv4Packet::new(&mut vv)?;
     nat.write().insert(dns_src_port, parsed.get_destination());
-    parsed.set_destination(Ipv4Addr::new(74, 82, 42, 42));
+    parsed.set_destination(Ipv4Addr::new(1, 1, 1, 1));
     fix_all_checksums(&mut vv)?;
     Some(vv.into())
 }

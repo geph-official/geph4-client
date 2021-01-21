@@ -27,6 +27,41 @@ pub trait Backhaul: Send + Sync {
     }
 }
 
+/// A structure that wraps a Backhaul with statistics.
+pub struct StatsBackhaul<B: Backhaul> {
+    haul: B,
+    on_recv: Box<dyn Fn(usize, SocketAddr) + Send + Sync>,
+    on_send: Box<dyn Fn(usize, SocketAddr) + Send + Sync>,
+}
+
+impl<B: Backhaul> StatsBackhaul<B> {
+    pub fn new(
+        haul: B,
+        on_recv: impl Fn(usize, SocketAddr) + 'static + Send + Sync,
+        on_send: impl Fn(usize, SocketAddr) + 'static + Send + Sync,
+    ) -> Self {
+        Self {
+            haul,
+            on_recv: Box::new(on_recv),
+            on_send: Box::new(on_send),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl<B: Backhaul> Backhaul for StatsBackhaul<B> {
+    async fn send_to(&self, to_send: Bytes, dest: SocketAddr) -> io::Result<()> {
+        (self.on_send)(to_send.len(), dest);
+        self.haul.send_to(to_send, dest).await
+    }
+
+    async fn recv_from(&self) -> io::Result<(Bytes, SocketAddr)> {
+        let (bts, addr) = self.haul.recv_from().await?;
+        (self.on_recv)(bts.len(), addr);
+        Ok((bts, addr))
+    }
+}
+
 #[async_trait::async_trait]
 impl Backhaul for Async<UdpSocket> {
     async fn send_to(&self, to_send: Bytes, dest: SocketAddr) -> io::Result<()> {

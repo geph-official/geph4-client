@@ -5,7 +5,7 @@ use once_cell::sync::Lazy;
 /// List of whitelisted ports.
 pub static WHITE_PORTS: Lazy<BTreeSet<u16>> = Lazy::new(|| {
     // See: https://trac.torproject.org/projects/tor/wiki/doc/ReducedExitPolicy
-    vec![
+    let mut toret: Vec<_> = vec![
         20u16, 21, 22, 23, 43, 53, 79, 80, 81, 88, 110, 143, 194, 220, 389, 443, 464, 465, 531,
         543, 544, 554, 563, 587, 636, 706, 749, 853, 873, 902, 903, 904, 981, 989, 990, 991, 992,
         993, 994, 995, 1194, 1220, 1293, 1500, 1533, 1677, 1723, 1755, 1863, 2082, 2083, 2086,
@@ -15,7 +15,14 @@ pub static WHITE_PORTS: Lazy<BTreeSet<u16>> = Lazy::new(|| {
         19294, 19638, 50002, 64738,
     ]
     .into_iter()
-    .collect()
+    .collect();
+    // steam
+    toret.extend(27000..=27100);
+    toret.extend(&[3748, 4379, 4380]);
+    // blizzard
+    toret.push(1119);
+    toret.extend(3478..=3479);
+    toret.into_iter().collect()
 });
 
 /// List of blacklisted ports

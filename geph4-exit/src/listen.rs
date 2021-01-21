@@ -86,6 +86,7 @@ pub async fn main_loop<'a>(
         google_proxy,
         nursery: nursery.handle(),
     });
+
     // control protocol listener
     let control_prot_listen = smol::net::TcpListener::bind("[::0]:28080").await?;
     // future that governs the control protocol
@@ -103,11 +104,28 @@ pub async fn main_loop<'a>(
             );
         }
     };
+    let exit_hostname2 = exit_hostname.to_string();
+    let bridge_pkt_key = move |bridge_group: &str| {
+        format!(
+            "raw_flow.{}.{}",
+            exit_hostname2.replace(".", "-"),
+            bridge_group.replace(".", "-")
+        )
+    };
     // future that governs the "self bridge"
     let ctx1 = ctx.clone();
+    let stat = ctx1.stat_client.clone();
     let self_bridge_fut = async {
-        let sosis_listener =
-            sosistab::Listener::listen("[::0]:19831", ctx1.sosistab_sk.clone()).await;
+        let flow_key = bridge_pkt_key("SELF");
+        let stat2 = stat.clone();
+        let fk2 = flow_key.clone();
+        let sosis_listener = sosistab::Listener::listen(
+            "[::0]:19831",
+            ctx1.sosistab_sk.clone(),
+            move |len, _| stat.sampled_count(&flow_key, len as f64, 0.1),
+            move |len, _| stat2.sampled_count(&fk2, len as f64, 0.1),
+        )
+        .await;
         log::debug!("sosis_listener initialized");
         loop {
             let sess = sosis_listener
@@ -148,6 +166,15 @@ async fn handle_control<'a>(
     ctx: Arc<RootCtx>,
     mut client: smol::net::TcpStream,
 ) -> anyhow::Result<()> {
+    let exit_hostname = ctx.exit_hostname.clone();
+    let bridge_pkt_key = move |bridge_group: &str| {
+        format!(
+            "raw_flow.{}.{}",
+            exit_hostname.replace(".", "-"),
+            bridge_group.replace(".", "-")
+        )
+    };
+
     let bridge_secret = ctx.bridge_secret.as_bytes();
     // first, let's challenge the client to prove that they have the bridge secret
     let challenge_string: [u8; 32] = rand::thread_rng().gen();
@@ -179,13 +206,23 @@ async fn handle_control<'a>(
                 anyhow::bail!("timeout read")
             })
             .await?;
+        let flow_key = bridge_pkt_key(&their_group);
         log::debug!("bridge in group {} to forward {}", their_group, their_addr);
         // create or recall binding
         if info.is_none() {
             let ctx = ctx.clone();
+            let stat = ctx.stat_client.clone();
+            let stat2 = stat.clone();
+            let fk2 = flow_key.clone();
             log::debug!("redoing binding because info is none");
             let sosis_secret = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
-            let sosis_listener = sosistab::Listener::listen("[::0]:0", sosis_secret.clone()).await;
+            let sosis_listener = sosistab::Listener::listen(
+                "[::0]:0",
+                sosis_secret.clone(),
+                move |len, _| stat.sampled_count(&flow_key, len as f64, 0.01),
+                move |len, _| stat2.sampled_count(&fk2, len as f64, 0.01),
+            )
+            .await;
             let (send, recv) = smol::channel::bounded(1);
             info = Some((
                 sosis_listener.local_addr().port(),
@@ -405,10 +442,10 @@ async fn handle_proxy_stream(
     // copy the streams
     smol::future::race(
         aioutils::copy_with_stats(remote.clone(), client.clone(), |n| {
-            stat_client.sampled_count(&key, n as f64, 0.1);
+            stat_client.sampled_count(&key, n as f64, 0.01);
         }),
         aioutils::copy_with_stats(client, remote, |n| {
-            stat_client.sampled_count(&key, n as f64, 0.1);
+            stat_client.sampled_count(&key, n as f64, 0.01);
         }),
     )
     .await?;

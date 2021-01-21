@@ -1,6 +1,6 @@
+use crate::fec::FrameEncoder;
 use crate::msg::DataFrame;
 use crate::runtime;
-use crate::{fec::FrameEncoder, VarRateLimit};
 use bytes::Bytes;
 use concurrent_queue::ConcurrentQueue;
 use governor::{NegativeMultiDecision, Quota, RateLimiter};
@@ -196,6 +196,7 @@ async fn session_send_loop(
         Quota::per_second(NonZeroU32::new(10000u32).unwrap()),
         &governor::clock::MonotonicClock,
     );
+    let mut encoder = FrameEncoder::new(loss_to_u8(cfg.target_loss));
     loop {
         // obtain a vector of bytes to send
         let loss = statg.loss_u8();
@@ -223,7 +224,7 @@ async fn session_send_loop(
             }
         }
         // encode into raptor
-        let encoded = FrameEncoder::new(loss_to_u8(cfg.target_loss)).encode(loss, &to_send);
+        let encoded = encoder.encode(loss, &to_send);
         let mut tosend = Vec::with_capacity(encoded.len());
         for (idx, bts) in encoded.iter().enumerate() {
             // limit

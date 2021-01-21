@@ -16,7 +16,8 @@ fn main() {
 async fn run_server() {
     let mut badrng = rand::rngs::StdRng::seed_from_u64(0);
     let long_sk = x25519_dalek::StaticSecret::new(&mut badrng);
-    let listener = sosistab::Listener::listen("127.0.0.1:23456", long_sk).await;
+    let listener =
+        sosistab::Listener::listen("127.0.0.1:23456", long_sk, |_, _| (), |_, _| ()).await;
     loop {
         let socket = listener.accept_session().await.unwrap();
         EXEC.spawn(async move {
