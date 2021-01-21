@@ -104,7 +104,7 @@ fn download_loop(mut geph_stdout: ChildStdout) {
             }
         }
         handle.inject_multi(&batch, false).unwrap();
-        thread_sleep(Duration::from_millis(5));
+        // thread_sleep(Duration::from_millis(5));
     });
     loop {
         // read a message from Geph
