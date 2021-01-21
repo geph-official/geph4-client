@@ -188,7 +188,7 @@ async fn relconn_actor(
             } => {
                 let wait_interval = 500u64;
                 tracing::debug!("C={} SynSent, tried {} times", stream_id, tries);
-                if tries > 5 {
+                if tries > 100 {
                     anyhow::bail!("timeout")
                 }
                 let synack_evt = async {
