@@ -1,6 +1,7 @@
 use crate::address::{host_addr, Address};
 use crate::http_client;
 use crate::socks5;
+use futures::FutureExt;
 use http::{
     uri::{Authority, Scheme, Uri},
     Method,
@@ -130,7 +131,7 @@ async fn server_dispatch(
             client_addr, addr, host
         );
         tokio::spawn(async move {
-            match req.into_body().on_upgrade().await {
+            match hyper::upgrade::on(req).await {
                 Ok(upgraded) => {
                     trace!(
                         "CONNECT tunnel upgrade success, {} <-> {} ({})",
@@ -199,7 +200,7 @@ async fn establish_connect_tunnel(
         client_addr, svr_addr, addr
     );
 
-    match future::select(rhalf, whalf).await {
+    match future::select(rhalf.boxed(), whalf.boxed()).await {
         Either::Left((Ok(..), _)) => trace!(
             "CONNECT relay {} -> {} ({}) closed",
             client_addr,

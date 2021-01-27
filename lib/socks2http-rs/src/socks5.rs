@@ -6,10 +6,10 @@ use std::{
     fmt::{self, Debug},
     io,
 };
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncRead, AsyncWriteExt};
+use tokio::io::{AsyncReadExt, AsyncWrite};
 use tokio::net::TcpStream;
-use tokio::prelude::*;
+
 #[derive(Clone, Debug, Copy)]
 pub enum Command {
     /// CONNECT command (TCP tunnel)
@@ -173,7 +173,6 @@ pub struct TcpResponseHeader {
     pub address: Address,
 }
 impl TcpResponseHeader {
-
     /// Read from a reader
     pub async fn read_from<R>(r: &mut R) -> Result<TcpResponseHeader, Error>
     where

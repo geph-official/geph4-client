@@ -1,12 +1,12 @@
 use super::consts;
 use super::socks5::{Error, Reply};
-use bytes::{buf::BufExt, Buf, BufMut, BytesMut};
+use bytes::{Buf, BufMut, BytesMut};
 use std::{
     fmt::{self, Debug},
     io::Cursor,
     net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
 };
-use tokio::prelude::*;
+use tokio::io::{self, AsyncRead, AsyncReadExt};
 /// SOCKS5 protocol error
 
 #[derive(Clone, PartialEq, Eq, Hash)]
@@ -28,7 +28,7 @@ impl Address {
                 let mut buf = BytesMut::with_capacity(6);
                 buf.resize(6, 0);
                 let _ = stream.read_exact(&mut buf).await?;
-                let mut cursor = buf.to_bytes();
+                let mut cursor = buf.copy_to_bytes(buf.len());
                 let v4addr = Ipv4Addr::new(
                     cursor.get_u8(),
                     cursor.get_u8(),
@@ -68,9 +68,9 @@ impl Address {
                 let mut buf = BytesMut::with_capacity(buf_length);
                 buf.resize(buf_length, 0);
                 let _ = stream.read_exact(&mut buf).await?;
-                let mut cursor = buf.to_bytes();
+                let mut cursor = buf.copy_to_bytes(buf.len());
                 let mut raw_addr = Vec::with_capacity(length);
-                raw_addr.put(&mut BufExt::take(&mut cursor, length));
+                raw_addr.put((&mut cursor).take(length));
                 let addr = match String::from_utf8(raw_addr) {
                     Ok(addr) => addr,
                     Err(..) => {

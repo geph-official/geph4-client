@@ -2,7 +2,6 @@ mod address;
 mod consts;
 mod http_client;
 mod http_local;
-mod monitor;
 mod socks5;
 use std::net::SocketAddr;
 

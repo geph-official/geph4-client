@@ -1,18 +1,18 @@
 [package]
 name = "socks2http"
-version = "0.1.0"
-authors = ["xVanTuring <xVanTuring@outlook.com>"]
+version = "0.2.0"
+authors = ["nullchinchilla", "xVanTuring <xVanTuring@outlook.com>"]
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-tokio = { version = "0.2.11", features = ["rt-core","rt-threaded","rt-util","io-util","signal","tcp","stream"]}
-hyper = "0.13"
-bytes = "0.5.4"
-futures = "0.3.4"
-pin-project = "0.4.8"
-http = "0.2.0"
-log = "0.4.8"
-env_logger = "0.7.1"
-clap = "2.33.0"
+tokio = { version = "1.1.0", features = ["rt","net", "io-util"] }
+hyper = {version="0.14.2", features=["http1", "client", "server", "tcp", "stream"]}
+bytes = "1.0.1"
+futures = "0.3.12"
+pin-project = "1.0.4"
+http = "0.2.3"
+log = "0.4.14"
+env_logger = "0.8.2"
+clap = "2.33.3"
