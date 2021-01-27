@@ -51,7 +51,7 @@ bytes= "1.0.0"
 statsd = "0.14.0"
 smolscale={path="../lib/smolscale"}
 socks2http={path="../lib/socks2http-rs"}
-async-compat="0.1" # for tokio 0.2
+async-compat="0.2"
 
 [dependencies.async-tls]
 version = "0.11.0"
