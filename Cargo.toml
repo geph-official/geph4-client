@@ -9,6 +9,7 @@ members = [
     "lib/smolscale",
     "lib/aioutils",
     "lib/vpn_structs",
+    "lib/socks2http-rs",
     "lib/sosistab",
     "lib/warpfront",
     "lib/spiderchan",

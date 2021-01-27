@@ -1,6 +1,7 @@
 use crate::{cache::ClientCache, kalive::Keepalive, stats::StatCollector, AuthOpt, CommonOpt};
 use crate::{china, stats::GLOBAL_LOGGER};
 use anyhow::Context;
+use async_compat::Compat;
 use chrono::prelude::*;
 use smol_timeout::TimeoutExt;
 use std::{net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, sync::Arc, time::Duration};
@@ -18,6 +19,9 @@ pub struct ConnectOpt {
     /// whether or not to use bridges
     use_bridges: bool,
 
+    #[structopt(long, default_value = "127.0.0.1:9910")]
+    /// where to listen for HTTP proxy connections
+    http_listen: SocketAddr,
     #[structopt(long, default_value = "127.0.0.1:9909")]
     /// where to listen for SOCKS5 connections
     socks5_listen: SocketAddr,
@@ -52,6 +56,14 @@ pub struct ConnectOpt {
 
 pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     log::info!("connect mode started");
+
+    //start socks 2 http
+    smolscale::spawn(Compat::new(socks2http::run_tokio(
+        opt.http_listen,
+        opt.socks5_listen,
+    )))
+    .detach();
+
     let stat_collector = Arc::new(StatCollector::default());
     // create a db directory if doesn't exist
     let client_cache =

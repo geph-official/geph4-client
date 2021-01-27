@@ -124,10 +124,11 @@ async fn keepalive_actor_once(
                 smolscale::spawn(async move {
                     log::debug!("connecting through {}...", desc.endpoint);
                     drop(
-                        send.send((
-                            desc.endpoint,
-                            sosistab::connect(desc.endpoint, desc.sosistab_key).await,
-                        ))
+                        send.send((desc.endpoint, {
+                            let _ = sosistab::connect(desc.endpoint, desc.sosistab_key).await;
+                            let _ = sosistab::connect(desc.endpoint, desc.sosistab_key).await;
+                            sosistab::connect(desc.endpoint, desc.sosistab_key).await
+                        }))
                         .await,
                     )
                 })

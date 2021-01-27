@@ -1,6 +1,6 @@
 [package]
 name = "geph4-client"
-version = "4.0.9"
+version = "4.0.10"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2018"
 
@@ -50,6 +50,8 @@ async-dup= "1.2.2"
 bytes= "1.0.0"
 statsd = "0.14.0"
 smolscale={path="../lib/smolscale"}
+socks2http={path="../lib/socks2http-rs"}
+async-compat="0.1" # for tokio 0.2
 
 [dependencies.async-tls]
 version = "0.11.0"
