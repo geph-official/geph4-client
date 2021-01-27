@@ -58,10 +58,11 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     log::info!("connect mode started");
 
     //start socks 2 http
-    smolscale::spawn(Compat::new(socks2http::run_tokio(
-        opt.http_listen,
-        opt.socks5_listen,
-    )))
+    smolscale::spawn(Compat::new(socks2http::run_tokio(opt.http_listen, {
+        let mut addr = opt.socks5_listen;
+        addr.set_ip("127.0.0.1".parse().unwrap());
+        addr
+    })))
     .detach();
 
     let stat_collector = Arc::new(StatCollector::default());
