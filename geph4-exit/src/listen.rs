@@ -278,18 +278,21 @@ async fn handle_control<'a>(
         let exit_signature = ctx.signing_sk.sign(&to_sign);
         let binder_client = ctx.binder_client.clone();
         let exit_hostname = ctx.exit_hostname.to_string();
-        let resp = binder_client
+        while let Err(err) = binder_client
             .request(BinderRequestData::AddBridgeRoute {
                 sosistab_pubkey: *sosistab_pk,
                 bridge_address: their_addr,
-                bridge_group: their_group,
-                exit_hostname,
+                bridge_group: their_group.clone(),
+                exit_hostname: exit_hostname.clone(),
                 route_unixtime,
                 exit_signature,
             })
             .await
-            .context("failed to go to binder")?;
-        assert_eq!(resp, BinderResponse::Okay);
+            .context("failed to go to binder")
+        {
+            log::warn!("{:?}", err);
+            smol::Timer::after(Duration::from_secs(1)).await;
+        }
     }
 }
 

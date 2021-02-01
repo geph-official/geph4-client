@@ -23,5 +23,6 @@ serde = "1.0.118"
 blake3 = "0.3.7"
 ureq = "1.5"
 flume = "0.10.1"
+once_cell="1"
 
 aioutils={path="../lib/aioutils"}

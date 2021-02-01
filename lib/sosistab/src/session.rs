@@ -187,7 +187,7 @@ async fn session_send_loop(
     let mut to_send = Vec::new();
 
     let batch_limiter = RateLimiter::direct_with_clock(
-        Quota::per_second(NonZeroU32::new(100u32).unwrap())
+        Quota::per_second(NonZeroU32::new(50u32).unwrap())
             .allow_burst(NonZeroU32::new(10u32).unwrap()),
         &governor::clock::MonotonicClock,
     );

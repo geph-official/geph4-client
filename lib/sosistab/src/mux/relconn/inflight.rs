@@ -198,7 +198,7 @@ struct RateCalculator {
 impl Default for RateCalculator {
     fn default() -> Self {
         RateCalculator {
-            rate: 100.0,
+            rate: 500.0,
             rate_update_time: Instant::now(),
         }
     }

@@ -18,6 +18,9 @@ struct Opt {
     /// HTTP listening port
     #[structopt(default_value = "127.0.0.1:18080", long)]
     listen_http: SocketAddr,
+    #[structopt(long, default_value = "172.105.28.221:8125")]
+    /// UDP address of the statsd daemon
+    statsd_addr: SocketAddr,
 }
 
 fn main() {
@@ -44,8 +47,13 @@ fn main() {
         "  Mizaru public key (PLUS) = {}",
         hex::encode(plus_mizaru_sk.to_public_key().0)
     );
+    let statsd_client = statsd::Client::new(opt.statsd_addr, "geph4.binder").unwrap();
     // create server
-    let http_serv = binder_transport::HttpServer::new(opt.listen_http, master_secret);
+    let copp = statsd::Client::new(opt.statsd_addr, "geph4.binder").unwrap();
+    let http_serv =
+        binder_transport::HttpServer::new(opt.listen_http, master_secret, move |time| {
+            copp.timer("latency", time.as_secs_f64())
+        });
     println!("HTTP listening on {}", opt.listen_http);
-    responder::handle_requests(http_serv, &binder_core)
+    responder::handle_requests(http_serv, &binder_core, statsd_client)
 }

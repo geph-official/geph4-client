@@ -6,7 +6,11 @@ use crate::{
 use async_tls::TlsConnector;
 use http_types::{Method, Request, StatusCode, Url};
 use smol::channel::{Receiver, Sender};
-use std::{net::SocketAddr, sync::Arc, time::Duration};
+use std::{
+    net::SocketAddr,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 /// An HTTP-based BinderClient implementation, driven by ureq.
 #[derive(Clone, Debug)]
@@ -98,7 +102,11 @@ pub struct HttpServer {
 
 impl HttpServer {
     /// Creates a new HttpServer listening on the given SocketAddr with the given secret key.
-    pub fn new(listen_on: SocketAddr, my_lsk: x25519_dalek::StaticSecret) -> Self {
+    pub fn new(
+        listen_on: SocketAddr,
+        my_lsk: x25519_dalek::StaticSecret,
+        on_time: impl Fn(Duration) + Send + Sync + 'static,
+    ) -> Self {
         let executor = Arc::new(smol::Executor::new());
         let (breq_send, breq_recv) = smol::channel::unbounded();
         executor
@@ -107,6 +115,7 @@ impl HttpServer {
                 listen_on,
                 my_lsk,
                 breq_send,
+                on_time,
             ))
             .detach();
         Self {
@@ -132,7 +141,9 @@ async fn httpserver_main_loop(
     listen_on: SocketAddr,
     my_lsk: x25519_dalek::StaticSecret,
     breq_send: Sender<BinderRequest>,
+    on_time: impl Fn(Duration) + Send + Sync + 'static,
 ) -> Option<()> {
+    let on_time = Arc::new(on_time);
     let listener = smol::net::TcpListener::bind(listen_on).await.unwrap();
     log::debug!("listening on {}", listen_on);
     loop {
@@ -141,14 +152,17 @@ async fn httpserver_main_loop(
             let breq_send = breq_send.clone();
             let peer_addr = client.peer_addr().unwrap();
             log::trace!("new connection from {}", peer_addr);
+            let on_time = on_time.clone();
             // start a new task
             executor
                 .spawn(async move {
                     let my_lsk = my_lsk.clone();
                     drop(
                         async_h1::accept(client, |mut req| {
+                            let start = Instant::now();
                             let my_lsk = my_lsk.clone();
                             let breq_send = breq_send.clone();
+                            let on_time = on_time.clone();
                             async move {
                                 // first read the request
                                 let req: EncryptedBinderRequestData =
@@ -178,6 +192,7 @@ async fn httpserver_main_loop(
                                 // send response
                                 let mut resp = http_types::Response::new(StatusCode::Ok);
                                 resp.set_body(bincode::serialize(&response).unwrap());
+                                on_time(start.elapsed());
                                 Ok(resp)
                             }
                         })

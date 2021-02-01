@@ -1,9 +1,11 @@
 use binder_transport::{BinderError, BridgeDescriptor, ExitDescriptor, SubscriptionInfo, UserInfo};
+
 use native_tls::{Certificate, TlsConnector};
+
 use parking_lot::Mutex;
 use postgres_native_tls::MakeTlsConnector;
 use r2d2_postgres::PostgresConnectionManager;
-use rand::prelude::*;
+
 use std::{
     collections::HashMap,
     convert::TryFrom,
@@ -377,7 +379,6 @@ impl BinderCore {
     }
 
     /// Get all bridges.
-    /// TODO: right now just dumps all recent routes. This is obviously wrong and will be fixed.
     pub fn get_bridges(
         &self,
         level: &str,
@@ -388,6 +389,7 @@ impl BinderCore {
         if !self.validate(level, unblinded_digest, unblinded_signature)? {
             return Err(BinderError::NoUserFound);
         }
+
         let mut client = self.get_pg_conn()?;
         let mut txn: postgres::Transaction<'_> = client
             .transaction()
@@ -396,7 +398,12 @@ impl BinderCore {
         let mut rows = txn
             .query(query, &[&exit_hostname])
             .map_err(|_| BinderError::DatabaseFailed)?;
-        rows.shuffle(&mut rand::thread_rng());
+        // we sort by the keyed hash of the bridge address with the given unblinded digest. This ensures reasonable stability.
+        rows.sort_by_key(|row| {
+            let addr: String = row.get(0);
+            *blake3::keyed_hash(blake3::hash(unblinded_digest).as_bytes(), addr.as_bytes())
+                .as_bytes()
+        });
         let mut res: Vec<_> = rows
             .into_iter()
             .map(|row| {

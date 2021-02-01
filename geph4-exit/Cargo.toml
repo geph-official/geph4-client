@@ -51,3 +51,5 @@ async-dup= "1.2.2"
 
 jemallocator = "0.3.2"
 fastrand="1"
+
+cached="0.23"

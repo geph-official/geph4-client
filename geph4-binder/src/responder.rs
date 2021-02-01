@@ -1,4 +1,4 @@
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use crate::bindercore::BinderCore;
 use binder_transport::{BinderError, BinderRequestData, BinderResponse, BinderServer};
@@ -19,19 +19,22 @@ fn db_retry<T>(action: impl Fn() -> Result<T, BinderError>) -> Result<T, BinderE
 }
 
 /// Respond to requests coming from the given BinderServer, using the given BinderCore.
-pub fn handle_requests(serv: impl BinderServer, core: &BinderCore) {
+pub fn handle_requests(serv: impl BinderServer, core: &BinderCore, statsd_client: statsd::Client) {
     easy_parallel::Parallel::new()
-        .each(0..64, |worker_id| loop {
-            if let Err(e) = { handle_request_once(&serv, core) } {
+        .each(0..16, |worker_id| loop {
+            if let Err(e) = { handle_request_once(&serv, core, &statsd_client) } {
                 log::warn!("worker {} restarting ({})", worker_id, e)
             }
         })
         .run();
 }
 
-fn handle_request_once(serv: &impl BinderServer, core: &BinderCore) -> anyhow::Result<()> {
+fn handle_request_once(
+    serv: &impl BinderServer,
+    core: &BinderCore,
+    statsd_client: &statsd::Client,
+) -> anyhow::Result<()> {
     let req = serv.next_request()?;
-    let start = Instant::now();
     let res = match &req.request_data {
         // password change request
         BinderRequestData::ChangePassword {
@@ -43,6 +46,7 @@ fn handle_request_once(serv: &impl BinderServer, core: &BinderCore) -> anyhow::R
         // get epoch key
         BinderRequestData::GetEpochKey { epoch, level } => db_retry(|| {
             let subkey = core.get_epoch_key(level, *epoch as usize)?;
+            statsd_client.incr("GetEpochKey");
             Ok(BinderResponse::GetEpochKeyResp(subkey))
         }),
         // authenticate
@@ -60,6 +64,7 @@ fn handle_request_once(serv: &impl BinderServer, core: &BinderCore) -> anyhow::R
                 *epoch as usize,
                 &blinded_digest,
             )?;
+            statsd_client.incr("Authenticate");
             Ok(BinderResponse::AuthenticateResp {
                 user_info,
                 blind_signature,
@@ -70,11 +75,15 @@ fn handle_request_once(serv: &impl BinderServer, core: &BinderCore) -> anyhow::R
             level,
             unblinded_digest,
             unblinded_signature,
-        } => db_retry(|| core.validate(level, unblinded_digest, unblinded_signature))
-            .map(BinderResponse::ValidateResp),
+        } => db_retry(|| {
+            statsd_client.incr("Validate");
+            core.validate(level, unblinded_digest, unblinded_signature)
+        })
+        .map(BinderResponse::ValidateResp),
         // get a CAPTCHA
         BinderRequestData::GetCaptcha => db_retry(|| {
             let (captcha_id, png_data) = core.get_captcha()?;
+            statsd_client.incr("GetCaptcha");
             Ok(BinderResponse::GetCaptchaResp {
                 captcha_id,
                 png_data,
@@ -88,11 +97,13 @@ fn handle_request_once(serv: &impl BinderServer, core: &BinderCore) -> anyhow::R
             captcha_soln,
         } => db_retry(|| {
             core.create_user(username, password, captcha_id, captcha_soln)?;
+            statsd_client.incr("RegisterUser");
             Ok(BinderResponse::Okay)
         }),
         // delete a user
         BinderRequestData::DeleteUser { username, password } => db_retry(|| {
             core.delete_user(username, password)?;
+            statsd_client.incr("DeleteUser");
             Ok(BinderResponse::Okay)
         }),
         // add bridge route
@@ -112,15 +123,18 @@ fn handle_request_once(serv: &impl BinderServer, core: &BinderCore) -> anyhow::R
                 *route_unixtime,
                 *exit_signature,
             )?;
+            statsd_client.incr("AddBridgeRoute");
             Ok(BinderResponse::Okay)
         }),
         // get exits
         BinderRequestData::GetExits => db_retry(|| {
             let response = core.get_exits(false)?;
+            statsd_client.incr("GetExits");
             Ok(BinderResponse::GetExitsResp(response))
         }),
         BinderRequestData::GetFreeExits => db_retry(|| {
             let response = core.get_exits(true)?;
+            statsd_client.incr("GetFreeExits");
             Ok(BinderResponse::GetExitsResp(response))
         }),
         // get bridges
@@ -132,10 +146,10 @@ fn handle_request_once(serv: &impl BinderServer, core: &BinderCore) -> anyhow::R
         } => db_retry(|| {
             let resp =
                 core.get_bridges(level, unblinded_digest, unblinded_signature, exit_hostname)?;
+            statsd_client.incr("GetBridges");
             Ok(BinderResponse::GetBridgesResp(resp))
         }),
     };
-    log::debug!("response in {} ms", start.elapsed().as_millis());
     req.respond(res);
     Ok(())
 }

@@ -32,3 +32,6 @@ chrono = "0.4.19"
 ed25519-dalek = { version = "1.0.1", features = ["serde"] }
 rsa = { version = "0.3.0", features = ["serde"] }
 openssl = { version = "0.10.32", features = ["vendored"] }
+statsd = "0.14.0"
+dashmap="4"
+blake3="0.3"

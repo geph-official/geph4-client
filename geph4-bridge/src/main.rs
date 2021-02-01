@@ -1,7 +1,12 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{
+    collections::HashMap,
+    net::{IpAddr, SocketAddr},
+    sync::Arc,
+};
 
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse, ExitDescriptor};
 use env_logger::Env;
+use once_cell::sync::Lazy;
 use smol::prelude::*;
 use std::time::Duration;
 use structopt::StructOpt;
@@ -142,6 +147,17 @@ fn run_command(s: &str) {
         .unwrap();
 }
 
+static MY_IP: Lazy<IpAddr> = Lazy::new(|| {
+    ureq::get("http://checkip.amazonaws.com/")
+        .call()
+        .into_string()
+        .unwrap()
+        .trim()
+        .to_string()
+        .parse()
+        .unwrap()
+});
+
 async fn manage_exit_once(
     exit: &ExitDescriptor,
     bridge_secret: &str,
@@ -150,18 +166,7 @@ async fn manage_exit_once(
     route_update: &flume::Sender<(u16, x25519_dalek::PublicKey)>,
 ) -> anyhow::Result<()> {
     // get my ip address
-    log::info!("trying to get IP...");
-    let my_ip = smol::unblock(|| {
-        ureq::get("http://checkip.amazonaws.com/")
-            .call()
-            .into_string()
-            .unwrap()
-            .trim()
-            .to_string()
-    })
-    .await;
-    log::info!("my IP is {}", my_ip);
-    my_addr.set_ip(my_ip.parse().unwrap());
+    my_addr.set_ip(*MY_IP);
     let mut conn = smol::net::TcpStream::connect(&format!("{}:28080", exit.hostname)).await?;
     // first read the challenge string
     let mut challenge_string = [0u8; 32];
