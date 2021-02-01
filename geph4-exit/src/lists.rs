@@ -19,9 +19,8 @@ pub static WHITE_PORTS: Lazy<BTreeSet<u16>> = Lazy::new(|| {
     // steam
     toret.extend(27000..=27100);
     toret.extend(&[3748, 4379, 4380]);
-    // blizzard
-    toret.push(1119);
-    toret.extend(3478..=3479);
+    // mosh
+    toret.extend(60000..=61000);
     toret.into_iter().collect()
 });
 
