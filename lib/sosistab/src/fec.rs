@@ -87,6 +87,7 @@ impl FrameEncoder {
                 panic!()
             }))
         .min(255 - run_len)
+        .min(run_len)
     }
 }
 
