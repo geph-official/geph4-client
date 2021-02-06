@@ -37,8 +37,6 @@ lru= "0.6.3"
 pnet_packet= "0.27.2"
 rangemap= "0.1.8"
 dashmap= "4.0.1"
-
-contrie= "0.1.4"
  
 aioutils={path="../lib/aioutils"}
 vpn_structs={path="../lib/vpn_structs"}
@@ -48,8 +46,7 @@ os_socketaddr= "0.1.1"
 ureq= "1.5"
 flate2= "1.0.19"
 async-dup= "1.2.2"
-
-jemallocator = "0.3.2"
 fastrand="1"
 
 cached="0.23"
+rustc-hash= "1.1.0"

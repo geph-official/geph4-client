@@ -5,9 +5,6 @@ use std::{
 };
 
 use parking_lot::RwLock;
-
-use crate::msg::DataFrame;
-
 /// Stat gatherer
 #[derive(Default)]
 pub struct StatGatherer {
@@ -19,15 +16,13 @@ pub struct StatGatherer {
 
 impl StatGatherer {
     /// Process an incoming dataframe.
-    pub fn incoming(&self, dframe: &DataFrame) {
+    pub fn incoming(&self, frame_no: u64, their_hrfn: u64, their_trf: u64) {
         self.high_recv_frame_no
-            .fetch_max(dframe.frame_no, std::sync::atomic::Ordering::Relaxed);
+            .fetch_max(frame_no, std::sync::atomic::Ordering::Relaxed);
         self.total_recv_frames
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.ping_calc.write().ack(dframe.high_recv_frame_no);
-        self.loss_calc
-            .write()
-            .update_params(dframe.high_recv_frame_no, dframe.total_recv_frames);
+        self.ping_calc.write().ack(their_hrfn);
+        self.loss_calc.write().update_params(their_hrfn, their_trf);
     }
 
     /// Get high recv frame no
@@ -155,7 +150,7 @@ impl SendLossCalc {
             let median = {
                 let mut lala: Vec<f64> = self.loss_samples.iter().cloned().collect();
                 lala.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-                lala[0]
+                lala[lala.len() / 4]
             };
             self.median = median;
             self.last_time = now;

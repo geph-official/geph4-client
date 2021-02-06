@@ -1,5 +1,6 @@
 use crate::*;
 use bytes::Bytes;
+use crypt::StdAEAD;
 use governor::{Quota, RateLimiter};
 use rand::prelude::*;
 use smol::channel::{Receiver, Sender};
@@ -35,17 +36,17 @@ pub async fn connect_custom(
     let my_eph_sk = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
     // do the handshake
     let cookie = crypt::Cookie::new(pubkey);
-    let init_hello = msg::HandshakeFrame::ClientHello {
+    let init_hello = protocol::HandshakeFrame::ClientHello {
         long_pk: (&my_long_sk).into(),
         eph_pk: (&my_eph_sk).into(),
-        version: 1,
+        version: 2,
     };
     let mut buf = [0u8; 2048];
     for timeout_factor in (0u32..).map(|x| 2u64.pow(x)) {
         dbg!(timeout_factor);
         // send hello
         let init_hello = crypt::StdAEAD::new(&cookie.generate_c2s().next().unwrap())
-            .pad_encrypt(&std::slice::from_ref(&init_hello), 1000);
+            .pad_encrypt_v1(&std::slice::from_ref(&init_hello), 1000);
         udp_socket.send_to(&init_hello, server_addr).await?;
         tracing::trace!("sent client hello");
         // wait for response
@@ -64,9 +65,9 @@ pub async fn connect_custom(
                 let buf = &buf[..n];
                 for possible_key in cookie.generate_s2c() {
                     let decrypter = crypt::StdAEAD::new(&possible_key);
-                    let response = decrypter.pad_decrypt(buf);
+                    let response = decrypter.pad_decrypt_v1(buf);
                     for response in response.unwrap_or_default() {
-                        if let msg::HandshakeFrame::ServerHello {
+                        if let protocol::HandshakeFrame::ServerHello {
                             long_pk,
                             eph_pk,
                             resume_token,
@@ -110,7 +111,7 @@ pub async fn connect_custom(
     unimplemented!()
 }
 
-const SHARDS: u8 = 1;
+const SHARDS: u8 = 4;
 const RESET_MILLIS: u128 = 10000;
 
 #[tracing::instrument(skip(laddr_gen), level = "trace")]
@@ -136,18 +137,22 @@ async fn init_session(
                 recv_frame_out.clone(),
                 i,
                 remote_addr,
-                shared_sec,
                 laddr_gen.clone(),
             ))
         })
         .collect();
     let mut session = Session::new(SessionConfig {
-        target_loss: 0.05,
-        send_frame: send_frame_out,
-        recv_frame: recv_frame_in,
+        send_packet: send_frame_out,
+        recv_packet: recv_frame_in,
+        send_crypt: StdAEAD::new(
+            blake3::keyed_hash(crypt::UP_KEY, shared_sec.as_bytes()).as_bytes(),
+        ),
+        recv_crypt: StdAEAD::new(
+            blake3::keyed_hash(crypt::DN_KEY, shared_sec.as_bytes()).as_bytes(),
+        ),
         recv_timeout: Duration::from_secs(300),
         statistics: 40000,
-        use_batching: Arc::new(true.into()),
+        version: 2,
     });
     session.on_drop(move || {
         drop(backhaul_tasks);
@@ -167,18 +172,12 @@ async fn client_backhaul_once(
     >,
     cookie: crypt::Cookie,
     resume_token: Bytes,
-    send_frame_in: Sender<msg::DataFrame>,
-    recv_frame_out: Receiver<Vec<msg::DataFrame>>,
+    send_packet_in: Sender<Bytes>,
+    recv_packet_out: Receiver<Bytes>,
     shard_id: u8,
     remote_addr: SocketAddr,
-    shared_sec: blake3::Hash,
     laddr_gen: Arc<impl Fn() -> std::io::Result<SocketAddr> + Send + Sync + 'static>,
 ) -> Option<()> {
-    let up_key = blake3::keyed_hash(crypt::UP_KEY, shared_sec.as_bytes());
-    let dn_key = blake3::keyed_hash(crypt::DN_KEY, shared_sec.as_bytes());
-    let dn_crypter = Arc::new(crypt::StdAEAD::new(dn_key.as_bytes()));
-    let up_crypter = Arc::new(crypt::StdAEAD::new(up_key.as_bytes()));
-
     let mut last_reset = Instant::now();
     let mut updated = false;
     let mut socket: Arc<dyn Backhaul> =
@@ -187,69 +186,33 @@ async fn client_backhaul_once(
 
     #[derive(Debug)]
     enum Evt {
-        Incoming(Vec<msg::DataFrame>),
-        Outgoing(Vec<Bytes>),
+        Incoming(Vec<Bytes>),
+        Outgoing(Bytes),
     };
 
     let mut my_reset_millis = rand::thread_rng().gen_range(RESET_MILLIS / 2, RESET_MILLIS);
 
     loop {
         let down = {
-            let dn_crypter = dn_crypter.clone();
             let socket = &socket;
             async move {
-                let mut incoming = Vec::with_capacity(64);
                 let packets = socket.recv_from_many().await.ok()?;
-                for (buf, addr) in packets {
-                    if let Some(plain) = dn_crypter.pad_decrypt::<msg::DataFrame>(&buf) {
-                        tracing::trace!(
-                            "shard {} decrypted UDP message with len {}",
-                            shard_id,
-                            buf.len()
-                        );
-                        incoming.extend(plain);
-                    } else {
-                        tracing::warn!("anomalous UDP packet of len {} from {}", buf.len(), addr);
-                        smol::future::pending().await
-                    }
-                }
-                Some(Evt::Incoming(incoming))
+                Some(Evt::Incoming(packets.into_iter().map(|v| v.0).collect()))
             }
         };
-        let up_crypter = up_crypter.clone();
         let up = async {
-            let dff = recv_frame_out.recv().await.ok()?;
-
-            // client always batch. coalesce things like that
-            let mut batches: Vec<Vec<msg::DataFrame>> = Vec::with_capacity(1);
-            for df in dff {
-                // if this batch is too big
-                if let Some(last_batch) = batches.last_mut() {
-                    // compute the projected size
-                    let projected_size: usize = last_batch.iter().map(|v| v.body.len() + 50).sum();
-                    if projected_size < 1000 && df.body.len() < 200 {
-                        last_batch.push(df);
-                        continue;
-                    }
-                }
-                batches.push(vec![df]);
-            }
-
-            let encrypted = batches
-                .into_iter()
-                .map(|df| up_crypter.pad_encrypt(&df, 1000))
-                .collect();
-            Some(Evt::Outgoing(encrypted))
+            let raw_upload = recv_packet_out.recv().await.ok()?;
+            Some(Evt::Outgoing(raw_upload))
         };
 
         match smol::future::race(down, up).await {
-            Some(Evt::Incoming(df)) => {
-                for df in df {
-                    let _ = send_frame_in.send(df).await;
+            Some(Evt::Incoming(bts)) => {
+                for bts in bts {
+                    let _ = send_packet_in.send(bts).await;
                 }
             }
             Some(Evt::Outgoing(bts)) => {
-                let bts: Vec<Bytes> = bts;
+                let bts: Bytes = bts;
                 let now = Instant::now();
                 if remind_ratelimit.check().is_ok() || !updated {
                     updated = true;
@@ -260,24 +223,14 @@ async fn client_backhaul_once(
                         last_reset = now;
                         // also replace the UDP socket!
                         let old_socket = socket.clone();
-                        let dn_crypter = dn_crypter.clone();
-                        let send_frame_in = send_frame_in.clone();
+                        let send_packet_in = send_packet_in.clone();
                         // spawn a task to clean up the UDP socket
                         let tata: smol::Task<Option<()>> = runtime::spawn(
                             async move {
                                 loop {
-                                    let (buf, _) = old_socket.recv_from().await.ok()?;
-                                    if let Some(plain) =
-                                        dn_crypter.pad_decrypt::<msg::DataFrame>(&buf)
-                                    {
-                                        tracing::trace!(
-                                            "shard {} decrypted UDP messages with len {}",
-                                            shard_id,
-                                            buf.len()
-                                        );
-                                        for plain in plain {
-                                            drop(send_frame_in.send(plain).await)
-                                        }
+                                    let bufs = old_socket.recv_from_many().await.ok()?;
+                                    for (buf, _) in bufs {
+                                        drop(send_packet_in.send(buf).await)
                                     }
                                 }
                             }
@@ -300,8 +253,8 @@ async fn client_backhaul_once(
                     drop(
                         socket
                             .send_to(
-                                g_encrypt.pad_encrypt(
-                                    &[msg::HandshakeFrame::ClientResume {
+                                g_encrypt.pad_encrypt_v1(
+                                    &[protocol::HandshakeFrame::ClientResume {
                                         resume_token: resume_token.clone(),
                                         shard_id,
                                     }],
@@ -312,8 +265,7 @@ async fn client_backhaul_once(
                             .await,
                     );
                 }
-                let to_send: Vec<_> = bts.into_iter().map(|v| (v, remote_addr)).collect();
-                drop(socket.send_to_many(&to_send).await);
+                drop(socket.send_to(bts, remote_addr).await);
             }
             None => return None,
         }

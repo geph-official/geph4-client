@@ -87,7 +87,6 @@ impl FrameEncoder {
                 panic!()
             }))
         .min(255 - run_len)
-        .min(run_len)
     }
 }
 
@@ -229,7 +228,7 @@ impl FrameDecoder {
     }
 }
 
-fn pre_encode(pkt: &[u8], len: usize) -> BytesMut {
+pub fn pre_encode(pkt: &[u8], len: usize) -> BytesMut {
     assert!(pkt.len() <= 65535);
     assert!(pkt.len() + 2 <= len);
     tracing::trace!("pre-encoding pkt with len {} => {}", pkt.len(), len);

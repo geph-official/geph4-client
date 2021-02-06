@@ -10,7 +10,7 @@ use std::time::SystemTime;
 pub const UP_KEY: &[u8; 32] = b"upload--------------------------";
 pub const DN_KEY: &[u8; 32] = b"download------------------------";
 /// A structure for encrypting or decrypting Chacha12/Blake3-64.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct StdAEAD {
     chacha_key: [u8; 32],
     blake3_key: [u8; 32],
@@ -76,7 +76,7 @@ impl StdAEAD {
     }
 
     /// Pad and encrypt.
-    pub fn pad_encrypt(&self, msgs: &[impl Serialize], target_len: usize) -> Bytes {
+    pub fn pad_encrypt_v1(&self, msgs: &[impl Serialize], target_len: usize) -> Bytes {
         let mut target_len = rand::thread_rng().gen_range(0, target_len);
         let mut plain = Vec::with_capacity(1500);
         for msg in msgs {
@@ -93,7 +93,7 @@ impl StdAEAD {
     }
 
     /// Decrypt and depad.
-    pub fn pad_decrypt<T: DeserializeOwned>(&self, ctext: &[u8]) -> Option<Vec<T>> {
+    pub fn pad_decrypt_v1<T: DeserializeOwned>(&self, ctext: &[u8]) -> Option<Vec<T>> {
         let plain = self.decrypt(ctext)?;
         // Some(vec![bincode::deserialize(&plain).ok()?])
         // eprintln!("plain gotten");

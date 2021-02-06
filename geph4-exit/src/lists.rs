@@ -1,9 +1,8 @@
-use std::collections::BTreeSet;
-
 use once_cell::sync::Lazy;
+use rustc_hash::FxHashSet;
 
 /// List of whitelisted ports.
-pub static WHITE_PORTS: Lazy<BTreeSet<u16>> = Lazy::new(|| {
+pub static WHITE_PORTS: Lazy<FxHashSet<u16>> = Lazy::new(|| {
     // See: https://trac.torproject.org/projects/tor/wiki/doc/ReducedExitPolicy
     let mut toret: Vec<_> = vec![
         20u16, 21, 22, 23, 43, 53, 79, 80, 81, 88, 110, 143, 194, 220, 389, 443, 464, 465, 531,
@@ -25,4 +24,4 @@ pub static WHITE_PORTS: Lazy<BTreeSet<u16>> = Lazy::new(|| {
 });
 
 /// List of blacklisted ports
-pub static BLACK_PORTS: Lazy<BTreeSet<u16>> = Lazy::new(|| vec![25u16].into_iter().collect());
+pub static BLACK_PORTS: Lazy<FxHashSet<u16>> = Lazy::new(|| vec![25u16].into_iter().collect());

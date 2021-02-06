@@ -5,7 +5,7 @@ mod listener;
 pub use client::*;
 pub use listener::*;
 use std::time::{Duration, Instant};
-mod msg;
+mod protocol;
 pub mod runtime;
 mod session;
 pub use session::*;

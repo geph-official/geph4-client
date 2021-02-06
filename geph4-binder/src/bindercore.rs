@@ -35,7 +35,11 @@ impl BinderCore {
         BinderCore {
             captcha_service: captcha_service_url.to_string(),
             mizaru_sk: Mutex::new(HashMap::new()),
-            conn_pool: r2d2::Pool::new(manager).unwrap(),
+            conn_pool: r2d2::Builder::new()
+                .min_idle(Some(16))
+                .max_size(64)
+                .build(manager)
+                .unwrap(),
         }
     }
 

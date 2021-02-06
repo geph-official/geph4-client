@@ -11,7 +11,6 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime},
 };
-
 pub async fn handle_control(
     ctx: Arc<RootCtx>,
     mut client: smol::net::TcpStream,
@@ -57,7 +56,7 @@ pub async fn handle_control(
             })
             .await?;
         let flow_key = bridge_pkt_key(&their_group);
-        log::debug!("bridge in group {} to forward {}", their_group, their_addr);
+        log::trace!("bridge in group {} to forward {}", their_group, their_addr);
         // create or recall binding
         if info.is_none() {
             let ctx = ctx.clone();

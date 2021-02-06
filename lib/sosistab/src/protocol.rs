@@ -1,5 +1,7 @@
+use bincode::Options;
 use bytes::Bytes;
 use serde::{Deserialize, Serialize};
+
 /// Frame sent as a session-negotiation message. This is always encrypted with the cookie.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum HandshakeFrame {
@@ -26,9 +28,54 @@ pub enum HandshakeFrame {
     },
 }
 
-/// Frame sent as an per-session message. This is always encrypted with a per-session key.
+/// Version-2 frame, encrypted with a per-session key.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DataFrame {
+pub enum DataFrameV2 {
+    Data {
+        /// Strictly incrementing counter of frames. Must never repeat.
+        frame_no: u64,
+        /// Highest delivered frame
+        high_recv_frame_no: u64,
+        /// Total delivered frames
+        total_recv_frames: u64,
+        /// Body
+        body: Bytes,
+    },
+    Parity {
+        data_frame_first: u64,
+        data_count: u8,
+        parity_count: u8,
+        parity_index: u8,
+        pad_size: usize,
+        body: Bytes,
+    },
+}
+
+impl DataFrameV2 {
+    /// Pads the frame to prepare for encryption.
+    pub fn pad(&self) -> Bytes {
+        let options = bincode::DefaultOptions::new()
+            .with_little_endian()
+            .with_varint_encoding()
+            .allow_trailing_bytes();
+        // TODO: padding
+        options.serialize(self).unwrap().into()
+    }
+
+    /// Depads a decrypted frame.
+    pub fn depad(bts: &[u8]) -> Option<Self> {
+        let options = bincode::DefaultOptions::new()
+            .with_little_endian()
+            .with_varint_encoding()
+            .with_limit(bts.len() as _)
+            .allow_trailing_bytes();
+        options.deserialize(bts).ok()
+    }
+}
+
+/// Version-1 frame sent as an per-session message. This is always encrypted with a per-session key.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DataFrameV1 {
     /// Strictly incrementing counter of frames. Must never repeat.
     pub frame_no: u64,
     /// Strictly incrementing counter of runs

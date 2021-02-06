@@ -1,16 +1,20 @@
 use crate::session::{Session, SessionConfig};
 use crate::*;
 use bytes::Bytes;
-use indexmap::IndexMap;
-use msg::HandshakeFrame::*;
-use parking_lot::RwLock;
+
+use parking_lot::Mutex;
+use protocol::HandshakeFrame::*;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use smol::channel::{Receiver, Sender};
 use smol::net::AsyncToSocketAddrs;
-use std::collections::HashMap;
 use std::sync::Arc;
 use std::{net::SocketAddr, time::Instant};
+use table::ShardedAddrs;
+
+use self::table::SessionTable;
+
+mod table;
 
 pub struct Listener {
     accepted: Receiver<Session>,
@@ -86,8 +90,6 @@ impl RecentFilter {
     }
 }
 
-type ShardedAddrs = (IndexMap<u8, SocketAddr>, u8);
-
 struct ListenerActor {
     socket: Arc<dyn Backhaul>,
     cookie: crypt::Cookie,
@@ -110,8 +112,8 @@ impl ListenerActor {
             buf
         };
 
-        let read_socket = smol::lock::Mutex::new(self.socket.clone());
-        let write_socket = Arc::new(smol::lock::Mutex::new(self.socket.clone()));
+        let read_socket = self.socket.clone();
+        let write_socket = self.socket.clone();
 
         // two possible events
         enum Evt {
@@ -119,34 +121,23 @@ impl ListenerActor {
             DeadSess(Bytes),
         }
 
-        loop {
+        for trace_id in 0u64.. {
             let event = smol::future::race(
-                async {
-                    Some(Evt::NewRecv(
-                        read_socket.lock().await.recv_from_many().await.ok()?,
-                    ))
-                },
+                async { Some(Evt::NewRecv(read_socket.recv_from_many().await.unwrap())) },
                 async { Some(Evt::DeadSess(recv_dead.recv().await.ok()?)) },
             );
             match event.await? {
                 Evt::DeadSess(resume_token) => {
                     tracing::trace!("removing existing session!");
-                    session_table.delete(resume_token).await;
+                    session_table.delete(resume_token);
                 }
                 Evt::NewRecv(items) => {
+                    let items: Vec<(Bytes, SocketAddr)> = items;
                     for (buffer, addr) in items {
                         // first we attempt to map this to an existing session
-                        if let Some((sess, sess_crypt)) = session_table.lookup(addr) {
-                            // try feeding it into the session
-                            if let Some(dframe) = sess_crypt.pad_decrypt::<msg::DataFrame>(&buffer)
-                            {
-                                for dframe in dframe {
-                                    drop(sess.send(dframe).await);
-                                }
-                                continue;
-                            } else {
-                                tracing::trace!("{} NOT associated with existing session", addr);
-                            }
+                        if let Some(handle) = session_table.lookup(addr) {
+                            let _ = handle.try_send(buffer);
+                            continue;
                         }
                         if !curr_filter.check(&buffer) {
                             tracing::warn!("discarding replay attempt with len {}", buffer.len());
@@ -157,15 +148,20 @@ impl ListenerActor {
                         for possible_key in self.cookie.generate_c2s() {
                             let crypter = crypt::StdAEAD::new(&possible_key);
                             if let Some(handshake) =
-                                crypter.pad_decrypt::<msg::HandshakeFrame>(&buffer)
+                                crypter.pad_decrypt_v1::<protocol::HandshakeFrame>(&buffer)
                             {
+                                tracing::debug!(
+                                    "[{}] decoded some sort of handshake: {:?}",
+                                    trace_id,
+                                    handshake
+                                );
                                 match handshake[0].clone() {
                                     ClientHello {
                                         long_pk,
                                         eph_pk,
                                         version,
                                     } => {
-                                        if version != 1 {
+                                        if version != 1 && version != 2 {
                                             tracing::warn!(
                                                 "got packet with incorrect version {}",
                                                 version
@@ -174,7 +170,7 @@ impl ListenerActor {
                                         }
                                         // generate session key
                                         let my_eph_sk = x25519_dalek::StaticSecret::new(
-                                            &mut rand::rngs::OsRng {},
+                                            &mut rand::thread_rng(),
                                         );
                                         let token = TokenInfo {
                                             sess_key: crypt::triple_ecdh(
@@ -191,22 +187,27 @@ impl ListenerActor {
                                                 .unwrap()
                                                 .as_millis()
                                                 as u64,
+                                            version,
                                         }
                                         .encrypt(&token_key);
-                                        let reply = msg::HandshakeFrame::ServerHello {
+                                        let reply = protocol::HandshakeFrame::ServerHello {
                                             long_pk: (&self.long_sk).into(),
                                             eph_pk: (&my_eph_sk).into(),
                                             resume_token: token,
                                         };
                                         let reply = crypt::StdAEAD::new(&s2c_key)
-                                            .pad_encrypt(&[reply], 1000);
-                                        write_socket
-                                            .lock()
-                                            .await
-                                            .send_to(reply, addr)
-                                            .await
-                                            .ok()?;
-                                        tracing::trace!("replied to ClientHello from {}", addr);
+                                            .pad_encrypt_v1(&[reply], 1000);
+                                        tracing::debug!(
+                                            "[{}] GONNA reply to ClientHello from {}",
+                                            trace_id,
+                                            addr
+                                        );
+                                        let _ = write_socket.send_to(reply, addr).await;
+                                        tracing::debug!(
+                                            "[{}] replied to ClientHello from {}",
+                                            trace_id,
+                                            addr
+                                        );
                                     }
                                     ClientResume {
                                         resume_token,
@@ -217,15 +218,20 @@ impl ListenerActor {
                                             shard_id,
                                             addr
                                         );
-                                        // first check whether we know about the resume token
-                                        if !session_table
-                                            .rebind(addr, shard_id, resume_token.clone())
-                                            .await
-                                        {
-                                            tracing::trace!("ClientResume from {} is new!", addr);
-                                            let tokinfo =
-                                                TokenInfo::decrypt(&token_key, &resume_token);
-                                            if let Some(tokinfo) = tokinfo {
+                                        let tokinfo = TokenInfo::decrypt(&token_key, &resume_token);
+                                        if let Some(tokinfo) = tokinfo {
+                                            // first check whether we know about the resume token
+                                            if !session_table.rebind(
+                                                addr,
+                                                shard_id,
+                                                resume_token.clone(),
+                                            ) {
+                                                tracing::debug!(
+                                                    "[{}] ClientResume from {} is new!",
+                                                    trace_id,
+                                                    addr
+                                                );
+
                                                 let up_key = blake3::keyed_hash(
                                                     crypt::UP_KEY,
                                                     &tokinfo.sess_key,
@@ -243,80 +249,25 @@ impl ListenerActor {
                                                     smol::channel::bounded(1000);
                                                 // create session
                                                 let (session_output_send, session_output_recv) =
-                                                    smol::channel::bounded::<Vec<msg::DataFrame>>(
-                                                        1000,
-                                                    );
-                                                let mut locked_addrs = IndexMap::new();
-                                                locked_addrs.insert(shard_id, addr);
-                                                // send for poll
+                                                    smol::channel::bounded(1000);
                                                 let locked_addrs =
-                                                    Arc::new(RwLock::new((locked_addrs, shard_id)));
+                                                    ShardedAddrs::new(shard_id, addr);
+                                                let locked_addrs =
+                                                    Arc::new(Mutex::new(locked_addrs));
                                                 let output_poller = {
                                                     let locked_addrs = locked_addrs.clone();
                                                     runtime::spawn(async move {
-                                                        let mut ctr = 0u8;
-                                                        let mut last_time = Instant::now();
                                                         loop {
-                                                            let now = Instant::now();
-                                                            let use_same_ctr = now
-                                                                .saturating_duration_since(
-                                                                    last_time,
-                                                                )
-                                                                .as_millis()
-                                                                > 100;
-                                                            last_time = now;
                                                             match session_output_recv.recv().await {
-                                                                Ok(dff) => {
-                                                                    let remote_addr = {
-                                                                        let addrs =
-                                                                            locked_addrs.read();
-                                                                        loop {
-                                                                            assert!(!addrs
-                                                                                .0
-                                                                                .is_empty());
-                                                                            ctr =
-                                                                                ctr.wrapping_add(1);
-                                                                            if !use_same_ctr {
-                                                                                if let Some((
-                                                                                    _,
-                                                                                    remote_addr,
-                                                                                )) = addrs
-                                                                                    .0
-                                                                                    .get_index(
-                                                                                    (ctr % (addrs
-                                                                                        .0
-                                                                                        .len()
-                                                                                        as u8))
-                                                                                        as usize,
-                                                                                ) {
-                                                                                    break *remote_addr;
-                                                                                }
-                                                                            } else {
-                                                                                break *addrs
-                                                                                    .0
-                                                                                    .get(&addrs.1)
-                                                                                    .unwrap();
-                                                                            }
-                                                                        }
-                                                                    };
-                                                                    let encrypted: Vec<_> = {
-                                                                        dff.into_iter()
-                                                                            .map(|df| {
-                                                                                (
-                                                                            dn_aead.pad_encrypt(
-                                                                                &[df], 1000,
-                                                                            ),
-                                                                            remote_addr,
-                                                                        )
-                                                                            })
-                                                                            .collect()
-                                                                    };
+                                                                Ok(data) => {
+                                                                    let remote_addr = locked_addrs
+                                                                        .lock()
+                                                                        .get_addr();
                                                                     drop(
                                                                         write_socket
-                                                                            .lock()
-                                                                            .await
-                                                                            .send_to_many(
-                                                                                &encrypted,
+                                                                            .send_to(
+                                                                                data,
+                                                                                remote_addr,
                                                                             )
                                                                             .await,
                                                                     );
@@ -330,12 +281,14 @@ impl ListenerActor {
                                                     })
                                                 };
                                                 let mut session = Session::new(SessionConfig {
-                                                    target_loss: 0.01,
-                                                    send_frame: session_output_send,
-                                                    recv_frame: session_input_recv,
+                                                    send_packet: session_output_send,
+                                                    recv_packet: session_input_recv,
                                                     recv_timeout: Duration::from_secs(3600),
                                                     statistics: 128,
-                                                    use_batching: Arc::new(true.into()),
+
+                                                    send_crypt: dn_aead,
+                                                    recv_crypt: up_aead,
+                                                    version: tokinfo.version,
                                                 });
                                                 let send_dead_clo = send_dead.clone();
                                                 let resume_token_clo = resume_token.clone();
@@ -347,16 +300,15 @@ impl ListenerActor {
                                                 session_table.new_sess(
                                                     resume_token.clone(),
                                                     session_input,
-                                                    up_aead,
                                                     locked_addrs,
                                                 );
-                                                session_table
-                                                    .rebind(addr, shard_id, resume_token)
-                                                    .await;
-                                                drop(accepted.send(session).await);
+                                                session_table.rebind(addr, shard_id, resume_token);
+                                                tracing::debug!("[{}] accept {}", trace_id, addr);
+                                                accepted.try_send(session).ok()?;
                                             } else {
-                                                tracing::trace!(
-                                                    "ClientResume from {} can't be decrypted",
+                                                tracing::debug!(
+                                                    "[{}] ClientResume from {} can't be decrypted",
+                                                    trace_id,
                                                     addr
                                                 );
                                             }
@@ -370,6 +322,7 @@ impl ListenerActor {
                 }
             }
         }
+        unreachable!()
     }
 }
 
@@ -377,6 +330,7 @@ impl ListenerActor {
 struct TokenInfo {
     sess_key: Bytes,
     init_time_ms: u64,
+    version: u64,
 }
 
 impl TokenInfo {
@@ -394,64 +348,5 @@ impl TokenInfo {
             &bincode::serialize(self).expect("must serialize"),
             rng.gen(),
         )
-    }
-}
-
-type SessEntry = (
-    Sender<msg::DataFrame>,
-    crypt::StdAEAD,
-    Arc<RwLock<ShardedAddrs>>,
-);
-
-#[derive(Default)]
-struct SessionTable {
-    token_to_sess: HashMap<Bytes, SessEntry>,
-    addr_to_token: HashMap<SocketAddr, Bytes>,
-}
-
-impl SessionTable {
-    #[tracing::instrument(skip(self), level = "trace")]
-    async fn rebind(&mut self, addr: SocketAddr, shard_id: u8, token: Bytes) -> bool {
-        if let Some((_, _, addrs)) = self.token_to_sess.get(&token) {
-            let mut addrs = addrs.write();
-            addrs.1 = shard_id;
-            let old = addrs.0.insert(shard_id, addr);
-            tracing::trace!("binding {}=>{}", shard_id, addr);
-            if let Some(old) = old {
-                self.addr_to_token.remove(&old);
-            }
-            self.addr_to_token.insert(addr, token);
-            true
-        } else {
-            false
-        }
-    }
-
-    #[tracing::instrument(skip(self), level = "trace")]
-    async fn delete(&mut self, token: Bytes) {
-        if let Some((_, _, lock_addrs)) = self.token_to_sess.remove(&token) {
-            for (_, addr) in lock_addrs.read().0.iter() {
-                self.addr_to_token.remove(addr);
-            }
-        }
-    }
-
-    #[tracing::instrument(skip(self), level = "trace")]
-    fn lookup(&self, addr: SocketAddr) -> Option<(&Sender<msg::DataFrame>, &crypt::StdAEAD)> {
-        let token = self.addr_to_token.get(&addr)?;
-        let (s, a, _) = self.token_to_sess.get(token)?;
-        Some((s, a))
-    }
-
-    #[tracing::instrument(skip(self), level = "trace")]
-    fn new_sess(
-        &mut self,
-        token: Bytes,
-        sender: Sender<msg::DataFrame>,
-        aead: crypt::StdAEAD,
-        locked_addrs: Arc<RwLock<ShardedAddrs>>,
-    ) {
-        self.token_to_sess
-            .insert(token, (sender, aead, locked_addrs));
     }
 }

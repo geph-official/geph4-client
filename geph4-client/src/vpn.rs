@@ -1,11 +1,13 @@
 use async_net::Ipv4Addr;
 use bytes::Bytes;
 
+use governor::{Quota, RateLimiter};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use pnet_packet::{
     ip::IpNextHeaderProtocols,
     ipv4::{Ipv4Packet, MutableIpv4Packet},
+    tcp::{TcpFlags, TcpPacket},
     udp::MutableUdpPacket,
     udp::UdpPacket,
     Packet,
@@ -13,7 +15,7 @@ use pnet_packet::{
 use smol::{channel::Receiver, prelude::*};
 use smol_timeout::TimeoutExt;
 use sosistab::mux::Multiplex;
-use std::{collections::HashMap, io::Stdin, sync::Arc, time::Duration};
+use std::{collections::HashMap, io::Stdin, num::NonZeroU32, sync::Arc, time::Duration};
 use vpn_structs::StdioMsg;
 
 use crate::stats::StatCollector;
@@ -70,22 +72,25 @@ pub async fn run_vpn(
 
 /// up loop for vpn
 async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
-    // let limiter = RateLimiter::direct(Quota::per_second(NonZeroU32::new(500u32).unwrap()));
+    let limiter = RateLimiter::direct(
+        Quota::per_second(NonZeroU32::new(500u32).unwrap())
+            .allow_burst(NonZeroU32::new(10u32).unwrap()),
+    );
     loop {
         let stdin_fut = async {
             let msg = STDIN.recv().await;
             // ACK decimation
-            // if ack_decimate(&msg.body).is_some() && limiter.check().is_err() {
-            //     Ok(None)
-            // } else {
-            // fix dns
-            let body = if let Some(body) = fix_dns_dest(&msg.body, ctx.dns_nat) {
-                body
+            if ack_decimate(&msg.body).is_some() && limiter.check().is_err() {
+                Ok(None)
             } else {
-                msg.body
-            };
-            Ok::<Option<Bytes>, anyhow::Error>(Some(body))
-            // }
+                // fix dns
+                let body = if let Some(body) = fix_dns_dest(&msg.body, ctx.dns_nat) {
+                    body
+                } else {
+                    msg.body
+                };
+                Ok::<Option<Bytes>, anyhow::Error>(Some(body))
+            }
         };
         let body = stdin_fut.await?;
         if let Some(body) = body {
@@ -149,18 +154,18 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
 }
 
 // /// returns ok if it's an ack that needs to be decimated
-// fn ack_decimate(bts: &[u8]) -> Option<u16> {
-//     let parsed = Ipv4Packet::new(bts)?;
-//     // log::warn!("******** VPN UP: {:?}", parsed);
-//     let parsed = TcpPacket::new(parsed.payload())?;
-//     let flags = parsed.get_flags();
-//     if flags & TcpFlags::ACK != 0 && flags & TcpFlags::SYN == 0 && parsed.payload().is_empty() {
-//         let hash = parsed.get_destination() ^ parsed.get_source();
-//         Some(hash)
-//     } else {
-//         None
-//     }
-// }
+fn ack_decimate(bts: &[u8]) -> Option<u16> {
+    let parsed = Ipv4Packet::new(bts)?;
+    // log::warn!("******** VPN UP: {:?}", parsed);
+    let parsed = TcpPacket::new(parsed.payload())?;
+    let flags = parsed.get_flags();
+    if flags & TcpFlags::ACK != 0 && flags & TcpFlags::SYN == 0 && parsed.payload().is_empty() {
+        let hash = parsed.get_destination() ^ parsed.get_source();
+        Some(hash)
+    } else {
+        None
+    }
+}
 
 /// fixes dns destination
 fn fix_dns_dest(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Bytes> {

@@ -58,7 +58,7 @@ pub async fn transparent_proxy_helper(google_proxy: Option<SocketAddr>) -> anyho
             }
 
             let asn = crate::asn::get_asn(addr.ip());
-            log::debug!("helper got destination {} (AS{})", addr, asn);
+            // log::debug!("helper got destination {} (AS{})", addr, asn);
             let to_conn = if let Some(proxy) = google_proxy {
                 if addr.port() == 443 && asn == crate::asn::GOOGLE_ASN {
                     proxy
@@ -165,11 +165,9 @@ pub async fn handle_vpn_session(
                     };
                     if let Some(port) = port {
                         if crate::lists::BLACK_PORTS.contains(&port) {
-                            log::warn!("blocking packet on port {}", port);
                             continue;
                         }
                         if port_whitelist && !crate::lists::WHITE_PORTS.contains(&port) {
-                            log::warn!("blocking packet on port {}", port);
                             continue;
                         }
                     }

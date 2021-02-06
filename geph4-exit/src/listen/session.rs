@@ -139,7 +139,7 @@ async fn handle_proxy_stream(
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("dns failed"))?;
     let asn = crate::asn::get_asn(addr.ip());
-    log::debug!("proxying {} ({}, AS{})", to_prox, addr, asn);
+    // log::debug!("proxying {} ({}, AS{})", to_prox, addr, asn);
 
     if crate::lists::BLACK_PORTS.contains(&addr.port()) {
         anyhow::bail!("port blacklisted")
