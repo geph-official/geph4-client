@@ -290,6 +290,13 @@ async fn session_send_loop_v2(ctx: SessionSendCtx) -> Option<()> {
     let mut fec_encoder = FrameEncoder::new(4);
     let mut frame_no = 0;
     loop {
+        // we die an early death if something went wrong
+        if let Ok(elapsed) = SystemTime::now().duration_since(*ctx.last_recv.lock()) {
+            if elapsed > ctx.recv_timeout {
+                tracing::warn!("skew-induced timeout detected. killing session now");
+                return None;
+            }
+        }
         // either we have something new to send, or the FEC timer expired.
         let event: Option<Event> = async {
             if unfecked.is_empty() {
@@ -307,16 +314,14 @@ async fn session_send_loop_v2(ctx: SessionSendCtx) -> Option<()> {
             // we have something to send as a data packet.
             Event::NewPayload(send_payload) => {
                 let limit = ctx.rate_limit.load(Ordering::Relaxed);
-                if limit < 1000 {
-                    if ctx.recv_tosend.len() > 100 {
-                        continue;
-                    }
-                    let multiplier = 25600 / limit;
-                    while let Err(NegativeMultiDecision::BatchNonConforming(_, err)) =
-                        policy_limiter.check_n(NonZeroU32::new(multiplier).unwrap())
-                    {
-                        smol::Timer::at(err.earliest_possible()).await;
-                    }
+                if limit < 1000 && ctx.recv_tosend.len() > 100 {
+                    continue;
+                }
+                let multiplier = 25600 / limit;
+                while let Err(NegativeMultiDecision::BatchNonConforming(_, err)) =
+                    policy_limiter.check_n(NonZeroU32::new(multiplier).unwrap())
+                {
+                    smol::Timer::at(err.earliest_possible()).await;
                 }
                 let send_framed = DataFrameV2::Data {
                     frame_no,

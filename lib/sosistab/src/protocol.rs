@@ -59,7 +59,9 @@ impl DataFrameV2 {
             .with_varint_encoding()
             .allow_trailing_bytes();
         // TODO: padding
-        options.serialize(self).unwrap().into()
+        let mut toret = options.serialize(self).unwrap();
+        toret.extend_from_slice(&vec![0xff; rand::random::<usize>() % 16]);
+        toret.into()
     }
 
     /// Depads a decrypted frame.

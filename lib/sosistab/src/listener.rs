@@ -2,14 +2,15 @@ use crate::session::{Session, SessionConfig};
 use crate::*;
 use bytes::Bytes;
 
+use governor::{Quota, RateLimiter};
 use parking_lot::Mutex;
 use protocol::HandshakeFrame::*;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use smol::channel::{Receiver, Sender};
 use smol::net::AsyncToSocketAddrs;
-use std::sync::Arc;
 use std::{net::SocketAddr, time::Instant};
+use std::{num::NonZeroU32, sync::Arc};
 use table::ShardedAddrs;
 
 use self::table::SessionTable;
@@ -71,8 +72,8 @@ struct RecentFilter {
 impl RecentFilter {
     fn new() -> Self {
         RecentFilter {
-            curr_bloom: bloomfilter::Bloom::new_for_fp_rate(100000, 0.01),
-            last_bloom: bloomfilter::Bloom::new_for_fp_rate(100000, 0.01),
+            curr_bloom: bloomfilter::Bloom::new_for_fp_rate(1000000, 0.01),
+            last_bloom: bloomfilter::Bloom::new_for_fp_rate(1000000, 0.01),
             curr_time: Instant::now(),
         }
     }
@@ -126,6 +127,11 @@ impl ListenerActor {
                 async { Some(Evt::NewRecv(read_socket.recv_from_many().await.unwrap())) },
                 async { Some(Evt::DeadSess(recv_dead.recv().await.ok()?)) },
             );
+            // "fallthrough" rate limit. the idea is that new sessions on the same addr are infrequent, so we don't need to check constantly.
+            let fallthrough_limiter = RateLimiter::direct_with_clock(
+                Quota::per_second(NonZeroU32::new(1u32).unwrap()),
+                &governor::clock::MonotonicClock,
+            );
             match event.await? {
                 Evt::DeadSess(resume_token) => {
                     tracing::trace!("removing existing session!");
@@ -136,12 +142,11 @@ impl ListenerActor {
                     for (buffer, addr) in items {
                         // first we attempt to map this to an existing session
                         if let Some(handle) = session_table.lookup(addr) {
-                            let _ = handle.try_send(buffer);
-                            continue;
-                        }
-                        if !curr_filter.check(&buffer) {
-                            tracing::warn!("discarding replay attempt with len {}", buffer.len());
-                            continue;
+                            let _ = handle.try_send(buffer.clone());
+                            if fallthrough_limiter.check().is_err() {
+                                continue;
+                            }
+                            // TODO figure out a way to decide whether to continue
                         }
                         // we know it's not part of an existing session then. we decrypt it under the current key
                         let s2c_key = self.cookie.generate_s2c().next().unwrap();
@@ -150,6 +155,13 @@ impl ListenerActor {
                             if let Some(handshake) =
                                 crypter.pad_decrypt_v1::<protocol::HandshakeFrame>(&buffer)
                             {
+                                if !curr_filter.check(&buffer) {
+                                    tracing::warn!(
+                                        "discarding replay attempt with len {}",
+                                        buffer.len()
+                                    );
+                                    continue;
+                                }
                                 tracing::debug!(
                                     "[{}] decoded some sort of handshake: {:?}",
                                     trace_id,

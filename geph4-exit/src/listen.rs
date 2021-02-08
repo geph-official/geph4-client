@@ -21,6 +21,7 @@ pub struct RootCtx {
     sosistab_sk: x25519_dalek::StaticSecret,
 
     session_count: AtomicUsize,
+    raw_session_count: AtomicUsize,
     conn_count: AtomicUsize,
 
     free_limit: u32,
@@ -74,6 +75,7 @@ pub async fn main_loop<'a>(
         signing_sk,
         sosistab_sk,
         session_count: AtomicUsize::new(0),
+        raw_session_count: AtomicUsize::new(0),
         conn_count: AtomicUsize::new(0),
         free_limit,
         port_whitelist,
@@ -145,11 +147,16 @@ pub async fn main_loop<'a>(
     let stat_client = ctx.stat_client.clone();
     let gauge_fut = async {
         let key = format!("session_count.{}", exit_hostname.replace(".", "-"));
+        let rskey = format!("raw_session_count.{}", exit_hostname.replace(".", "-"));
         let memkey = format!("bytes_allocated.{}", exit_hostname.replace(".", "-"));
         let connkey = format!("conn_count.{}", exit_hostname.replace(".", "-"));
         loop {
             let session_count = ctx.session_count.load(std::sync::atomic::Ordering::Relaxed);
             stat_client.gauge(&key, session_count as f64);
+            let raw_session_count = ctx
+                .raw_session_count
+                .load(std::sync::atomic::Ordering::Relaxed);
+            stat_client.gauge(&rskey, raw_session_count as f64);
             let memory_usage = ALLOCATOR.allocated();
             stat_client.gauge(&memkey, memory_usage as f64);
             let conn_count = ctx.conn_count.load(std::sync::atomic::Ordering::Relaxed);

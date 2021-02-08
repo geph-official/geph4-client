@@ -125,8 +125,6 @@ async fn keepalive_actor_once(
                     log::debug!("connecting through {}...", desc.endpoint);
                     drop(
                         send.send((desc.endpoint, {
-                            let _ = sosistab::connect(desc.endpoint, desc.sosistab_key).await;
-                            let _ = sosistab::connect(desc.endpoint, desc.sosistab_key).await;
                             sosistab::connect(desc.endpoint, desc.sosistab_key).await
                         }))
                         .await,

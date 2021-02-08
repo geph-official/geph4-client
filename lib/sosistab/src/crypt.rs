@@ -129,8 +129,14 @@ impl Cookie {
     }
 
     fn generate_temp_keys(&self, ctx: &str, start_epoch: u64) -> Vec<[u8; 32]> {
-        let mut vec = Vec::new();
-        for epoch in &[start_epoch, start_epoch - 1, start_epoch + 1] {
+        let mut vec = Vec::with_capacity(5);
+        for epoch in &[
+            start_epoch,
+            start_epoch - 1,
+            start_epoch + 1,
+            start_epoch - 2,
+            start_epoch + 2,
+        ] {
             let mut key = [0u8; 32];
             blake3::derive_key(&format!("{}-{}", ctx, epoch), self.0.as_bytes(), &mut key);
             vec.push(key)

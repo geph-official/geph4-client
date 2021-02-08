@@ -111,8 +111,8 @@ pub async fn connect_custom(
     unimplemented!()
 }
 
-const SHARDS: u8 = 4;
-const RESET_MILLIS: u128 = 10000;
+const SHARDS: u8 = 1;
+const RESET_MILLIS: u128 = 1000;
 
 #[tracing::instrument(skip(laddr_gen), level = "trace")]
 async fn init_session(

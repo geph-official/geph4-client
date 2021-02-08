@@ -72,10 +72,7 @@ pub async fn run_vpn(
 
 /// up loop for vpn
 async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
-    let limiter = RateLimiter::direct(
-        Quota::per_second(NonZeroU32::new(500u32).unwrap())
-            .allow_burst(NonZeroU32::new(10u32).unwrap()),
-    );
+    let limiter = RateLimiter::direct(Quota::per_second(NonZeroU32::new(500u32).unwrap()));
     loop {
         let stdin_fut = async {
             let msg = STDIN.recv().await;
@@ -113,9 +110,13 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     let mut buff = Vec::with_capacity(32768);
     loop {
         buff.clear();
-        let mut batch = vec![ctx.mux.recv_urel().await?];
+        let mut batch = Vec::with_capacity(16);
+        batch.push(ctx.mux.recv_urel().await?);
         while let Ok(val) = ctx.mux.try_recv_urel() {
             batch.push(val);
+            if batch.len() >= 16 {
+                break;
+            }
         }
         // buffer
         let bsize = batch.len();

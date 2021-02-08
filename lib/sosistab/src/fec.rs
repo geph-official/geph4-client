@@ -1,8 +1,7 @@
 use bytes::{Bytes, BytesMut};
-use once_cell::sync::Lazy;
+use cached::proc_macro::cached;
 use probability::distribution::Distribution;
 use reed_solomon_erasure::galois_8;
-use std::convert::TryInto;
 use std::{collections::HashMap, sync::Arc};
 /// A forward error correction encoder. Retains internal state for memoization, memory pooling etc.
 #[derive(Debug)]
@@ -103,28 +102,9 @@ pub struct FrameDecoder {
     done: bool,
 }
 
-static DECODER_CACHE: Lazy<[[Option<Arc<galois_8::ReedSolomon>>; 32]; 32]> = Lazy::new(|| {
-    tracing::warn!("initializing decoder cache");
-    (1..=32)
-        .map(|i| {
-            let vv: Vec<_> = (1..=32)
-                .map(|j| galois_8::ReedSolomon::new(i, j).ok().map(Arc::new))
-                .collect();
-            vv.try_into().unwrap()
-        })
-        .collect::<Vec<_>>()
-        .try_into()
-        .unwrap()
-});
-
+#[cached(size = 10)]
 fn new_rs_decoder(data_shards: usize, parity_shards: usize) -> Arc<galois_8::ReedSolomon> {
-    if data_shards > 32 || parity_shards > 32 {
-        return Arc::new(galois_8::ReedSolomon::new(data_shards, parity_shards).unwrap());
-    }
-    DECODER_CACHE[data_shards - 1][parity_shards - 1]
-        .as_ref()
-        .unwrap()
-        .clone()
+    Arc::new(galois_8::ReedSolomon::new(data_shards, parity_shards).unwrap())
 }
 
 impl FrameDecoder {
@@ -164,7 +144,7 @@ impl FrameDecoder {
         self.data_shards - self.good_pkts()
     }
 
-    #[tracing::instrument(level = "trace")]
+    #[tracing::instrument(level = "trace", skip(pkt))]
     pub fn decode(&mut self, pkt: &[u8], pkt_idx: usize) -> Option<Vec<Bytes>> {
         // if we don't have parity shards, don't touch anything
         if self.parity_shards == 0 {
@@ -174,6 +154,9 @@ impl FrameDecoder {
         if self.space.is_empty() {
             tracing::trace!("decode with pad len {}", pkt.len());
             self.space = vec![vec![0u8; pkt.len()]; self.data_shards + self.parity_shards]
+        }
+        if self.space.len() < pkt_idx {
+            return None;
         }
         if self.done
             || pkt_idx > self.space.len()

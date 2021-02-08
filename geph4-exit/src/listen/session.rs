@@ -18,6 +18,15 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
         sess,
         nursery,
     } = ctx;
+
+    // raw session count
+    root.raw_session_count
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let _guard = scopeguard::guard((), |_| {
+        root.raw_session_count
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    });
+
     let sess = Arc::new(sosistab::mux::Multiplex::new(sess));
     let nhandle = nursery.clone();
     let is_plus = authenticate_sess(root.binder_client.clone(), &sess)

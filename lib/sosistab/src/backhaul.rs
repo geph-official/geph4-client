@@ -122,12 +122,16 @@ impl Backhaul for Async<UdpSocket> {
         use nix::sys::socket::RecvMmsgData;
         use nix::sys::uio::IoVec;
         use std::os::unix::prelude::*;
-        const MAX_LEN: usize = 64;
+        const MAX_LEN: usize = 32;
         self.read_with(|sock| {
             // get fd
             let fd: RawFd = sock.as_raw_fd();
             // create a byte buffer
-            let mut byte_buffer = vec![0u8; 2048 * MAX_LEN];
+            let mut byte_buffer: Vec<u8> = unsafe {
+                let mut space = Vec::with_capacity(2048 * MAX_LEN);
+                space.set_len(2048 * MAX_LEN);
+                space
+            };
             // split into slices
             let response: Vec<(usize, Option<nix::sys::socket::SockAddr>)> = {
                 let byte_slices: Vec<&mut [u8]> = byte_buffer.chunks_exact_mut(2048).collect();
