@@ -155,7 +155,7 @@ impl FrameDecoder {
             tracing::trace!("decode with pad len {}", pkt.len());
             self.space = vec![vec![0u8; pkt.len()]; self.data_shards + self.parity_shards]
         }
-        if self.space.len() < pkt_idx {
+        if self.space.len() <= pkt_idx {
             return None;
         }
         if self.done
