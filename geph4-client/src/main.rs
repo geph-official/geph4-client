@@ -87,6 +87,7 @@ fn main() -> anyhow::Result<()> {
         .unwrap();
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
+    sosistab::debug_aead();
     log::info!("geph4-client v{} starting...", version);
 
     smolscale::block_on(async move {

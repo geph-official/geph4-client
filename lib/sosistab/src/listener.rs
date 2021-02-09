@@ -116,6 +116,12 @@ impl ListenerActor {
         let read_socket = self.socket.clone();
         let write_socket = self.socket.clone();
 
+        // "fallthrough" rate limit. the idea is that new sessions on the same addr are infrequent, so we don't need to check constantly.
+        let fallthrough_limiter = RateLimiter::dashmap_with_clock(
+            Quota::per_minute(NonZeroU32::new(5u32).unwrap()),
+            &governor::clock::MonotonicClock,
+        );
+
         // two possible events
         enum Evt {
             NewRecv(Vec<(Bytes, SocketAddr)>),
@@ -127,11 +133,7 @@ impl ListenerActor {
                 async { Some(Evt::NewRecv(read_socket.recv_from_many().await.unwrap())) },
                 async { Some(Evt::DeadSess(recv_dead.recv().await.ok()?)) },
             );
-            // "fallthrough" rate limit. the idea is that new sessions on the same addr are infrequent, so we don't need to check constantly.
-            let fallthrough_limiter = RateLimiter::direct_with_clock(
-                Quota::per_second(NonZeroU32::new(1u32).unwrap()),
-                &governor::clock::MonotonicClock,
-            );
+            fallthrough_limiter.retain_recent();
             match event.await? {
                 Evt::DeadSess(resume_token) => {
                     tracing::trace!("removing existing session!");
@@ -142,8 +144,8 @@ impl ListenerActor {
                     for (buffer, addr) in items {
                         // first we attempt to map this to an existing session
                         if let Some(handle) = session_table.lookup(addr) {
-                            let _ = handle.try_send(buffer.clone());
-                            if fallthrough_limiter.check().is_err() {
+                            let _ = handle.send(buffer.clone()).await;
+                            if fallthrough_limiter.check_key(&addr).is_err() {
                                 continue;
                             }
                             // TODO figure out a way to decide whether to continue
@@ -151,7 +153,7 @@ impl ListenerActor {
                         // we know it's not part of an existing session then. we decrypt it under the current key
                         let s2c_key = self.cookie.generate_s2c().next().unwrap();
                         for possible_key in self.cookie.generate_c2s() {
-                            let crypter = crypt::StdAEAD::new(&possible_key);
+                            let crypter = crypt::LegacyAEAD::new(&possible_key);
                             if let Some(handshake) =
                                 crypter.pad_decrypt_v1::<protocol::HandshakeFrame>(&buffer)
                             {
@@ -173,7 +175,7 @@ impl ListenerActor {
                                         eph_pk,
                                         version,
                                     } => {
-                                        if version != 1 && version != 2 {
+                                        if version != 1 && version != 2 && version != 3 {
                                             tracing::warn!(
                                                 "got packet with incorrect version {}",
                                                 version
@@ -207,7 +209,7 @@ impl ListenerActor {
                                             eph_pk: (&my_eph_sk).into(),
                                             resume_token: token,
                                         };
-                                        let reply = crypt::StdAEAD::new(&s2c_key)
+                                        let reply = crypt::LegacyAEAD::new(&s2c_key)
                                             .pad_encrypt_v1(&[reply], 1000);
                                         tracing::debug!(
                                             "[{}] GONNA reply to ClientHello from {}",
@@ -252,10 +254,6 @@ impl ListenerActor {
                                                     crypt::DN_KEY,
                                                     &tokinfo.sess_key,
                                                 );
-                                                let up_aead =
-                                                    crypt::StdAEAD::new(up_key.as_bytes());
-                                                let dn_aead =
-                                                    crypt::StdAEAD::new(dn_key.as_bytes());
                                                 let write_socket = write_socket.clone();
                                                 let (session_input, session_input_recv) =
                                                     smol::channel::bounded(1000);
@@ -298,8 +296,19 @@ impl ListenerActor {
                                                     recv_timeout: Duration::from_secs(3600),
                                                     statistics: 128,
 
-                                                    send_crypt: dn_aead,
-                                                    recv_crypt: up_aead,
+                                                    send_crypt_legacy: crypt::LegacyAEAD::new(
+                                                        dn_key.as_bytes(),
+                                                    ),
+                                                    recv_crypt_legacy: crypt::LegacyAEAD::new(
+                                                        up_key.as_bytes(),
+                                                    ),
+
+                                                    send_crypt_ng: crypt::NgAEAD::new(
+                                                        dn_key.as_bytes(),
+                                                    ),
+                                                    recv_crypt_ng: crypt::NgAEAD::new(
+                                                        up_key.as_bytes(),
+                                                    ),
                                                     version: tokinfo.version,
                                                 });
                                                 let send_dead_clo = send_dead.clone();
@@ -348,13 +357,13 @@ struct TokenInfo {
 impl TokenInfo {
     fn decrypt(key: &[u8], encrypted: &[u8]) -> Option<Self> {
         // first we decrypt
-        let crypter = crypt::StdAEAD::new(key);
+        let crypter = crypt::LegacyAEAD::new(key);
         let plain = crypter.decrypt(encrypted)?;
         bincode::deserialize(&plain).ok()
     }
 
     fn encrypt(&self, key: &[u8]) -> Bytes {
-        let crypter = crypt::StdAEAD::new(key);
+        let crypter = crypt::LegacyAEAD::new(key);
         let mut rng = rand::thread_rng();
         crypter.encrypt(
             &bincode::serialize(self).expect("must serialize"),

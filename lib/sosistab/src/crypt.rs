@@ -3,25 +3,26 @@ use bytes::{Bytes, BytesMut};
 use c2_chacha::stream_cipher::{NewStreamCipher, SyncStreamCipher};
 use c2_chacha::ChaCha12;
 use rand::prelude::*;
+use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
-use std::time::SystemTime;
+use std::{sync::Arc, time::SystemTime};
 
 pub const UP_KEY: &[u8; 32] = b"upload--------------------------";
 pub const DN_KEY: &[u8; 32] = b"download------------------------";
 /// A structure for encrypting or decrypting Chacha12/Blake3-64.
 #[derive(Debug, Copy, Clone)]
-pub struct StdAEAD {
+pub struct LegacyAEAD {
     chacha_key: [u8; 32],
     blake3_key: [u8; 32],
 }
 
-impl StdAEAD {
+impl LegacyAEAD {
     /// New std aead given a key.
     pub fn new(key: &[u8]) -> Self {
         let blake3_key = blake3::keyed_hash(b"mac-----------------------------", key);
         let chacha_key = blake3::keyed_hash(b"enc-----------------------------", key);
-        StdAEAD {
+        LegacyAEAD {
             chacha_key: chacha_key.as_bytes().to_owned(),
             blake3_key: blake3_key.as_bytes().to_owned(),
         }
@@ -115,6 +116,61 @@ impl StdAEAD {
             return None;
         }
         Some(output)
+    }
+}
+
+/// Next generation AEAD, based on `ring`'s ChaCha20/Poly1305, used in versions 3 and above
+#[derive(Debug, Clone)]
+pub struct NgAEAD {
+    key: Arc<LessSafeKey>,
+}
+
+impl NgAEAD {
+    pub fn new(key: &[u8]) -> Self {
+        let ubk = UnboundKey::new(&CHACHA20_POLY1305, &key).unwrap();
+        Self {
+            key: Arc::new(LessSafeKey::new(ubk)),
+        }
+    }
+
+    /// Encrypts a message with a random nonce.
+    pub fn encrypt(&self, msg: &[u8]) -> Bytes {
+        let mut nonce = [0; 12];
+        rand::thread_rng().fill_bytes(&mut nonce);
+        // make an output. it starts out containing the plaintext.
+        let mut output = Vec::with_capacity(
+            msg.len() + CHACHA20_POLY1305.nonce_len() + CHACHA20_POLY1305.tag_len(),
+        );
+        output.extend_from_slice(&msg);
+        // now we overwrite it
+        self.key
+            .seal_in_place_append_tag(
+                Nonce::assume_unique_for_key(nonce),
+                Aad::empty(),
+                &mut output,
+            )
+            .unwrap();
+        output.extend_from_slice(&nonce);
+        output.into()
+    }
+
+    /// Decrypts a message.
+    pub fn decrypt(&self, ctext: &[u8]) -> Option<Bytes> {
+        if ctext.len() < CHACHA20_POLY1305.nonce_len() + CHACHA20_POLY1305.tag_len() {
+            return None;
+        }
+        // nonce is last 4 bytes
+        let (ctext, nonce) = ctext.split_at(ctext.len() - CHACHA20_POLY1305.nonce_len());
+        // we now open
+        let mut ctext = ctext.to_vec();
+        self.key
+            .open_in_place(
+                Nonce::try_assume_unique_for_key(nonce).unwrap(),
+                Aad::empty(),
+                &mut ctext,
+            )
+            .ok()?;
+        Some(ctext.into())
     }
 }
 

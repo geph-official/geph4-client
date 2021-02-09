@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    crypt::StdAEAD,
+    crypt::{LegacyAEAD, NgAEAD},
     fec::{pre_encode, FrameDecoder},
     protocol::{DataFrameV1, DataFrameV2},
 };
@@ -17,19 +17,21 @@ pub struct RecvMachine {
     version: u64,
     decoder: RunDecoder,
     oob_decoder: OobDecoder,
-    recv_crypt: StdAEAD,
+    recv_crypt_legacy: LegacyAEAD,
+    recv_crypt_ng: NgAEAD,
     replay_filter: ReplayFilter,
     ping_calc: Arc<StatGatherer>,
 }
 
 impl RecvMachine {
     /// Creates a new machine based on a version and a down decrypter.
-    pub fn new(version: u64, recv_crypt: StdAEAD) -> Self {
+    pub fn new(version: u64, recv_crypt_legacy: LegacyAEAD, recv_crypt_ng: NgAEAD) -> Self {
         Self {
             version,
             decoder: RunDecoder::default(),
             oob_decoder: OobDecoder::new(1000),
-            recv_crypt,
+            recv_crypt_legacy,
+            recv_crypt_ng,
             replay_filter: ReplayFilter::default(),
             ping_calc: Default::default(),
         }
@@ -39,15 +41,13 @@ impl RecvMachine {
     pub fn process(&mut self, packet: &[u8]) -> Option<Vec<Bytes>> {
         if self.version == 1 {
             self.process_v1(packet)
-        } else if self.version == 2 {
-            self.process_v2(packet)
         } else {
-            unreachable!()
+            self.process_ng(packet)
         }
     }
 
     fn process_v1(&mut self, packet: &[u8]) -> Option<Vec<Bytes>> {
-        let frames: Vec<DataFrameV1> = self.recv_crypt.pad_decrypt_v1(packet)?;
+        let frames: Vec<DataFrameV1> = self.recv_crypt_legacy.pad_decrypt_v1(packet)?;
         let mut output = Vec::with_capacity(1);
         for frame in frames {
             if !self.replay_filter.add(frame.frame_no) {
@@ -73,8 +73,12 @@ impl RecvMachine {
         Some(output)
     }
 
-    fn process_v2(&mut self, packet: &[u8]) -> Option<Vec<Bytes>> {
-        let plain_frame = self.recv_crypt.decrypt(packet)?;
+    fn process_ng(&mut self, packet: &[u8]) -> Option<Vec<Bytes>> {
+        let plain_frame = match self.version {
+            2 => self.recv_crypt_legacy.decrypt(packet)?,
+            3 => self.recv_crypt_ng.decrypt(packet)?,
+            _ => return None,
+        };
         let v2frame = DataFrameV2::depad(&plain_frame)?;
         match v2frame {
             DataFrameV2::Data {

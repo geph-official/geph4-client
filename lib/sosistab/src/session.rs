@@ -1,6 +1,9 @@
-use crate::protocol::{DataFrameV1, DataFrameV2};
 use crate::runtime;
-use crate::{crypt::StdAEAD, fec::FrameEncoder};
+use crate::{crypt::LegacyAEAD, fec::FrameEncoder};
+use crate::{
+    crypt::NgAEAD,
+    protocol::{DataFrameV1, DataFrameV2},
+};
 use bytes::Bytes;
 use concurrent_queue::ConcurrentQueue;
 use governor::{NegativeMultiDecision, Quota, RateLimiter};
@@ -30,8 +33,10 @@ pub(crate) struct SessionConfig {
     pub recv_timeout: Duration,
     pub statistics: usize,
     pub version: u64,
-    pub send_crypt: StdAEAD,
-    pub recv_crypt: StdAEAD,
+    pub send_crypt_legacy: LegacyAEAD,
+    pub recv_crypt_legacy: LegacyAEAD,
+    pub send_crypt_ng: NgAEAD,
+    pub recv_crypt_ng: NgAEAD,
 }
 
 /// Representation of an isolated session that deals only in DataFrames and abstracts away all I/O concerns. It's the user's responsibility to poll the session. Otherwise, it might not make progress and will drop packets.
@@ -55,7 +60,11 @@ impl Session {
         let rate_limit = Arc::new(AtomicU32::new(12800));
         let recv_timeout = cfg.recv_timeout;
         let statistics = Arc::new(Mutex::new(TimeSeries::new(cfg.statistics)));
-        let machine = Mutex::new(RecvMachine::new(cfg.version, cfg.recv_crypt));
+        let machine = Mutex::new(RecvMachine::new(
+            cfg.version,
+            cfg.recv_crypt_legacy,
+            cfg.recv_crypt_ng.clone(),
+        ));
         let last_recv = Arc::new(Mutex::new(SystemTime::now()));
         let recv_packet = cfg.recv_packet.clone();
 
@@ -162,15 +171,14 @@ struct SessionSendCtx {
     last_recv: Arc<Mutex<SystemTime>>,
 }
 
-#[tracing::instrument(skip(ctx))]
+// #[tracing::instrument(skip(ctx))]
 async fn session_send_loop(ctx: SessionSendCtx) {
     // sending loop
     if ctx.cfg.version == 1 {
         session_send_loop_v1(ctx).await;
-    } else if ctx.cfg.version == 2 {
-        session_send_loop_v2(ctx).await;
     } else {
-        unreachable!();
+        let version = ctx.cfg.version;
+        session_send_loop_nextgen(ctx, version).await;
     }
 }
 
@@ -252,7 +260,7 @@ async fn session_send_loop_v1(ctx: SessionSendCtx) -> Option<()> {
 
         // TODO: batching
         for tosend in tosend {
-            let encoded = ctx.cfg.send_crypt.pad_encrypt_v1(&[tosend], 1000);
+            let encoded = ctx.cfg.send_crypt_legacy.pad_encrypt_v1(&[tosend], 1000);
             ctx.cfg.send_packet.send(encoded).await.ok()?;
         }
 
@@ -270,7 +278,7 @@ async fn session_send_loop_v1(ctx: SessionSendCtx) -> Option<()> {
 }
 
 #[tracing::instrument(skip(ctx))]
-async fn session_send_loop_v2(ctx: SessionSendCtx) -> Option<()> {
+async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<()> {
     enum Event {
         NewPayload(Bytes),
         FecTimeout,
@@ -333,10 +341,14 @@ async fn session_send_loop_v2(ctx: SessionSendCtx) -> Option<()> {
                 unfecked.push((frame_no, send_payload));
                 let send_padded = send_framed.pad();
                 ctx.statg.ping_send(frame_no);
-                let send_encrypted = ctx
-                    .cfg
-                    .send_crypt
-                    .encrypt(&send_padded, rand::thread_rng().gen());
+                let send_encrypted = match version {
+                    2 => ctx
+                        .cfg
+                        .send_crypt_legacy
+                        .encrypt(&send_padded, rand::thread_rng().gen()),
+                    3 => ctx.cfg.send_crypt_ng.encrypt(&send_padded),
+                    _ => return None,
+                };
                 ctx.cfg.send_packet.send(send_encrypted).await.ok()?;
 
                 // increment frame no
@@ -379,10 +391,14 @@ async fn session_send_loop_v2(ctx: SessionSendCtx) -> Option<()> {
                         pad_size,
                     };
                     let send_padded = send_framed.pad();
-                    let send_encrypted = ctx
-                        .cfg
-                        .send_crypt
-                        .encrypt(&send_padded, rand::thread_rng().gen());
+                    let send_encrypted = match version {
+                        2 => ctx
+                            .cfg
+                            .send_crypt_legacy
+                            .encrypt(&send_padded, rand::thread_rng().gen()),
+                        3 => ctx.cfg.send_crypt_ng.encrypt(&send_padded),
+                        _ => return None,
+                    };
                     ctx.cfg.send_packet.send(send_encrypted).await.ok()?;
                 }
             }

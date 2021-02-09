@@ -1,6 +1,6 @@
 use crate::*;
 use bytes::Bytes;
-use crypt::StdAEAD;
+use crypt::{LegacyAEAD, NgAEAD};
 use governor::{Quota, RateLimiter};
 use rand::prelude::*;
 use smol::channel::{Receiver, Sender};
@@ -39,13 +39,12 @@ pub async fn connect_custom(
     let init_hello = protocol::HandshakeFrame::ClientHello {
         long_pk: (&my_long_sk).into(),
         eph_pk: (&my_eph_sk).into(),
-        version: 2,
+        version: VERSION,
     };
     let mut buf = [0u8; 2048];
     for timeout_factor in (0u32..).map(|x| 2u64.pow(x)) {
-        dbg!(timeout_factor);
         // send hello
-        let init_hello = crypt::StdAEAD::new(&cookie.generate_c2s().next().unwrap())
+        let init_hello = crypt::LegacyAEAD::new(&cookie.generate_c2s().next().unwrap())
             .pad_encrypt_v1(&std::slice::from_ref(&init_hello), 1000);
         udp_socket.send_to(&init_hello, server_addr).await?;
         tracing::trace!("sent client hello");
@@ -64,7 +63,7 @@ pub async fn connect_custom(
             Ok((n, _)) => {
                 let buf = &buf[..n];
                 for possible_key in cookie.generate_s2c() {
-                    let decrypter = crypt::StdAEAD::new(&possible_key);
+                    let decrypter = crypt::LegacyAEAD::new(&possible_key);
                     let response = decrypter.pad_decrypt_v1(buf);
                     for response in response.unwrap_or_default() {
                         if let protocol::HandshakeFrame::ServerHello {
@@ -114,6 +113,8 @@ pub async fn connect_custom(
 const SHARDS: u8 = 1;
 const RESET_MILLIS: u128 = 1000;
 
+const VERSION: u64 = 3;
+
 #[tracing::instrument(skip(laddr_gen), level = "trace")]
 async fn init_session(
     cookie: crypt::Cookie,
@@ -141,18 +142,18 @@ async fn init_session(
             ))
         })
         .collect();
+    let up_key = blake3::keyed_hash(crypt::UP_KEY, shared_sec.as_bytes());
+    let dn_key = blake3::keyed_hash(crypt::DN_KEY, shared_sec.as_bytes());
     let mut session = Session::new(SessionConfig {
         send_packet: send_frame_out,
         recv_packet: recv_frame_in,
-        send_crypt: StdAEAD::new(
-            blake3::keyed_hash(crypt::UP_KEY, shared_sec.as_bytes()).as_bytes(),
-        ),
-        recv_crypt: StdAEAD::new(
-            blake3::keyed_hash(crypt::DN_KEY, shared_sec.as_bytes()).as_bytes(),
-        ),
+        send_crypt_legacy: LegacyAEAD::new(up_key.as_bytes()),
+        recv_crypt_legacy: LegacyAEAD::new(dn_key.as_bytes()),
+        send_crypt_ng: NgAEAD::new(up_key.as_bytes()),
+        recv_crypt_ng: NgAEAD::new(dn_key.as_bytes()),
         recv_timeout: Duration::from_secs(300),
         statistics: 40000,
-        version: 2,
+        version: VERSION,
     });
     session.on_drop(move || {
         drop(backhaul_tasks);
@@ -216,7 +217,7 @@ async fn client_backhaul_once(
                 let now = Instant::now();
                 if remind_ratelimit.check().is_ok() || !updated {
                     updated = true;
-                    let g_encrypt = crypt::StdAEAD::new(&cookie.generate_c2s().next().unwrap());
+                    let g_encrypt = crypt::LegacyAEAD::new(&cookie.generate_c2s().next().unwrap());
                     if now.saturating_duration_since(last_reset).as_millis() > my_reset_millis {
                         my_reset_millis =
                             rand::thread_rng().gen_range(RESET_MILLIS / 2, RESET_MILLIS);
