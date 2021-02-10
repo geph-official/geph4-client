@@ -57,7 +57,7 @@ pub async fn multiplex(
                             let dead_send = dead_send.clone();
                             tracing::trace!("syn recv {} ACCEPT", stream_id);
                             let lala = String::from_utf8_lossy(&payload).to_string();
-                            let additional_info = if &lala == "" { None } else { Some(lala) };
+                            let additional_info = if lala.is_empty() { None } else { Some(lala) };
                             let (new_conn, new_conn_back) = RelConn::new(
                                 RelConnState::SynReceived { stream_id },
                                 glob_send.clone(),

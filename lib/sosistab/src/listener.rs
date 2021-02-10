@@ -133,7 +133,9 @@ impl ListenerActor {
                 async { Some(Evt::NewRecv(read_socket.recv_from_many().await.unwrap())) },
                 async { Some(Evt::DeadSess(recv_dead.recv().await.ok()?)) },
             );
-            fallthrough_limiter.retain_recent();
+            if rand::random::<f32>() < 0.001 {
+                fallthrough_limiter.retain_recent();
+            }
             match event.await? {
                 Evt::DeadSess(resume_token) => {
                     tracing::trace!("removing existing session!");

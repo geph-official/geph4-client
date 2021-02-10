@@ -103,6 +103,7 @@ impl BinderRequestData {
     }
 
     /// Returns a boolean determining whether or not this request is idempotent.
+    #[allow(clippy::clippy::match_like_matches_macro)]
     pub fn is_idempotent(&self) -> bool {
         match self {
             BinderRequestData::GetEpochKey { .. } => true,
