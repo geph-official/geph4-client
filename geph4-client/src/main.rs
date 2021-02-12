@@ -34,6 +34,7 @@ fn main() -> anyhow::Result<()> {
     unsafe {
         winapi::um::timeapi::timeBeginPeriod(1);
     }
+    smolscale::permanently_single_threaded();
 
     // the logging function
     fn logger(
@@ -87,7 +88,6 @@ fn main() -> anyhow::Result<()> {
         .unwrap();
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
-    sosistab::debug_aead();
     log::info!("geph4-client v{} starting...", version);
 
     smolscale::block_on(async move {

@@ -56,6 +56,7 @@ pub struct ConnectOpt {
 
 pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     log::info!("connect mode started");
+    sosistab::debug_aead();
 
     //start socks 2 http
     smolscale::spawn(Compat::new(socks2http::run_tokio(opt.http_listen, {

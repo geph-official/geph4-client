@@ -16,7 +16,7 @@ use pin_project_lite::pin_project;
 use std::{
     pin::Pin,
     sync::atomic::AtomicUsize,
-    sync::atomic::Ordering,
+    sync::atomic::{AtomicBool, Ordering},
     task::{Context, Poll},
     time::Duration,
 };
@@ -35,6 +35,13 @@ static POLL_COUNT: AtomicUsize = AtomicUsize::new(0);
 static THREAD_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 static MONITOR: OnceCell<std::thread::JoinHandle<()>> = OnceCell::new();
+
+static SINGLE_THREAD: AtomicBool = AtomicBool::new(false);
+
+/// Irrevocably puts smolscale into single-threaded mode.
+pub fn permanently_single_threaded() {
+    SINGLE_THREAD.store(true, Ordering::Relaxed);
+}
 
 fn start_monitor() {
     MONITOR.get_or_init(|| {
@@ -70,6 +77,9 @@ fn monitor_loop() {
 
     let mut consecutive_busy = 0;
     loop {
+        if SINGLE_THREAD.load(Ordering::Relaxed) {
+            return;
+        }
         std::thread::sleep(Duration::from_millis(MONITOR_MS));
         let fbp = loop {
             let fbp = FUTURES_BEING_POLLED.load(Ordering::SeqCst);
