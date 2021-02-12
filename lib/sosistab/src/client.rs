@@ -81,7 +81,6 @@ pub async fn connect_custom(
                             }
                             let shared_sec =
                                 crypt::triple_ecdh(&my_long_sk, &my_eph_sk, &long_pk, &eph_pk);
-                            tracing::warn!("GONNA START SESSION NOW!");
                             return init_session(
                                 cookie,
                                 resume_token,
@@ -110,8 +109,8 @@ pub async fn connect_custom(
     unimplemented!()
 }
 
-const SHARDS: u8 = 1;
-const RESET_MILLIS: u128 = 1000;
+const SHARDS: u8 = 12;
+const RESET_MILLIS: u128 = 60000;
 
 const VERSION: u64 = 3;
 

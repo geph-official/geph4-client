@@ -367,7 +367,7 @@ impl BinderCore {
                 &[],
             )
             .map_err(|_| BinderError::DatabaseFailed)?;
-        Ok(rows
+        let mut toret = rows
             .into_iter()
             .map(|row| ExitDescriptor {
                 hostname: row.get(0),
@@ -379,7 +379,9 @@ impl BinderCore {
                     <[u8; 32]>::try_from(row.get::<_, Vec<u8>>(4).as_slice()).unwrap(),
                 ),
             })
-            .collect())
+            .collect::<Vec<_>>();
+        toret.sort_by_key(|d| d.country_code.clone());
+        Ok(toret)
     }
 
     /// Get all bridges.

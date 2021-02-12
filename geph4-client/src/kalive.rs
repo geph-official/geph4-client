@@ -115,6 +115,7 @@ async fn keepalive_actor_once(
         if bridges.is_empty() {
             anyhow::bail!("absolutely no bridges found")
         }
+        let start = Instant::now();
         // spawn a task for *every* bridge
         let (send, recv) = smol::channel::unbounded();
         let _tasks: Vec<_> = bridges
@@ -125,6 +126,10 @@ async fn keepalive_actor_once(
                     log::debug!("connecting through {}...", desc.endpoint);
                     drop(
                         send.send((desc.endpoint, {
+                            // we effectively sum 5 RTTs. this filters out the high-jitter/high-loss crap.
+                            for _ in 0..5 {
+                                let _ = sosistab::connect(desc.endpoint, desc.sosistab_key).await;
+                            }
                             sosistab::connect(desc.endpoint, desc.sosistab_key).await
                         }))
                         .await,
@@ -136,7 +141,11 @@ async fn keepalive_actor_once(
         loop {
             let (saddr, res) = recv.recv().await.context("ran out of bridges")?;
             if let Ok(res) = res {
-                log::info!("{} is our fastest bridge", saddr);
+                log::info!(
+                    "{} is our fastest bridge, 5rtt={}",
+                    saddr,
+                    start.elapsed().as_millis()
+                );
                 break Ok(res);
             }
         }
@@ -184,7 +193,6 @@ async fn keepalive_actor_once(
         .timeout(Duration::from_secs(5))
         .await
         .ok_or_else(|| anyhow::anyhow!("authentication timed out"))??;
-    // TODO actually authenticate
     log::info!(
         "KEEPALIVE MAIN LOOP for exit_host={}, use_bridges={}",
         exit_host,
