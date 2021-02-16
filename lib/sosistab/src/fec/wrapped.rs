@@ -45,7 +45,6 @@ impl WrappedReedSolomon {
             .counter
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         if count == 255 {
-            tracing::warn!("RS reset!");
             let inner = galois_8::ReedSolomon::new(self.data_shards, self.parity_shards).unwrap();
             self.inner.swap(Arc::new(inner));
         }
