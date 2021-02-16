@@ -5,7 +5,7 @@
 
 (define (generate-list (name "geolocation-cn"))
   (define url (string->url
-               (format "https://raw.githubusercontent.com/v2ray/domain-list-community/master/data/~a" name)))
+               (format "https://raw.githubusercontent.com/v2fly/domain-list-community/master/data/~a" name)))
   (for ([line (in-lines (get-pure-port url))])
     (match (string-trim line)
       [(or "" (regexp #rx"^#")) (void)]
