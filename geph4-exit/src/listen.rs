@@ -4,8 +4,9 @@ use std::{
     time::Duration,
 };
 
-use crate::ALLOCATOR;
+use crate::{vpn, ALLOCATOR};
 use binder_transport::BinderClient;
+
 use smol::prelude::*;
 use smolscale::OnError;
 
@@ -22,25 +23,25 @@ pub struct RootCtx {
 
     session_count: AtomicUsize,
     raw_session_count: AtomicUsize,
-    conn_count: AtomicUsize,
+    pub conn_count: AtomicUsize,
 
     free_limit: u32,
     port_whitelist: bool,
 
-    google_proxy: Option<SocketAddr>,
+    pub google_proxy: Option<SocketAddr>,
 
+    // pub conn_tasks: Mutex<cached::SizedCache<u128, smol::Task<Option<()>>>>,
     nursery: smolscale::NurseryHandle,
 }
 
 impl RootCtx {
     fn new_sess(self: &Arc<Self>, sess: sosistab::Session) -> SessCtx {
         let new_nurs = smolscale::Nursery::new();
-        let new_hand = new_nurs.handle();
+        let new_hand: smolscale::NurseryHandle = new_nurs.handle();
         self.nursery.spawn(OnError::Ignore, |_| new_nurs.wait());
         SessCtx {
             root: self.clone(),
             sess,
-            nursery: new_hand,
         }
     }
 }
@@ -49,8 +50,6 @@ impl RootCtx {
 pub struct SessCtx {
     root: Arc<RootCtx>,
     sess: sosistab::Session,
-
-    nursery: smolscale::NurseryHandle,
 }
 
 /// the main listening loop
@@ -80,8 +79,11 @@ pub async fn main_loop<'a>(
         free_limit,
         port_whitelist,
         google_proxy,
+        // conn_tasks: Mutex::new(SizedCache::with_size(1000)),
         nursery: nursery.handle(),
     });
+
+    smolscale::spawn(vpn::transparent_proxy_helper(ctx.clone())).detach();
 
     // control protocol listener
     let control_prot_listen = smol::net::TcpListener::bind("[::0]:28080").await?;

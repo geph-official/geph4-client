@@ -1,12 +1,10 @@
 use bytes::Bytes;
-use flume::{Receiver, Sender};
-use std::io::prelude::*;
+use fs::OpenOptions;
+use smol::prelude::*;
 use std::os::raw::c_char;
 use std::os::unix::io::AsRawFd;
 use std::{ffi::CStr, process::Command};
 use std::{fs, io, os::raw::c_int};
-
-use fs::OpenOptions;
 extern "C" {
     fn tun_setup(fd: c_int, name: *mut u8) -> c_int;
 }
@@ -16,10 +14,8 @@ extern "C" {
 /// This is the main interface of this crate, representing a TUN device or something similar on non-Unix platforms.
 #[derive(Debug)]
 pub struct TunDevice {
-    fd: fs::File,
+    fd: async_dup::Mutex<smol::Async<fs::File>>,
     name: String,
-    send_write: Sender<Bytes>,
-    recv_read: Receiver<Bytes>,
 }
 
 impl TunDevice {
@@ -45,46 +41,11 @@ impl TunDevice {
                 .to_string_lossy()
                 .into_owned()
         };
-        // spawn two threads
-        let mut fd1 = fd.try_clone().unwrap();
-        let (send_write, recv_write) = flume::bounded::<Bytes>(10000);
-        let (send_read, recv_read) = flume::bounded::<Bytes>(10000);
-        let mut fd2 = fd.try_clone().unwrap();
-        std::thread::Builder::new()
-            .name("tun-read".into())
-            .spawn(move || {
-                let mut buf = [0u8; 2048];
-                for _ in 0.. {
-                    let n = fd1.read(&mut buf).ok().unwrap();
-                    // send_read.try_send(Bytes::copy_from_slice(&buf[..n]))
-                    if send_read
-                        .try_send(Bytes::copy_from_slice(&buf[..n]))
-                        .is_err()
-                    {
-                        log::warn!("overflowing tundevice ({:?})", &buf[..n])
-                    }
-                }
-                Some(())
-            })
-            .unwrap();
-        std::thread::Builder::new()
-            .name("tun-write".into())
-            .spawn(move || {
-                for _ in 0.. {
-                    let bts = recv_write.recv().ok()?;
-                    let _ = fd2.write_all(&bts);
-                    let _ = fd2.flush();
-                }
-                Some(())
-            })
-            .unwrap();
         log::warn!("TUN DEVICE INITIALIZED {:#?}", fd);
         // return the device
         Ok(TunDevice {
-            fd,
+            fd: async_dup::Mutex::new(smol::Async::new(fd)?),
             name,
-            send_write,
-            recv_read,
         })
     }
 
@@ -112,12 +73,19 @@ impl TunDevice {
 
     /// Reads raw packet.
     pub async fn read_raw(&self) -> Option<Bytes> {
-        self.recv_read.recv_async().await.ok()
+        let mut buf = Vec::with_capacity(2048);
+        unsafe {
+            buf.set_len(2048);
+        }
+        let n = (&self.fd).read(&mut buf).await.ok()?;
+        buf.truncate(n);
+        Some(buf.into())
     }
 
     /// Writes a packet.
     pub async fn write_raw(&self, to_write: Bytes) -> Option<()> {
-        self.send_write.send_async(to_write).await.ok()
+        (&self.fd).write(&to_write).await.ok();
+        Some(())
     }
 }
 

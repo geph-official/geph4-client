@@ -7,17 +7,14 @@ use std::{
 use super::SessCtx;
 use crate::vpn::handle_vpn_session;
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
+
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
-use smolscale::OnError;
+
 use std::sync::Arc;
 
 pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
-    let SessCtx {
-        root,
-        sess,
-        nursery,
-    } = ctx;
+    let SessCtx { root, sess } = ctx;
 
     // raw session count
     root.raw_session_count
@@ -28,7 +25,6 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
     });
 
     let sess = Arc::new(sosistab::mux::Multiplex::new(sess));
-    let nhandle = nursery.clone();
     let is_plus = authenticate_sess(root.binder_client.clone(), &sess)
         .timeout(Duration::from_secs(300))
         .await
@@ -71,25 +67,28 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
     let proxy_loop = async {
         loop {
             let stream = sess.accept_conn().await?;
-            let root = root.clone();
+            let ctx = root.clone();
             let send_sess_alive = send_sess_alive.clone();
-            nhandle.spawn(OnError::Ignore, move |_| async move {
-                root.conn_count
+            let conn_task = smolscale::spawn(async move {
+                ctx.conn_count
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let _deferred = scopeguard::guard((), |_| {
-                    root.conn_count
+                    ctx.conn_count
                         .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                 });
                 let _ = send_sess_alive.try_send(());
                 handle_proxy_stream(
-                    root.stat_client.clone(),
-                    root.exit_hostname.clone(),
-                    root.port_whitelist,
+                    ctx.stat_client.clone(),
+                    ctx.exit_hostname.clone(),
+                    ctx.port_whitelist,
                     stream,
-                    root.google_proxy,
+                    ctx.google_proxy,
                 )
                 .await
+                .ok()
             });
+            conn_task.detach();
+            // root.conn_tasks.lock().cache_set(rand::random(), conn_task);
         }
     };
     let vpn_loop = handle_vpn_session(

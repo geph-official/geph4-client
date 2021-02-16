@@ -56,7 +56,7 @@ pub struct Session {
 impl Session {
     /// Creates a Session.
     pub(crate) fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = smol::channel::bounded(1000);
+        let (send_tosend, recv_tosend) = smol::channel::bounded(2000);
         let rate_limit = Arc::new(AtomicU32::new(12800));
         let recv_timeout = cfg.recv_timeout;
         let statistics = Arc::new(Mutex::new(TimeSeries::new(cfg.statistics)));
@@ -289,6 +289,11 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
         &governor::clock::MonotonicClock,
     );
 
+    let hard_limiter = RateLimiter::direct_with_clock(
+        Quota::per_second(NonZeroU32::new(15000).unwrap()).allow_burst(NonZeroU32::new(8).unwrap()),
+        &governor::clock::MonotonicClock,
+    );
+
     const FEC_TIMEOUT_MS: u64 = 50;
 
     // FEC timer: when this expires, send parity packets regardless if we have assembled BURST_SIZE data packets.
@@ -323,7 +328,7 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
             Event::NewPayload(send_payload) => {
                 let limit = ctx.rate_limit.load(Ordering::Relaxed);
                 if limit < 1000 {
-                    if ctx.recv_tosend.len() > 100 {
+                    if limit < 1000 && ctx.recv_tosend.len() > 100 {
                         continue;
                     }
                     let multiplier = 25600 / limit;
@@ -332,6 +337,9 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
                     {
                         smol::Timer::at(err.earliest_possible()).await;
                     }
+                }
+                while let Err(e) = hard_limiter.check() {
+                    smol::Timer::at(e.earliest_possible()).await;
                 }
                 let send_framed = DataFrameV2::Data {
                     frame_no,
@@ -370,6 +378,7 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
                     unfecked.clear();
                     continue;
                 }
+                assert!(unfecked.len() <= BURST_SIZE);
                 // encode
                 let first_frame_no = unfecked[0].0;
                 let data_count = unfecked.len();

@@ -12,6 +12,7 @@ smol= "1.2.5"
 bytes= "1.0.0"
 flume = "0.10.1"
 log= "0.4.11"
+async-dup="1"
 
 [build-dependencies]
 cc = "1.0.66"
