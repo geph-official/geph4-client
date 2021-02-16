@@ -1,4 +1,5 @@
 use bytes::Bytes;
+use cached::Cached;
 use cidr::{Cidr, Ipv4Cidr};
 use dashmap::DashMap;
 use libc::{c_void, SOL_IP, SO_ORIGINAL_DST};
@@ -23,14 +24,25 @@ use std::{
 use tundevice::TunDevice;
 use vpn_structs::Message;
 
+use crate::listen::RootCtx;
+
 /// Runs the transparent proxy helper
-pub async fn transparent_proxy_helper(google_proxy: Option<SocketAddr>) -> anyhow::Result<()> {
+pub async fn transparent_proxy_helper(ctx: Arc<RootCtx>) -> anyhow::Result<()> {
     // always run on port 10000
     let listener = smol::net::TcpListener::bind("0.0.0.0:10000").await.unwrap();
+    let google_proxy = ctx.google_proxy;
     loop {
         let (client, _) = listener.accept().await.unwrap();
-        smolscale::spawn(async move {
-            client.set_nodelay(true).ok()?;
+        let root = ctx.clone();
+        let conn_task = smolscale::spawn(async move {
+            root.conn_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let _deferred = scopeguard::guard((), |_| {
+                root.conn_count
+                    .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+            });
+
+            // client.set_nodelay(true).ok()?;
             let client_fd = client.as_raw_fd();
             let addr = unsafe {
                 let raw_addr = OsSocketAddr::new();
@@ -73,7 +85,7 @@ pub async fn transparent_proxy_helper(google_proxy: Option<SocketAddr>) -> anyho
                 .timeout(Duration::from_secs(60))
                 .await?
                 .ok()?;
-            remote.set_nodelay(true).ok()?;
+            // remote.set_nodelay(true).ok()?;
             smol::future::race(
                 aioutils::copy_with_stats(remote.clone(), client.clone(), |_| ()),
                 aioutils::copy_with_stats(client, remote, |_| ()),
@@ -81,8 +93,9 @@ pub async fn transparent_proxy_helper(google_proxy: Option<SocketAddr>) -> anyho
             .await
             .ok()?;
             Some(())
-        })
-        .detach();
+        });
+        conn_task.detach();
+        // ctx.conn_tasks.lock().cache_set(rand::random(), conn_task);
     }
 }
 

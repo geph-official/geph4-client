@@ -109,8 +109,8 @@ pub async fn connect_custom(
     unimplemented!()
 }
 
-const SHARDS: u8 = 12;
-const RESET_MILLIS: u128 = 60000;
+const SHARDS: u8 = 4;
+const RESET_MILLIS: u128 = 10000;
 
 const VERSION: u64 = 3;
 
@@ -125,8 +125,8 @@ async fn init_session(
     let remind_ratelimit = Arc::new(RateLimiter::direct(Quota::per_second(
         NonZeroU32::new(3).unwrap(),
     )));
-    let (send_frame_out, recv_frame_out) = smol::channel::unbounded();
-    let (send_frame_in, recv_frame_in) = smol::channel::unbounded();
+    let (send_frame_out, recv_frame_out) = smol::channel::bounded(1000);
+    let (send_frame_in, recv_frame_in) = smol::channel::bounded(1000);
     let backhaul_tasks: Vec<_> = (0..SHARDS)
         .map(|i| {
             runtime::spawn(client_backhaul_once(

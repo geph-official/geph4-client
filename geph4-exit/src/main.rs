@@ -62,7 +62,6 @@ fn main() -> anyhow::Result<()> {
     let stat_client = statsd::Client::new(opt.statsd_addr, "geph4")?;
     env_logger::Builder::from_env(Env::default().default_filter_or("geph4_exit=debug,warn")).init();
     smol::future::block_on(smolscale::spawn(async move {
-        smolscale::spawn(vpn::transparent_proxy_helper(opt.google_proxy)).detach();
         log::info!("geph4-exit starting...");
         // read or generate key
         let signing_sk = {

@@ -37,13 +37,14 @@ pub async fn write_pascalish<T: Serialize>(
 }
 
 /// Copies an AsyncRead to an AsyncWrite, with a callback for every write.
+#[inline]
 pub async fn copy_with_stats(
     mut reader: impl AsyncRead + Unpin,
     mut writer: impl AsyncWrite + Unpin,
     mut on_write: impl FnMut(usize),
 ) -> std::io::Result<()> {
-    let mut buffer = [0u8; 8192];
-    let mut timeout = smol::Timer::after(Duration::from_secs(600));
+    let mut buffer = [0u8; 16384];
+    let mut timeout = smol::Timer::after(Duration::from_secs(300));
     loop {
         // first read into the small buffer
         let n = reader
@@ -59,9 +60,18 @@ pub async fn copy_with_stats(
         if n == 0 {
             return Ok(());
         }
-        timeout.set_after(Duration::from_secs(600));
+        timeout.set_after(Duration::from_secs(300));
         on_write(n);
-        writer.write_all(&buffer[..n]).await?;
+        writer
+            .write_all(&buffer[..n])
+            .or(async {
+                (&mut timeout).await;
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "copy_with_stats timeout",
+                ))
+            })
+            .await?;
     }
 }
 
@@ -71,7 +81,7 @@ pub fn copy_with_stats_sync(
     mut writer: impl std::io::Write,
     mut on_write: impl FnMut(usize),
 ) -> std::io::Result<()> {
-    let mut buffer = [0u8; 8192];
+    let mut buffer = [0u8; 32768];
     loop {
         // first read into the small buffer
         let n = reader.read(&mut buffer)?;

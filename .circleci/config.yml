@@ -20,3 +20,12 @@ jobs:
       - run: |
           b2 authorize-account $B2_KEYID $B2_APPKEY
       - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
+
+workflows:
+  version: 2
+  main:
+    jobs:
+      - build:
+          filters:
+            branches:
+              only: master
