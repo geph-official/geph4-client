@@ -103,8 +103,10 @@ dependencies = [
  "anyhow",
  "async-dup",
  "bincode",
+ "concurrent-queue",
  "dnsclient",
  "log 0.4.14",
+ "once_cell",
  "serde",
  "smol",
  "smol-timeout",
@@ -3093,6 +3095,8 @@ version = "4.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a415a013dd7c5d4221382329a5a3482566da675737494935cbbbcdec04662f9d"
 dependencies = [
+ "cc",
+ "libc",
  "smallvec",
 ]
 

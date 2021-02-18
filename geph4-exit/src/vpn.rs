@@ -12,6 +12,7 @@ use pnet_packet::{
 };
 use rand::prelude::*;
 
+use smol::Async;
 use smol_timeout::TimeoutExt;
 use std::os::unix::io::AsRawFd;
 use std::{
@@ -29,7 +30,14 @@ use crate::listen::RootCtx;
 /// Runs the transparent proxy helper
 pub async fn transparent_proxy_helper(ctx: Arc<RootCtx>) -> anyhow::Result<()> {
     // always run on port 10000
-    let listener = smol::net::TcpListener::bind("0.0.0.0:10000").await.unwrap();
+    let listen_addr: SocketAddr = "0.0.0.0:10000".parse().unwrap();
+    let listener = smol::Async::<std::net::TcpListener>::bind(listen_addr).unwrap();
+
+    // we set the backlog to 65536
+    unsafe {
+        libc::listen(listener.get_ref().as_raw_fd(), 65536);
+    }
+
     let google_proxy = ctx.google_proxy;
     loop {
         let (client, _) = listener.accept().await.unwrap();
@@ -81,14 +89,16 @@ pub async fn transparent_proxy_helper(ctx: Arc<RootCtx>) -> anyhow::Result<()> {
                 addr
             };
 
-            let remote = smol::net::TcpStream::connect(to_conn)
+            let remote = smol::Async::<std::net::TcpStream>::connect(to_conn)
                 .timeout(Duration::from_secs(60))
                 .await?
                 .ok()?;
+            let remote2 = Async::new(remote.get_ref().try_clone().unwrap()).unwrap();
+            let client2 = Async::new(client.get_ref().try_clone().unwrap()).unwrap();
             // remote.set_nodelay(true).ok()?;
             smol::future::race(
-                aioutils::copy_with_stats(remote.clone(), client.clone(), |_| ()),
-                aioutils::copy_with_stats(client, remote, |_| ()),
+                aioutils::copy_socket_to_with_stats(remote2, client2, |_| ()),
+                aioutils::copy_socket_to_with_stats(client, remote, |_| ()),
             )
             .await
             .ok()?;

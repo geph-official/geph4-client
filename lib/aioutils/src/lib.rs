@@ -1,5 +1,7 @@
-use std::{pin::Pin, time::Duration};
+use std::{io::Read, pin::Pin, time::Duration};
 
+use concurrent_queue::ConcurrentQueue;
+use once_cell::sync::Lazy;
 use serde::{de::DeserializeOwned, Serialize};
 use smol::{channel::Receiver, prelude::*};
 
@@ -36,6 +38,50 @@ pub async fn write_pascalish<T: Serialize>(
     Ok(())
 }
 
+/// Copies a *TCP socket* to an AsyncWrite, while being as memory-efficient as posib
+pub async fn copy_socket_to_with_stats(
+    mut reader: smol::Async<std::net::TcpStream>,
+    mut writer: impl AsyncWrite + Unpin,
+    mut on_write: impl FnMut(usize),
+) -> std::io::Result<()> {
+    static POOL: Lazy<ConcurrentQueue<Vec<u8>>> = Lazy::new(|| ConcurrentQueue::bounded(1048576));
+
+    let mut timeout = smol::Timer::after(Duration::from_secs(300));
+    loop {
+        let to_write = reader
+            .read_with_mut(|sock| {
+                let mut buffer = POOL.pop().unwrap_or_else(|_| Vec::with_capacity(16384));
+                unsafe { buffer.set_len(16384) }
+                let n = sock.read(&mut buffer)?;
+                buffer.truncate(n);
+                Ok(buffer)
+            })
+            .or(async {
+                (&mut timeout).await;
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "copy_with_stats timeout",
+                ))
+            })
+            .await?;
+        if to_write.is_empty() {
+            return Ok(());
+        }
+        on_write(to_write.len());
+        writer
+            .write_all(&to_write)
+            .or(async {
+                (&mut timeout).await;
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "copy_with_stats timeout",
+                ))
+            })
+            .await?;
+        let _ = POOL.push(to_write);
+    }
+}
+
 /// Copies an AsyncRead to an AsyncWrite, with a callback for every write.
 #[inline]
 pub async fn copy_with_stats(
@@ -43,7 +89,7 @@ pub async fn copy_with_stats(
     mut writer: impl AsyncWrite + Unpin,
     mut on_write: impl FnMut(usize),
 ) -> std::io::Result<()> {
-    let mut buffer = [0u8; 16384];
+    let mut buffer = [0u8; 8192];
     let mut timeout = smol::Timer::after(Duration::from_secs(300));
     loop {
         // first read into the small buffer

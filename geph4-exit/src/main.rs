@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{alloc::System, net::SocketAddr, path::PathBuf, sync::Arc};
 
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
 use cap::Cap;
@@ -55,7 +55,7 @@ struct Opt {
 }
 
 #[global_allocator]
-pub static ALLOCATOR: Cap<Jemalloc> = Cap::new(Jemalloc, usize::max_value());
+pub static ALLOCATOR: Cap<System> = Cap::new(System, usize::max_value());
 
 fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
