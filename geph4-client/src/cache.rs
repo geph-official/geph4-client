@@ -62,7 +62,7 @@ impl ClientCache {
         );
         Ok(client_cache)
     }
-
+    
     fn get_cached_stale<T: DeserializeOwned + Clone + Debug>(&self, key: &str) -> Option<T> {
         if self.force_sync {
             return None;
