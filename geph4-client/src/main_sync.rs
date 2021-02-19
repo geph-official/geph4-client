@@ -30,12 +30,17 @@ pub async fn main_sync(opt: SyncOpt) -> anyhow::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::clippy::eval_order_dependence)]
 async fn attempt(ccache: &ClientCache) -> anyhow::Result<()> {
-    let atok = ccache.get_auth_token().await?;
-    let exits = ccache.get_exits().await?;
-    let exits_free = ccache.get_free_exits().await?;
-
-    let json = serde_json::to_string(&(atok.user_info, exits, exits_free))?;
-    println!("{}", json);
-    Ok(())
+    let exec = smol::Executor::new();
+    let atok = exec.spawn(ccache.get_auth_token());
+    let exits = exec.spawn(ccache.get_exits());
+    let exits_free = exec.spawn(ccache.get_free_exits());
+    exec.run(async move {
+        let json =
+            serde_json::to_string(&(atok.await?.user_info, exits.await?, exits_free.await?))?;
+        println!("{}", json);
+        Ok(())
+    })
+    .await
 }

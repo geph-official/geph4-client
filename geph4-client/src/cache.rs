@@ -9,7 +9,7 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::Sha256;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
-use std::{sync::Arc, time::Duration, time::SystemTime};
+use std::{fmt::Debug, sync::Arc, time::Duration, time::SystemTime};
 
 /// An cached client
 pub struct ClientCache {
@@ -22,7 +22,8 @@ pub struct ClientCache {
     pub force_sync: bool,
 }
 
-static TIMEOUT: Duration = Duration::from_secs(20);
+static NETWORK_TIMEOUT: Duration = Duration::from_secs(20);
+static STALE_TIMEOUT: Duration = Duration::from_secs(3);
 
 impl ClientCache {
     /// Create a new ClientCache that saves to the given database.
@@ -60,6 +61,32 @@ impl ClientCache {
             database,
         );
         Ok(client_cache)
+    }
+    
+    fn get_cached_stale<T: DeserializeOwned + Clone + Debug>(&self, key: &str) -> Option<T> {
+        if self.force_sync {
+            return None;
+        }
+        let existing: Option<(T, u64)> = self.database.lock().transaction().get(&key);
+        existing.map(|v| v.0)
+    }
+
+    async fn get_cached_maybe_stale<T: Serialize + DeserializeOwned + Clone + std::fmt::Debug>(
+        &self,
+        key: &str,
+        fallback: impl Future<Output = anyhow::Result<T>>,
+        ttl: Duration,
+    ) -> anyhow::Result<T> {
+        self.get_cached(key, fallback, ttl)
+            .or(async {
+                smol::Timer::after(STALE_TIMEOUT).await;
+                if let Some(val) = self.get_cached_stale(key) {
+                    Ok(val)
+                } else {
+                    smol::future::pending().await
+                }
+            })
+            .await
     }
 
     async fn get_cached<T: Serialize + DeserializeOwned + Clone + std::fmt::Debug>(
@@ -101,6 +128,7 @@ impl ClientCache {
 
     /// Obtains a new token.
     pub async fn get_auth_token(&self) -> anyhow::Result<Token> {
+        // This CANNOT be stale!
         self.get_cached(
             "cache.auth_token",
             self.get_token_fresh(),
@@ -111,7 +139,7 @@ impl ClientCache {
 
     /// Gets a list of exits.
     pub async fn get_exits(&self) -> anyhow::Result<Vec<ExitDescriptor>> {
-        self.get_cached(
+        self.get_cached_maybe_stale(
             "cache.exits",
             self.get_exits_fresh(),
             Duration::from_secs(3600),
@@ -121,7 +149,7 @@ impl ClientCache {
 
     /// Gets a list of free exits.
     pub async fn get_free_exits(&self) -> anyhow::Result<Vec<ExitDescriptor>> {
-        self.get_cached(
+        self.get_cached_maybe_stale(
             "cache.freeexits",
             self.get_free_exits_fresh(),
             Duration::from_secs(3600),
@@ -134,7 +162,7 @@ impl ClientCache {
         let tok = self.get_auth_token().await?;
         let binder_client = self.binder_client.clone();
         let exit_hostname = exit_hostname.to_string();
-        self.get_cached(
+        self.get_cached_maybe_stale(
             &format!("cache.bridges.{}", exit_hostname),
             async {
                 let res = timeout(binder_client.request(BinderRequestData::GetBridges {
@@ -242,7 +270,7 @@ pub struct Token {
 }
 
 async fn timeout<T, F: Future<Output = T>>(fut: F) -> anyhow::Result<T> {
-    fut.timeout(TIMEOUT)
+    fut.timeout(NETWORK_TIMEOUT)
         .await
         .ok_or_else(|| anyhow::anyhow!("timeout"))
 }

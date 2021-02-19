@@ -163,7 +163,7 @@ impl SendLossCalc {
 #[derive(Debug)]
 pub struct TimeSeries<T: Clone> {
     max_length: usize,
-    items: im::Vector<T>,
+    items: VecDeque<T>,
 }
 
 impl<T: Clone> TimeSeries<T> {
@@ -172,7 +172,7 @@ impl<T: Clone> TimeSeries<T> {
         self.items.push_back(item);
         if self.items.len() >= self.max_length {
             // decimate the whole vector
-            let half_vector: im::Vector<T> = self
+            let half_vector: VecDeque<T> = self
                 .items
                 .iter()
                 .cloned()
@@ -187,12 +187,12 @@ impl<T: Clone> TimeSeries<T> {
     pub fn new(max_length: usize) -> Self {
         Self {
             max_length,
-            items: im::Vector::new(),
+            items: VecDeque::new(),
         }
     }
 
     /// Get items
-    pub fn items(&self) -> im::Vector<T> {
-        self.items.clone()
+    pub fn items(&self) -> &VecDeque<T> {
+        &self.items
     }
 }

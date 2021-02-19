@@ -48,10 +48,10 @@ impl BinderCore {
         let mut client = self.get_pg_conn()?;
         let mut txn = client
             .transaction()
-            .map_err(|_| BinderError::DatabaseFailed)?;
+            .map_err(|err| BinderError::DatabaseFailed(err.to_string()))?;
         let row = txn
             .query_opt("select value from secrets where key='MASTER'", &[])
-            .map_err(|_| BinderError::DatabaseFailed)?;
+            .map_err(|err| BinderError::DatabaseFailed(err.to_string()))?;
         if let Some(row) = row {
             Ok(bincode::deserialize(row.get(0)).unwrap())
         } else {
@@ -60,8 +60,9 @@ impl BinderCore {
                 "insert into secrets values ($1, $2)",
                 &[&"MASTER", &bincode::serialize(&sk).unwrap()],
             )
-            .map_err(|_| BinderError::DatabaseFailed)?;
-            txn.commit().map_err(|_| BinderError::DatabaseFailed)?;
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
+            txn.commit()
+                .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
             Ok(sk)
         }
     }
@@ -79,10 +80,10 @@ impl BinderCore {
         let mut client = self.get_pg_conn()?;
         let mut txn = client
             .transaction()
-            .map_err(|_| BinderError::DatabaseFailed)?;
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
         let row = txn
             .query_opt("select value from secrets where key=$1", &[&key_name])
-            .map_err(|_| BinderError::DatabaseFailed)?;
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
         match row {
             Some(row) => {
                 let res: mizaru::SecretKey =
@@ -96,7 +97,7 @@ impl BinderCore {
                     "insert into secrets values ($1, $2)",
                     &[&key_name, &bincode::serialize(&secret_key).unwrap()],
                 )
-                .map_err(|_| BinderError::DatabaseFailed)?;
+                .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
                 txn.commit().unwrap();
                 Ok(secret_key)
             }
@@ -106,7 +107,7 @@ impl BinderCore {
     /// Obtain a connection.
     fn get_pg_conn(&self) -> Result<impl DerefMut<Target = postgres::Client>, BinderError> {
         let client = self.conn_pool.get();
-        Ok(client.map_err(|_| BinderError::DatabaseFailed)?)
+        Ok(client.map_err(|e| BinderError::DatabaseFailed(e.to_string()))?)
     }
 
     /// Obtain the user info given the username.
@@ -114,13 +115,13 @@ impl BinderCore {
         let mut client = self.get_pg_conn()?;
         let mut txn = client
             .transaction()
-            .map_err(|_| BinderError::DatabaseFailed)?;
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
         let rows = txn
             .query(
                 "select id,username,pwdhash from users where username = $1",
                 &[&username],
             )
-            .map_err(|_| BinderError::DatabaseFailed)?;
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
         if rows.is_empty() {
             return Err(BinderError::NoUserFound);
         }
@@ -133,7 +134,7 @@ impl BinderCore {
                 "select plan, extract(epoch from expires) from subscriptions where id=$1",
                 &[&userid],
             )
-            .map_err(|_| BinderError::DatabaseFailed)?
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?
             .map(|v| SubscriptionInfo {
                 level: v.get(0),
                 expires_unix: v.get::<_, f64>(1) as i64,
@@ -185,10 +186,7 @@ impl BinderCore {
             &[&username,
             &hash_libsodium_password(password),
             &1000,
-            &std::time::SystemTime::now()]).map_err(|e| {
-                log::warn!("database failed {}", e);
-                BinderError::DatabaseFailed
-            })?;
+            &std::time::SystemTime::now()]).map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
             Ok(())
         }
     }
@@ -208,7 +206,7 @@ impl BinderCore {
             let mut client = self.get_pg_conn()?;
             client
                 .execute("delete from users where username=$1", &[&username])
-                .map_err(|_| BinderError::DatabaseFailed)?;
+                .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
             Ok(())
         }
     }
@@ -230,7 +228,7 @@ impl BinderCore {
                     "update users set pwdhash=$1 where username =$2",
                     &[&new_pwdhash, &username],
                 )
-                .map_err(|_| BinderError::DatabaseFailed)?;
+                .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
             Ok(())
         }
     }
@@ -303,7 +301,7 @@ impl BinderCore {
         let mut client = self.get_pg_conn()?;
         let mut txn: postgres::Transaction = client
             .transaction()
-            .map_err(|_| BinderError::DatabaseFailed)?;
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
         // first check the exit signature
         let signing_key = {
             let bts: Vec<u8> = txn
@@ -311,7 +309,7 @@ impl BinderCore {
                     "select signing_key from exits where hostname=$1",
                     &[&exit_hostname],
                 )
-                .map_err(|_| BinderError::DatabaseFailed)?
+                .map_err(|e| BinderError::Other(e.to_string()))?
                 .get(0);
             ed25519_dalek::PublicKey::from_bytes(&bts).unwrap()
         };
@@ -341,13 +339,14 @@ impl BinderCore {
                 &update_time,
             ],
         )
-        .map_err(|_| BinderError::DatabaseFailed)?;
+        .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
         txn.execute(
             "delete from routes where update_time < NOW() - interval '2 minute'",
             &[],
         )
-        .map_err(|_| BinderError::DatabaseFailed)?;
-        txn.commit().map_err(|_| BinderError::DatabaseFailed)?;
+        .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
+        txn.commit()
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
         Ok(())
     }
 
@@ -356,7 +355,7 @@ impl BinderCore {
         let mut client = self.get_pg_conn()?;
         let mut txn: postgres::Transaction = client
             .transaction()
-            .map_err(|_| BinderError::DatabaseFailed)?;
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
         let rows = txn
             .query(
                 if only_free {
@@ -366,7 +365,7 @@ impl BinderCore {
                 },
                 &[],
             )
-            .map_err(|_| BinderError::DatabaseFailed)?;
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
         let mut toret = rows
             .into_iter()
             .map(|row| ExitDescriptor {
@@ -399,11 +398,11 @@ impl BinderCore {
         let mut client = self.get_pg_conn()?;
         let mut txn: postgres::Transaction<'_> = client
             .transaction()
-            .map_err(|_| BinderError::DatabaseFailed)?;
-        let query = "select bridge_address,sosistab_pubkey,bridge_group from routes where update_time > NOW() - interval '2 minute' and hostname=$1";
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
+        let query = "select bridge_address,sosistab_pubkey,bridge_group from routes where update_time > NOW() - interval '2 minute' and hostname=$1 and bridge_group not in (select bridge_group from route_blacklist where hostname=$1)";
         let mut rows = txn
             .query(query, &[&exit_hostname])
-            .map_err(|_| BinderError::DatabaseFailed)?;
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
         // we sort by the keyed hash of the bridge address with the given unblinded digest. This ensures reasonable stability.
         rows.sort_by_key(|row| {
             let addr: String = row.get(0);
@@ -444,9 +443,9 @@ fn generate_captcha(captcha_service: &str) -> Result<String, BinderError> {
     if resp.ok() {
         Ok(resp
             .into_string()
-            .map_err(|_| BinderError::DatabaseFailed)?)
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?)
     } else {
-        Err(BinderError::DatabaseFailed)
+        Err(BinderError::DatabaseFailed("captcha failed".into()))
     }
 }
 
@@ -484,10 +483,10 @@ fn render_captcha_png(captcha_service: &str, captcha_id: &str) -> Result<Vec<u8>
         use std::io::Read;
         resp.into_reader()
             .read_to_end(&mut v)
-            .map_err(|_| BinderError::DatabaseFailed)?;
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
         Ok(v)
     } else {
-        Err(BinderError::DatabaseFailed)
+        Err(BinderError::DatabaseFailed("captcha failed".into()))
     }
 }
 

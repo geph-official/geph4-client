@@ -1,6 +1,7 @@
-use std::{collections::BTreeSet, collections::VecDeque, time::Instant};
+use std::{collections::VecDeque, time::Instant};
 
 use bytes::Bytes;
+use rustc_hash::FxHashSet;
 
 use crate::mux::structs::*;
 
@@ -13,7 +14,7 @@ pub(crate) struct ConnVars {
     pub retrans_count: u64,
 
     pub delayed_ack_timer: Option<Instant>,
-    pub ack_seqnos: BTreeSet<Seqno>,
+    pub ack_seqnos: FxHashSet<Seqno>,
 
     pub reorderer: Reorderer<Bytes>,
     pub lowest_unseen: Seqno,
@@ -40,7 +41,7 @@ impl Default for ConnVars {
             retrans_count: 0,
 
             delayed_ack_timer: None,
-            ack_seqnos: BTreeSet::new(),
+            ack_seqnos: FxHashSet::default(),
 
             reorderer: Reorderer::default(),
             lowest_unseen: 0,
@@ -76,7 +77,7 @@ impl ConnVars {
         if self.slow_start && self.cwnd < self.ssthresh {
             self.cwnd += 1.0
         } else {
-            let n = (0.23 * self.cwnd.powf(0.8)).max(1.0) * 3.0;
+            let n = (0.23 * self.cwnd.powf(0.8)).max(1.0);
             self.cwnd += n / self.cwnd;
         }
     }

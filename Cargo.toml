@@ -27,4 +27,4 @@ incremental=true
 [profile.release]
 panic = "abort"
 opt-level=3
-# debug=true
+debug=true

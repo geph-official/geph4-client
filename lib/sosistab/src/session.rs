@@ -153,12 +153,12 @@ impl Session {
 
     /// Gets the statistics.
     pub fn all_stats(&self) -> Vec<SessionStat> {
-        self.statistics.lock().items().into_iter().collect()
+        self.statistics.lock().items().iter().cloned().collect()
     }
 
     /// Get the latest stats.
     pub fn latest_stat(&self) -> Option<SessionStat> {
-        self.statistics.lock().items().last().cloned()
+        self.statistics.lock().items().iter().last().cloned()
     }
 }
 
@@ -289,10 +289,10 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
         &governor::clock::MonotonicClock,
     );
 
-    let hard_limiter = RateLimiter::direct_with_clock(
-        Quota::per_second(NonZeroU32::new(15000).unwrap()).allow_burst(NonZeroU32::new(8).unwrap()),
-        &governor::clock::MonotonicClock,
-    );
+    // let hard_limiter = RateLimiter::direct_with_clock(
+    //     Quota::per_second(NonZeroU32::new(15000).unwrap()).allow_burst(NonZeroU32::new(8).unwrap()),
+    //     &governor::clock::MonotonicClock,
+    // );
 
     const FEC_TIMEOUT_MS: u64 = 50;
 
@@ -338,9 +338,9 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
                         smol::Timer::at(err.earliest_possible()).await;
                     }
                 }
-                while let Err(e) = hard_limiter.check() {
-                    smol::Timer::at(e.earliest_possible()).await;
-                }
+                // while let Err(e) = hard_limiter.check() {
+                //     smol::Timer::at(e.earliest_possible()).await;
+                // }
                 let send_framed = DataFrameV2::Data {
                     frame_no,
                     high_recv_frame_no: ctx.statg.high_recv_frame_no(),
