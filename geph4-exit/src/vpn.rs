@@ -1,5 +1,4 @@
 use bytes::Bytes;
-use cached::Cached;
 use cidr::{Cidr, Ipv4Cidr};
 use dashmap::DashMap;
 use libc::{c_void, SOL_IP, SO_ORIGINAL_DST};

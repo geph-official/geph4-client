@@ -445,7 +445,9 @@ async fn relconn_actor(
                     }
                     Ok(Evt::AckTimer) => {
                         // eprintln!("acking {} seqnos", conn_vars.ack_seqnos.len());
-                        let encoded_acks = bincode::serialize(&conn_vars.ack_seqnos).unwrap();
+                        let mut ack_seqnos: Vec<_> = conn_vars.ack_seqnos.iter().collect();
+                        ack_seqnos.sort_unstable();
+                        let encoded_acks = bincode::serialize(&ack_seqnos).unwrap();
                         transmit(Message::Rel {
                             kind: RelKind::DataAck,
                             stream_id,

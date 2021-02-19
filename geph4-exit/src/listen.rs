@@ -37,7 +37,6 @@ pub struct RootCtx {
 impl RootCtx {
     fn new_sess(self: &Arc<Self>, sess: sosistab::Session) -> SessCtx {
         let new_nurs = smolscale::Nursery::new();
-        let new_hand: smolscale::NurseryHandle = new_nurs.handle();
         self.nursery.spawn(OnError::Ignore, |_| new_nurs.wait());
         SessCtx {
             root: self.clone(),

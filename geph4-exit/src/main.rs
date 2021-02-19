@@ -3,7 +3,6 @@ use std::{alloc::System, net::SocketAddr, path::PathBuf, sync::Arc};
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
 use cap::Cap;
 use env_logger::Env;
-use jemallocator::Jemalloc;
 use std::os::unix::fs::PermissionsExt;
 use structopt::StructOpt;
 
@@ -112,7 +111,7 @@ fn main() -> anyhow::Result<()> {
             .find(|e| e.signing_key == signing_sk.public)
             .is_none()
         {
-            anyhow::bail!("this exit is not found at the binder; you should manually add it first")
+            log::warn!("this exit is not found at the binder; you should manually add it first")
         }
         // listen
         listen::main_loop(

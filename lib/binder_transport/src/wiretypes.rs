@@ -249,8 +249,8 @@ pub enum BinderError {
     #[error("incorrect account level")]
     WrongLevel,
     // database error
-    #[error("database failed")]
-    DatabaseFailed,
+    #[error("database failed: `{0}`")]
+    DatabaseFailed(String),
     // other failure
     #[error("other failure `{0}`")]
     Other(String),

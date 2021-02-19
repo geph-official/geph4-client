@@ -7,6 +7,3 @@ rustflags = [
   "-C", "link-arg=/SAFESEH:NO",
   "-C", "link-arg=/MANIFESTUAC:level=requireAdministrator"
 ]
-
-[target.x86_64-unknown-linux-gnu]
-rustflags = ["-C", "target-feature=+sse3,+avx"]
