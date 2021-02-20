@@ -57,6 +57,7 @@ struct Opt {
 pub static ALLOCATOR: Cap<System> = Cap::new(System, usize::max_value());
 
 fn main() -> anyhow::Result<()> {
+    smolscale::permanently_single_threaded();
     let opt: Opt = Opt::from_args();
     let stat_client = statsd::Client::new(opt.statsd_addr, "geph4")?;
     env_logger::Builder::from_env(Env::default().default_filter_or("geph4_exit=debug,warn")).init();

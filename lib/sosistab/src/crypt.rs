@@ -133,6 +133,11 @@ impl NgAEAD {
         }
     }
 
+    /// Returns the overhead.
+    pub fn overhead() -> usize {
+        CHACHA20_POLY1305.nonce_len() + CHACHA20_POLY1305.tag_len()
+    }
+
     /// Encrypts a message with a random nonce.
     pub fn encrypt(&self, msg: &[u8]) -> Bytes {
         let mut nonce = [0; 12];

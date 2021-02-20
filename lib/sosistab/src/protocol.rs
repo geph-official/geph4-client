@@ -28,6 +28,16 @@ pub enum HandshakeFrame {
     },
 }
 
+impl HandshakeFrame {
+    pub fn to_bytes(&self) -> Vec<u8> {
+        bincode::serialize(self).unwrap()
+    }
+
+    pub fn from_bytes(bts: &[u8]) -> anyhow::Result<Self> {
+        Ok(bincode::deserialize(&bts)?)
+    }
+}
+
 /// Version-2 frame, encrypted with a per-session key.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum DataFrameV2 {
