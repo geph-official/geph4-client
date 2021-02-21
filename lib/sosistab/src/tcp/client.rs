@@ -17,7 +17,6 @@ use crate::{
 };
 use anyhow::Context;
 use smol_timeout::TimeoutExt;
-use std::net::Ipv6Addr;
 
 use super::{read_encrypted, write_encrypted, ObfsTCP, CONN_LIFETIME, TCP_DN_KEY, TCP_UP_KEY};
 
@@ -52,12 +51,12 @@ impl TcpClientBackhaul {
     }
 
     /// Gets a connection out of the pool of an address.
-    fn get_conn_pooled(&self, addr: SocketAddr) -> Option<ObfsTCP> {
+    fn get_conn_pooled(&self, addr: SocketAddr) -> Option<(ObfsTCP, SystemTime)> {
         let mut pool = self.conn_pool.entry(addr).or_default();
         while let Some((conn, time)) = pool.pop_front() {
-            if let Ok(time) = time.elapsed() {
-                if time < CONN_LIFETIME {
-                    return Some(conn);
+            if let Ok(age) = time.elapsed() {
+                if age < CONN_LIFETIME {
+                    return Some((conn, time));
                 }
                 let _ = conn.inner.shutdown(Shutdown::Both);
             }
@@ -66,13 +65,13 @@ impl TcpClientBackhaul {
     }
 
     /// Puts a connection back into the pool of an address.
-    fn put_conn(&self, addr: SocketAddr, stream: ObfsTCP) {
+    fn put_conn(&self, addr: SocketAddr, stream: ObfsTCP, time: SystemTime) {
         let mut pool = self.conn_pool.entry(addr).or_default();
-        pool.push_back((stream, SystemTime::now()));
+        pool.push_back((stream, time));
     }
 
     /// Opens a connection or gets a connection from the pool.
-    async fn get_conn(&self, addr: SocketAddr) -> anyhow::Result<ObfsTCP> {
+    async fn get_conn(&self, addr: SocketAddr) -> anyhow::Result<(ObfsTCP, SystemTime)> {
         if let Some(pooled) = self.get_conn_pooled(addr) {
             Ok(pooled)
         } else {
@@ -117,10 +116,6 @@ impl TcpClientBackhaul {
                 let shared_sec = triple_ecdh(&my_long_sk, &my_eph_sk, &long_pk, &eph_pk);
                 let connection = ObfsTCP::new(shared_sec, false, remote);
                 connection.write(&self.fake_addr.to_be_bytes()).await?;
-                tracing::warn!(
-                    "wrote fake_addr {}",
-                    Ipv6Addr::from(self.fake_addr.to_be_bytes())
-                );
                 let down_conn = connection.clone();
                 let send_incoming = self.send_incoming.clone();
                 // spawn a thread that reads from the connection
@@ -137,13 +132,16 @@ impl TcpClientBackhaul {
                                 .await?;
                         }
                     };
-                    let _: anyhow::Result<()> = main.await;
+                    let _: anyhow::Result<()> = main
+                        .or(async {
+                            smol::Timer::after(CONN_LIFETIME).await;
+                            Ok(())
+                        })
+                        .await;
                 })
                 .detach();
 
-                tracing::warn!("yay initialized obfs");
-
-                Ok(connection)
+                Ok((connection, SystemTime::now()))
             } else {
                 anyhow::bail!("server sent unrecognizable message")
             }
@@ -163,7 +161,7 @@ impl Backhaul for TcpClientBackhaul {
         buf[0..2].copy_from_slice(&(to_send.len() as u16).to_be_bytes());
         buf[2..to_send.len() + 2].copy_from_slice(&to_send);
         let res: anyhow::Result<()> = async {
-            let conn = self
+            let (conn, time) = self
                 .get_conn(dest)
                 .timeout(Duration::from_secs(10))
                 .await
@@ -174,7 +172,7 @@ impl Backhaul for TcpClientBackhaul {
                     Ok(())
                 })
                 .await?;
-            self.put_conn(dest, conn);
+            self.put_conn(dest, conn, time);
             Ok(())
         }
         .await;

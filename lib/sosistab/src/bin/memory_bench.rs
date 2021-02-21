@@ -14,7 +14,7 @@ fn main() {
     smolscale::spawn(run_server()).detach();
     smolscale::block_on(run_client())
 }
- 
+
 async fn run_server() {
     let mut badrng = rand::rngs::StdRng::seed_from_u64(0);
     let long_sk = x25519_dalek::StaticSecret::new(&mut badrng);

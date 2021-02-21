@@ -20,7 +20,7 @@ use crate::{
     runtime, Backhaul,
 };
 
-use super::{write_encrypted, ObfsTCP, TCP_DN_KEY, TCP_UP_KEY};
+use super::{write_encrypted, ObfsTCP, CONN_LIFETIME, TCP_DN_KEY, TCP_UP_KEY};
 
 /// A TCP-based backhaul, server-side.
 pub struct TcpServerBackhaul {
@@ -76,7 +76,12 @@ async fn backhaul_loop(
                 lexec
                     .spawn(async {
                         if let Err(err) =
-                            backhaul_one(client, seckey.clone(), &down_table, &send_upcoming).await
+                            backhaul_one(client, seckey.clone(), &down_table, &send_upcoming)
+                                .or(async {
+                                    smol::Timer::after(CONN_LIFETIME * 2).await;
+                                    Ok(())
+                                })
+                                .await
                         {
                             tracing::warn!("backhaul_one exited: {:?}", err)
                         }

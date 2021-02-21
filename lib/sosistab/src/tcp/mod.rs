@@ -17,7 +17,7 @@ pub use server::*;
 
 use crate::crypt::NgAEAD;
 
-const CONN_LIFETIME: Duration = Duration::from_secs(300);
+const CONN_LIFETIME: Duration = Duration::from_secs(600);
 
 const TCP_UP_KEY: &[u8; 32] = b"uploadtcp-----------------------";
 const TCP_DN_KEY: &[u8; 32] = b"downloadtcp---------------------";
@@ -34,7 +34,6 @@ struct ObfsTCP {
 impl ObfsTCP {
     /// creates an ObfsTCP given a shared secret and direction
     fn new(ss: blake3::Hash, is_server: bool, inner: TcpStream) -> Self {
-        tracing::warn!("making ObfsTCP with shared secret {:?}", ss);
         let up_chacha = Arc::new(Mutex::new(
             ChaCha8::new_var(
                 blake3::keyed_hash(&TCP_UP_KEY, ss.as_bytes()).as_bytes(),
