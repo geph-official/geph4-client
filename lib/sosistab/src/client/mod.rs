@@ -34,7 +34,7 @@ pub async fn connect_tcp(
         backhaul_gen: Arc::new(move || {
             Arc::new(TcpClientBackhaul::new().add_remote_key(server_addr, pubkey))
         }),
-        num_shards: 1,
+        num_shards: 16,
         reset_interval: None,
     })
     .await

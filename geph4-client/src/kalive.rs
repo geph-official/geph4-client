@@ -158,7 +158,7 @@ async fn keepalive_actor_once(
         } else {
             async {
                 Ok(infal(
-                    sosistab::connect_udp(
+                    sosistab::connect_tcp(
                         aioutils::resolve(&format!("{}:19831", exit_info.hostname))
                             .await
                             .context("can't resolve hostname of exit")?

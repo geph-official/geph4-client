@@ -1,3 +1,4 @@
+use anyhow::Context;
 use bytes::Bytes;
 use dashmap::DashMap;
 use smol::prelude::*;
@@ -71,6 +72,7 @@ async fn backhaul_loop(
         .run(async {
             loop {
                 let (client, _) = listener.accept().await?;
+                client.set_nodelay(true)?;
                 lexec
                     .spawn(async {
                         if let Err(err) =
@@ -103,7 +105,13 @@ async fn backhaul_one(
         let s2c_enc = NgAEAD::new(s2c_key.as_bytes());
         // if we can succesfully decrypt the hello length, that's awesome! it means that we got the right up/down key
         if let Some(hello_length) = c2s_dec.decrypt(&encrypted_hello_length) {
-            let hello_length = u16::from_be_bytes((&hello_length[..]).try_into()?) as usize;
+            dbg!(&hello_length.len());
+            dbg!(&encrypted_hello_length.len());
+            let hello_length = u16::from_be_bytes(
+                (&hello_length[..])
+                    .try_into()
+                    .context("hello length is the wrong size")?,
+            ) as usize;
             let mut encrypted_hello = vec![0u8; hello_length];
             client.read_exact(&mut encrypted_hello).await?;
             let raw_hello = c2s_dec
@@ -133,7 +141,10 @@ async fn backhaul_one(
                 let ss = triple_ecdh(&seckey, &my_eph_sk, &long_pk, &eph_pk);
                 let obfs_tcp = ObfsTCP::new(ss, true, client);
                 let mut fake_addr = [0u8; 16];
-                obfs_tcp.read_exact(&mut fake_addr).await?;
+                obfs_tcp
+                    .read_exact(&mut fake_addr)
+                    .await
+                    .context("cannot read fakeaddr")?;
                 let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::from(fake_addr)), 0);
                 tracing::warn!("starting TCP with fake addr {}", addr);
                 return backhaul_one_inner(obfs_tcp, addr, down_table, send_upcoming).await;
@@ -156,9 +167,13 @@ async fn backhaul_one_inner(
         loop {
             down_table.set(addr, send_down.clone());
             obfs_tcp.read_exact(&mut buff[..2]).await?;
-            let length = u16::from_be_bytes((&buff[..2]).try_into()?) as usize;
+            let length = u16::from_be_bytes(
+                (&buff[..2])
+                    .try_into()
+                    .context("length not right size? wtf?")?,
+            ) as usize;
             if length > 4096 {
-                break Err(anyhow::anyhow!("got a packet that's too long"));
+                break Err(anyhow::anyhow!("got a packet that's too long ({})", length));
             }
             obfs_tcp.read_exact(&mut buff[..length]).await?;
             send_upcoming
@@ -176,7 +191,8 @@ async fn backhaul_one_inner(
             let length = down.len() as u16;
             buff[..2].copy_from_slice(&length.to_be_bytes());
             buff[2..2 + (length as usize)].copy_from_slice(&down);
-            obfs_tcp.write(&buff).await?;
+            let buff = &buff[..2 + (length as usize)];
+            obfs_tcp.write(buff).await?;
         }
     };
     up_loop.race(dn_loop).await
@@ -191,7 +207,7 @@ struct DownTable {
 impl DownTable {
     /// Creates/overwrites a new entry in the table.
     fn set(&self, addr: SocketAddr, sender: Sender<Bytes>) {
-        if rand::random::<usize>() % self.mapping.len() == 0 {
+        if rand::random::<usize>() % self.mapping.len().max(10) == 0 {
             self.gc()
         }
         let now = Instant::now();

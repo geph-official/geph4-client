@@ -15,7 +15,9 @@ use crate::{
     protocol::HandshakeFrame,
     runtime, Backhaul,
 };
+use anyhow::Context;
 use smol_timeout::TimeoutExt;
+use std::net::Ipv6Addr;
 
 use super::{read_encrypted, write_encrypted, ObfsTCP, CONN_LIFETIME, TCP_DN_KEY, TCP_UP_KEY};
 
@@ -84,9 +86,11 @@ impl TcpClientBackhaul {
             let cookie = Cookie::new(pubkey);
             // first connect
             let mut remote = smol::net::TcpStream::connect(addr).await?;
+            remote.set_nodelay(true)?;
             // then we send a hello
-            let init_key = cookie.generate_c2s().next().unwrap();
-            let init_up_key = blake3::keyed_hash(&TCP_UP_KEY, &init_key);
+            let init_c2s = cookie.generate_c2s().next().unwrap();
+            let init_s2c = cookie.generate_s2c().next().unwrap();
+            let init_up_key = blake3::keyed_hash(&TCP_UP_KEY, &init_c2s);
             let init_enc = NgAEAD::new(init_up_key.as_bytes());
             let to_send = HandshakeFrame::ClientHello {
                 long_pk: (&my_long_sk).into(),
@@ -98,9 +102,11 @@ impl TcpClientBackhaul {
             to_send.extend_from_slice(&random_padding);
             write_encrypted(init_enc, &to_send, &mut remote).await?;
             // now we wait for a response
-            let init_dn_key = blake3::keyed_hash(&TCP_DN_KEY, &init_key);
+            let init_dn_key = blake3::keyed_hash(&TCP_DN_KEY, &init_s2c);
             let init_dec = NgAEAD::new(init_dn_key.as_bytes());
-            let raw_response = read_encrypted(init_dec, &mut remote).await?;
+            let raw_response = read_encrypted(init_dec, &mut remote)
+                .await
+                .context("can't read response from server")?;
             let actual_response = HandshakeFrame::from_bytes(&raw_response)?;
             if let HandshakeFrame::ServerHello {
                 long_pk,
@@ -111,6 +117,10 @@ impl TcpClientBackhaul {
                 let shared_sec = triple_ecdh(&my_long_sk, &my_eph_sk, &long_pk, &eph_pk);
                 let connection = ObfsTCP::new(shared_sec, false, remote);
                 connection.write(&self.fake_addr.to_be_bytes()).await?;
+                tracing::warn!(
+                    "wrote fake_addr {}",
+                    Ipv6Addr::from(self.fake_addr.to_be_bytes())
+                );
                 let down_conn = connection.clone();
                 let send_incoming = self.send_incoming.clone();
                 // spawn a thread that reads from the connection
@@ -131,6 +141,8 @@ impl TcpClientBackhaul {
                 })
                 .detach();
 
+                tracing::warn!("yay initialized obfs");
+
                 Ok(connection)
             } else {
                 anyhow::bail!("server sent unrecognizable message")
@@ -142,13 +154,21 @@ impl TcpClientBackhaul {
 #[async_trait::async_trait]
 impl Backhaul for TcpClientBackhaul {
     async fn send_to(&self, to_send: Bytes, dest: SocketAddr) -> std::io::Result<()> {
-        let _: anyhow::Result<()> = async {
+        if to_send.len() > 2048 {
+            tracing::warn!("refusing to send packet of length {}", to_send.len());
+            return Ok(());
+        }
+
+        let mut buf = [0u8; 4096];
+        buf[0..2].copy_from_slice(&(to_send.len() as u16).to_be_bytes());
+        buf[2..to_send.len() + 2].copy_from_slice(&to_send);
+        let res: anyhow::Result<()> = async {
             let conn = self
                 .get_conn(dest)
                 .timeout(Duration::from_secs(10))
                 .await
                 .ok_or_else(|| anyhow::anyhow!("timeout"))??;
-            conn.write(&to_send)
+            conn.write(&buf[..to_send.len() + 2])
                 .or(async {
                     tracing::warn!("skipping write due to full buffers");
                     Ok(())
@@ -158,6 +178,10 @@ impl Backhaul for TcpClientBackhaul {
             Ok(())
         }
         .await;
+
+        if let Err(err) = res {
+            tracing::warn!("error in TcpClientBackhaul: {:?}", err);
+        }
 
         Ok(())
     }

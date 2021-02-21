@@ -34,6 +34,7 @@ struct ObfsTCP {
 impl ObfsTCP {
     /// creates an ObfsTCP given a shared secret and direction
     fn new(ss: blake3::Hash, is_server: bool, inner: TcpStream) -> Self {
+        tracing::warn!("making ObfsTCP with shared secret {:?}", ss);
         let up_chacha = Arc::new(Mutex::new(
             ChaCha8::new_var(
                 blake3::keyed_hash(&TCP_UP_KEY, ss.as_bytes()).as_bytes(),
@@ -72,7 +73,9 @@ impl ObfsTCP {
         let buf = &mut buf[..msg.len()];
         buf.copy_from_slice(&msg);
         self.send_chacha.lock().apply_keystream(buf);
-        self.inner.clone().write_all(buf).await?;
+        let mut inner = self.inner.clone();
+        inner.write_all(buf).await?;
+        inner.flush().await?;
         Ok(())
     }
 
@@ -88,7 +91,7 @@ async fn read_encrypted<R: AsyncRead + Unpin>(
     rdr: &mut R,
 ) -> anyhow::Result<Bytes> {
     // read the length first
-    let mut length_buf = vec![0u8; NgAEAD::overhead()];
+    let mut length_buf = vec![0u8; NgAEAD::overhead() + 2];
     rdr.read_exact(&mut length_buf).await?;
     // decrypt the length
     let length_buf = decrypt
