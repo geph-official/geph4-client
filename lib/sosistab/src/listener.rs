@@ -6,7 +6,7 @@ use crate::{
 use bytes::Bytes;
 
 use governor::{Quota, RateLimiter};
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use protocol::HandshakeFrame::*;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -269,7 +269,7 @@ impl ListenerActor {
                                                 let locked_addrs =
                                                     ShardedAddrs::new(shard_id, addr);
                                                 let locked_addrs =
-                                                    Arc::new(Mutex::new(locked_addrs));
+                                                    Arc::new(RwLock::new(locked_addrs));
                                                 let output_poller = {
                                                     let locked_addrs = locked_addrs.clone();
                                                     runtime::spawn(async move {
@@ -277,7 +277,7 @@ impl ListenerActor {
                                                             match session_output_recv.recv().await {
                                                                 Ok(data) => {
                                                                     let remote_addr = locked_addrs
-                                                                        .lock()
+                                                                        .write()
                                                                         .get_addr();
                                                                     drop(
                                                                         write_socket
