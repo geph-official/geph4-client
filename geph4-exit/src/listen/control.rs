@@ -60,29 +60,17 @@ pub async fn handle_control(
         // create or recall binding
         if info.is_none() {
             let ctx = ctx.clone();
-            let stat = ctx.stat_client.clone();
-            let stat2 = stat.clone();
-            let fk2 = flow_key.clone();
             log::debug!("redoing binding because info is none");
             let sosis_secret = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
-            let sosis_listener = sosistab::Listener::listen(
-                "[::0]:0",
-                sosis_secret.clone(),
-                move |len, _| {
-                    if fastrand::f32() < 0.05 {
-                        stat.count(&flow_key, len as f64 * 20.0)
-                    }
-                },
-                move |len, _| {
-                    if fastrand::f32() < 0.05 {
-                        stat2.count(&fk2, len as f64 * 20.0)
-                    }
-                },
-            )
-            .await;
+            // we make TCP first since TCP ephemeral ports are a lot more scarce.
+            let sosis_listener_tcp = ctx.listen_tcp("[::0]:0".parse().unwrap(), &flow_key).await;
+            let sosis_listener_udp = ctx
+                .listen_udp(sosis_listener_tcp.local_addr(), &flow_key)
+                .await;
+
             let (send, recv) = smol::channel::bounded(1);
             info = Some((
-                sosis_listener.local_addr().port(),
+                sosis_listener_udp.local_addr().port(),
                 x25519_dalek::PublicKey::from(&sosis_secret),
                 send,
             ));
@@ -90,8 +78,9 @@ pub async fn handle_control(
             ctx.nursery.clone().spawn(OnError::Ignore, move |nursery| {
                 async move {
                     loop {
-                        let sess = sosis_listener
+                        let sess = sosis_listener_udp
                             .accept_session()
+                            .race(sosis_listener_tcp.accept_session())
                             .await
                             .ok_or_else(|| anyhow::anyhow!("could not accept sosis session"))?;
                         let ctx = ctx.clone();

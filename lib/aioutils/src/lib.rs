@@ -67,6 +67,7 @@ pub async fn copy_socket_to_with_stats(
         if to_write.is_empty() {
             return Ok(());
         }
+        timeout.set_after(Duration::from_secs(300));
         on_write(to_write.len());
         writer
             .write_all(&to_write)

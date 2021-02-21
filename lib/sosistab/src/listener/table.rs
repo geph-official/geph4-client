@@ -2,7 +2,7 @@ use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Instant};
 
 use bytes::Bytes;
 use indexmap::IndexMap;
-use parking_lot::Mutex;
+use parking_lot::RwLock;
 use smol::channel::Sender;
 
 pub struct ShardedAddrs {
@@ -41,7 +41,7 @@ impl ShardedAddrs {
 #[derive(Clone)]
 struct SessEntry {
     sender: Sender<Bytes>,
-    addrs: Arc<Mutex<ShardedAddrs>>,
+    addrs: Arc<RwLock<ShardedAddrs>>,
 }
 
 #[derive(Default)]
@@ -55,7 +55,7 @@ impl SessionTable {
     pub fn rebind(&mut self, addr: SocketAddr, shard_id: u8, token: Bytes) -> bool {
         if let Some(entry) = self.token_to_sess.get(&token) {
             let old = {
-                let mut addrs = entry.addrs.lock();
+                let mut addrs = entry.addrs.write();
                 let old = addrs.map.insert(shard_id, addr);
                 addrs.index = addrs.map.get_index_of(&shard_id).unwrap();
                 old
@@ -74,7 +74,7 @@ impl SessionTable {
     #[tracing::instrument(skip(self), level = "trace")]
     pub fn delete(&mut self, token: Bytes) {
         if let Some(entry) = self.token_to_sess.remove(&token) {
-            for (_, addr) in entry.addrs.lock().map.iter() {
+            for (_, addr) in entry.addrs.read().map.iter() {
                 self.addr_to_token.remove(addr);
             }
         }
@@ -92,7 +92,7 @@ impl SessionTable {
         &mut self,
         token: Bytes,
         sender: Sender<Bytes>,
-        locked_addrs: Arc<Mutex<ShardedAddrs>>,
+        locked_addrs: Arc<RwLock<ShardedAddrs>>,
     ) {
         let entry = SessEntry {
             sender,

@@ -128,9 +128,10 @@ async fn keepalive_actor_once(
                         send.send((desc.endpoint, {
                             // we effectively sum 5 RTTs. this filters out the high-jitter/high-loss crap.
                             for _ in 0..5 {
-                                let _ = sosistab::connect(desc.endpoint, desc.sosistab_key).await;
+                                let _ =
+                                    sosistab::connect_udp(desc.endpoint, desc.sosistab_key).await;
                             }
-                            sosistab::connect(desc.endpoint, desc.sosistab_key).await
+                            sosistab::connect_udp(desc.endpoint, desc.sosistab_key).await
                         }))
                         .await,
                     )
@@ -157,7 +158,7 @@ async fn keepalive_actor_once(
         } else {
             async {
                 Ok(infal(
-                    sosistab::connect(
+                    sosistab::connect_tcp(
                         aioutils::resolve(&format!("{}:19831", exit_info.hostname))
                             .await
                             .context("can't resolve hostname of exit")?

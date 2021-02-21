@@ -12,7 +12,9 @@ mod session;
 pub use session::*;
 mod backhaul;
 pub mod mux;
+mod tcp;
 pub use backhaul::*;
+mod recfilter;
 
 #[cfg(test)]
 mod tests {

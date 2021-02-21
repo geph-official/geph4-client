@@ -38,7 +38,7 @@ fn main() -> anyhow::Result<()> {
         let opt: Opt = Opt::from_args();
         env_logger::Builder::from_env(Env::default().default_filter_or("geph4_bridge=info")).init();
         run_command("iptables -t nat -F");
-        run_command("iptables -t nat -A POSTROUTING -j MASQUERADE --random");
+        run_command("iptables -t nat -A POSTROUTING -j MASQUERADE");
         let binder_client = Arc::new(binder_transport::HttpClient::new(
             bincode::deserialize(&hex::decode(opt.binder_master_pk)?)?,
             opt.binder_http,
@@ -122,15 +122,17 @@ async fn manage_exit(
                     run_command(&delete_command);
                 }
                 run_command(&format!(
-                "iptables -t nat -A PREROUTING -p udp --dport {} -j DNAT --to-destination {}:{}",
+                "iptables -t nat -A PREROUTING -p udp --dport {} -j DNAT --to-destination {}:{};iptables -t nat -A PREROUTING -p tcp --dport {} -j DNAT --to-destination {}:{}; ",
                 free_socket.local_addr().unwrap().port(),
+                remote_addr.ip(), remote_port,                free_socket.local_addr().unwrap().port(),
                 remote_addr.ip(), remote_port
-            ));
+                ));
                 route_delete = Some(format!(
-                "iptables -t nat -D PREROUTING -p udp --dport {} -j DNAT --to-destination {}:{}",
+                "iptables -t nat -D PREROUTING -p udp --dport {} -j DNAT --to-destination {}:{}; iptables -t nat -D PREROUTING -p tcp --dport {} -j DNAT --to-destination {}:{}",
                 free_socket.local_addr().unwrap().port(),
+                remote_addr.ip(), remote_port,                free_socket.local_addr().unwrap().port(),
                 remote_addr.ip(), remote_port
-            ));
+                 ));
                 last_remote_port = remote_port
             }
         }

@@ -19,7 +19,7 @@ async fn run_server() {
     let mut badrng = rand::rngs::StdRng::seed_from_u64(0);
     let long_sk = x25519_dalek::StaticSecret::new(&mut badrng);
     let listener =
-        sosistab::Listener::listen("127.0.0.1:23456", long_sk, |_, _| (), |_, _| ()).await;
+        sosistab::Listener::listen_udp("127.0.0.1:23456", long_sk, |_, _| (), |_, _| ()).await;
     loop {
         let socket = listener.accept_session().await.unwrap();
         smolscale::spawn(async move {
@@ -41,7 +41,7 @@ async fn run_client() {
             .unwrap();
     smol::Timer::after(Duration::from_secs(1)).await;
     println!("spawning {} idle connections...", CONN_COUNT);
-    let session = sosistab::connect("127.0.0.1:23456".parse().unwrap(), pubkey_bts.into())
+    let session = sosistab::connect_udp("127.0.0.1:23456".parse().unwrap(), pubkey_bts.into())
         .await
         .unwrap();
     let mux = Arc::new(sosistab::mux::Multiplex::new(session));

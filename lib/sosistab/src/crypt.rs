@@ -133,6 +133,11 @@ impl NgAEAD {
         }
     }
 
+    /// Returns the overhead.
+    pub fn overhead() -> usize {
+        CHACHA20_POLY1305.nonce_len() + CHACHA20_POLY1305.tag_len()
+    }
+
     /// Encrypts a message with a random nonce.
     pub fn encrypt(&self, msg: &[u8]) -> Bytes {
         let mut nonce = [0; 12];
@@ -159,7 +164,7 @@ impl NgAEAD {
         if ctext.len() < CHACHA20_POLY1305.nonce_len() + CHACHA20_POLY1305.tag_len() {
             return None;
         }
-        // nonce is last 4 bytes
+        // nonce is last 12 bytes
         let (ctext, nonce) = ctext.split_at(ctext.len() - CHACHA20_POLY1305.nonce_len());
         // we now open
         let mut ctext = ctext.to_vec();
@@ -170,6 +175,7 @@ impl NgAEAD {
                 &mut ctext,
             )
             .ok()?;
+        ctext.truncate(ctext.len() - CHACHA20_POLY1305.tag_len());
         Some(ctext.into())
     }
 }
