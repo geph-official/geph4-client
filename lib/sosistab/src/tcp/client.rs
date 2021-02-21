@@ -7,7 +7,7 @@ use std::{
     collections::VecDeque,
     convert::TryInto,
     net::{Shutdown, SocketAddr},
-    time::SystemTime,
+    time::{Duration, SystemTime},
 };
 
 use crate::{
@@ -15,13 +15,15 @@ use crate::{
     protocol::HandshakeFrame,
     runtime, Backhaul,
 };
+use smol_timeout::TimeoutExt;
 
-use super::{ObfsTCP, CONN_LIFETIME, TCP_DN_KEY, TCP_UP_KEY};
+use super::{read_encrypted, write_encrypted, ObfsTCP, CONN_LIFETIME, TCP_DN_KEY, TCP_UP_KEY};
 
 /// A TCP-based backhaul, client-side.
 pub struct TcpClientBackhaul {
     dest_to_key: FxHashMap<SocketAddr, x25519_dalek::PublicKey>,
     conn_pool: DashMap<SocketAddr, VecDeque<(ObfsTCP, SystemTime)>>,
+    fake_addr: u128,
     incoming: Receiver<(Bytes, SocketAddr)>,
     send_incoming: Sender<(Bytes, SocketAddr)>,
 }
@@ -31,9 +33,11 @@ impl TcpClientBackhaul {
     pub fn new() -> Self {
         // dummy here
         let (send_incoming, incoming) = smol::channel::unbounded();
+        let fake_addr = rand::random::<u128>();
         Self {
             dest_to_key: Default::default(),
             conn_pool: Default::default(),
+            fake_addr,
             incoming,
             send_incoming,
         }
@@ -106,7 +110,7 @@ impl TcpClientBackhaul {
             {
                 let shared_sec = triple_ecdh(&my_long_sk, &my_eph_sk, &long_pk, &eph_pk);
                 let connection = ObfsTCP::new(shared_sec, false, remote);
-
+                connection.write(&self.fake_addr.to_be_bytes()).await?;
                 let down_conn = connection.clone();
                 let send_incoming = self.send_incoming.clone();
                 // spawn a thread that reads from the connection
@@ -135,46 +139,15 @@ impl TcpClientBackhaul {
     }
 }
 
-async fn read_encrypted<R: AsyncRead + Unpin>(
-    decrypt: NgAEAD,
-    rdr: &mut R,
-) -> anyhow::Result<Bytes> {
-    // read the length first
-    let mut length_buf = vec![0u8; NgAEAD::overhead()];
-    rdr.read_exact(&mut length_buf).await?;
-    // decrypt the length
-    let length_buf = decrypt
-        .decrypt(&length_buf)
-        .ok_or_else(|| anyhow::anyhow!("failed to decrypt length"))?;
-    if length_buf.len() != 2 {
-        anyhow::bail!("length must be 16 bits");
-    }
-    let length_buf = &length_buf[..];
-    // now read the actual body
-    let mut actual_buf = vec![0u8; u16::from_be_bytes(length_buf.try_into().unwrap()) as usize];
-    rdr.read_exact(&mut actual_buf).await?;
-    decrypt
-        .decrypt(&actual_buf)
-        .ok_or_else(|| anyhow::anyhow!("cannot decrypt"))
-}
-
-async fn write_encrypted<W: AsyncWrite + Unpin>(
-    encrypt: NgAEAD,
-    to_send: &[u8],
-    writer: &mut W,
-) -> anyhow::Result<()> {
-    let to_send = encrypt.encrypt(to_send);
-    let raw_length = (to_send.len() as u16).to_be_bytes();
-    writer.write_all(&encrypt.encrypt(&raw_length)).await?;
-    writer.write_all(&to_send).await?;
-    Ok(())
-}
-
 #[async_trait::async_trait]
 impl Backhaul for TcpClientBackhaul {
     async fn send_to(&self, to_send: Bytes, dest: SocketAddr) -> std::io::Result<()> {
         let _: anyhow::Result<()> = async {
-            let conn = self.get_conn(dest).await?;
+            let conn = self
+                .get_conn(dest)
+                .timeout(Duration::from_secs(10))
+                .await
+                .ok_or_else(|| anyhow::anyhow!("timeout"))??;
             conn.write(&to_send)
                 .or(async {
                     tracing::warn!("skipping write due to full buffers");

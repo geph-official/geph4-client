@@ -34,7 +34,11 @@ impl HandshakeFrame {
     }
 
     pub fn from_bytes(bts: &[u8]) -> anyhow::Result<Self> {
-        Ok(bincode::deserialize(&bts)?)
+        Ok(bincode::DefaultOptions::new()
+            .with_fixint_encoding()
+            .allow_trailing_bytes()
+            .with_limit(bts.len() as _)
+            .deserialize(bts)?)
     }
 }
 

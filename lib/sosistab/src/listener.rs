@@ -1,5 +1,8 @@
-use crate::session::{Session, SessionConfig};
 use crate::*;
+use crate::{
+    recfilter::RECENT_FILTER,
+    session::{Session, SessionConfig},
+};
 use bytes::Bytes;
 
 use governor::{Quota, RateLimiter};
@@ -7,11 +10,15 @@ use parking_lot::Mutex;
 use protocol::HandshakeFrame::*;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
-use smol::channel::{Receiver, Sender};
 use smol::net::AsyncToSocketAddrs;
-use std::{net::SocketAddr, time::Instant};
+use smol::{
+    channel::{Receiver, Sender},
+    net::TcpListener,
+};
+use std::net::SocketAddr;
 use std::{num::NonZeroU32, sync::Arc};
 use table::ShardedAddrs;
+use tcp::TcpServerBackhaul;
 
 use self::table::SessionTable;
 
@@ -30,7 +37,7 @@ impl Listener {
         self.accepted.recv().await.ok()
     }
     /// Creates a new listener given the parameters.
-    pub async fn listen(
+    pub async fn listen_udp(
         addr: impl AsyncToSocketAddrs,
         long_sk: x25519_dalek::StaticSecret,
         on_recv: impl Fn(usize, SocketAddr) + 'static + Send + Sync,
@@ -56,38 +63,37 @@ impl Listener {
         }
     }
 
+    /// Creates a new listener given the parameters.
+    pub async fn listen_tcp(
+        addr: impl AsyncToSocketAddrs,
+        long_sk: x25519_dalek::StaticSecret,
+        on_recv: impl Fn(usize, SocketAddr) + 'static + Send + Sync,
+        on_send: impl Fn(usize, SocketAddr) + 'static + Send + Sync,
+    ) -> Self {
+        // let addr = async_net::resolve(addr).await;
+        let listener = TcpListener::bind(addr).await.unwrap();
+        let local_addr = listener.local_addr().unwrap();
+        let cookie = crypt::Cookie::new((&long_sk).into());
+        let socket = TcpServerBackhaul::new(listener, long_sk.clone());
+        let (send, recv) = smol::channel::unbounded();
+        let task = runtime::spawn(
+            ListenerActor {
+                socket: Arc::new(StatsBackhaul::new(socket, on_recv, on_send)),
+                cookie,
+                long_sk,
+            }
+            .run(send),
+        );
+        Listener {
+            accepted: recv,
+            local_addr,
+            _task: task,
+        }
+    }
+
     /// Gets the local address.
     pub fn local_addr(&self) -> SocketAddr {
         self.local_addr
-    }
-}
-
-// recently seen tracker
-struct RecentFilter {
-    curr_bloom: bloomfilter::Bloom<[u8]>,
-    last_bloom: bloomfilter::Bloom<[u8]>,
-    curr_time: Instant,
-}
-
-impl RecentFilter {
-    fn new() -> Self {
-        RecentFilter {
-            curr_bloom: bloomfilter::Bloom::new_for_fp_rate(1000000, 0.01),
-            last_bloom: bloomfilter::Bloom::new_for_fp_rate(1000000, 0.01),
-            curr_time: Instant::now(),
-        }
-    }
-
-    fn check(&mut self, val: &[u8]) -> bool {
-        if Instant::now()
-            .saturating_duration_since(self.curr_time)
-            .as_secs()
-            > 600
-        {
-            std::mem::swap(&mut self.curr_bloom, &mut self.last_bloom);
-            self.curr_bloom.clear()
-        }
-        !(self.curr_bloom.check_and_set(val) || self.last_bloom.check(val))
     }
 }
 
@@ -100,8 +106,6 @@ impl ListenerActor {
     #[allow(clippy::mutable_key_type)]
     #[tracing::instrument(skip(self), level = "trace")]
     async fn run(self, accepted: Sender<Session>) -> Option<()> {
-        // replay filter for globally-encrypted stuff
-        let mut curr_filter = RecentFilter::new();
         // session table
         let mut session_table = SessionTable::default();
         // channel for dropping sessions
@@ -159,7 +163,7 @@ impl ListenerActor {
                             if let Some(handshake) =
                                 crypter.pad_decrypt_v1::<protocol::HandshakeFrame>(&buffer)
                             {
-                                if !curr_filter.check(&buffer) {
+                                if !RECENT_FILTER.lock().check(&buffer) {
                                     tracing::warn!(
                                         "discarding replay attempt with len {}",
                                         buffer.len()

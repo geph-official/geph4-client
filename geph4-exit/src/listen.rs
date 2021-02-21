@@ -43,6 +43,50 @@ impl RootCtx {
             sess,
         }
     }
+
+    async fn listen_udp(&self, addr: SocketAddr, flow_key: &str) -> sosistab::Listener {
+        let stat = self.stat_client.clone();
+        let stat2 = self.stat_client.clone();
+        let flow_key = flow_key.to_owned();
+        let fk2 = flow_key.clone();
+        sosistab::Listener::listen_udp(
+            addr,
+            self.sosistab_sk.clone(),
+            move |len, _| {
+                if fastrand::f32() < 0.05 {
+                    stat.count(&flow_key, len as f64 * 20.0)
+                }
+            },
+            move |len, _| {
+                if fastrand::f32() < 0.05 {
+                    stat2.count(&fk2, len as f64 * 20.0)
+                }
+            },
+        )
+        .await
+    }
+
+    async fn listen_tcp(&self, addr: SocketAddr, flow_key: &str) -> sosistab::Listener {
+        let stat = self.stat_client.clone();
+        let stat2 = self.stat_client.clone();
+        let flow_key = flow_key.to_owned();
+        let fk2 = flow_key.clone();
+        sosistab::Listener::listen_tcp(
+            addr,
+            self.sosistab_sk.clone(),
+            move |len, _| {
+                if fastrand::f32() < 0.05 {
+                    stat.count(&flow_key, len as f64 * 20.0)
+                }
+            },
+            move |len, _| {
+                if fastrand::f32() < 0.05 {
+                    stat2.count(&fk2, len as f64 * 20.0)
+                }
+            },
+        )
+        .await
+    }
 }
 
 /// per-session context
@@ -111,30 +155,19 @@ pub async fn main_loop<'a>(
     };
     // future that governs the "self bridge"
     let ctx1 = ctx.clone();
-    let stat = ctx1.stat_client.clone();
     let self_bridge_fut = async {
         let flow_key = bridge_pkt_key("SELF");
-        let stat2 = stat.clone();
-        let fk2 = flow_key.clone();
-        let sosis_listener = sosistab::Listener::listen(
-            "[::0]:19831",
-            ctx1.sosistab_sk.clone(),
-            move |len, _| {
-                if fastrand::f32() < 0.05 {
-                    stat.count(&flow_key, len as f64 * 20.0)
-                }
-            },
-            move |len, _| {
-                if fastrand::f32() < 0.05 {
-                    stat2.count(&fk2, len as f64 * 20.0)
-                }
-            },
-        )
-        .await;
+        let udp_listen = ctx
+            .listen_udp("[::0]:19831".parse().unwrap(), &flow_key)
+            .await;
+        let tcp_listen = ctx
+            .listen_tcp("[::0]:19831".parse().unwrap(), &flow_key)
+            .await;
         log::debug!("sosis_listener initialized");
         loop {
-            let sess = sosis_listener
+            let sess = udp_listen
                 .accept_session()
+                .race(tcp_listen.accept_session())
                 .await
                 .ok_or_else(|| anyhow::anyhow!("can't accept from sosistab"))?;
             let ctx1 = ctx1.clone();

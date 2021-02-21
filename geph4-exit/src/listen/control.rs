@@ -65,7 +65,7 @@ pub async fn handle_control(
             let fk2 = flow_key.clone();
             log::debug!("redoing binding because info is none");
             let sosis_secret = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
-            let sosis_listener = sosistab::Listener::listen(
+            let sosis_listener = sosistab::Listener::listen_udp(
                 "[::0]:0",
                 sosis_secret.clone(),
                 move |len, _| {
