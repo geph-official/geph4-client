@@ -1,11 +1,15 @@
-use crate::cache::ClientCache;
+use crate::{cache::ClientCache, main_connect::ConnectOpt};
 use crate::{stats::StatCollector, vpn::run_vpn};
 use anyhow::Context;
+use getsess::get_session;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
 use std::time::Duration;
 use std::{sync::Arc, time::Instant};
+
+mod getsess;
+
 /// An "actor" that keeps a client session alive.
 #[derive(Clone)]
 pub struct Keepalive {
@@ -16,26 +20,14 @@ pub struct Keepalive {
 
 impl Keepalive {
     /// Creates a new keepalive.
-    pub fn new(
-        stats: Arc<StatCollector>,
-        exit_host: &str,
-        use_bridges: bool,
-        stdio_vpn: bool,
-        ccache: Arc<ClientCache>,
-    ) -> Self {
+    pub fn new(stats: Arc<StatCollector>, cfg: ConnectOpt, ccache: Arc<ClientCache>) -> Self {
         let (send, recv) = smol::channel::unbounded();
         let (send_stats, recv_stats) = smol::channel::unbounded();
         Keepalive {
             open_socks5_conn: send,
             get_stats: send_stats,
             _task: Arc::new(smolscale::spawn(keepalive_actor(
-                stats,
-                exit_host.to_string(),
-                use_bridges,
-                stdio_vpn,
-                ccache,
-                recv,
-                recv_stats,
+                stats, cfg, ccache, recv, recv_stats,
             ))),
         }
     }
@@ -59,19 +51,16 @@ impl Keepalive {
 
 async fn keepalive_actor(
     stats: Arc<StatCollector>,
-    exit_host: String,
-    use_bridges: bool,
-    stdio_vpn: bool,
+    cfg: ConnectOpt,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::mux::RelConn>)>,
     recv_get_stats: Receiver<Sender<Vec<sosistab::SessionStat>>>,
 ) -> anyhow::Result<()> {
     loop {
+        let cfg = cfg.clone();
         if let Err(err) = keepalive_actor_once(
             stats.clone(),
-            exit_host.clone(),
-            use_bridges,
-            stdio_vpn,
+            cfg,
             ccache.clone(),
             recv_socks5_conn.clone(),
             recv_get_stats.clone(),
@@ -86,9 +75,7 @@ async fn keepalive_actor(
 
 async fn keepalive_actor_once(
     stats: Arc<StatCollector>,
-    exit_host: String,
-    use_bridges: bool,
-    stdio_vpn: bool,
+    cfg: ConnectOpt,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::mux::RelConn>)>,
     recv_get_stats: Receiver<Sender<Vec<sosistab::SessionStat>>>,
@@ -101,91 +88,24 @@ async fn keepalive_actor_once(
         anyhow::bail!("no exits found")
     }
     exits.sort_by(|a, b| {
-        strsim::damerau_levenshtein(&a.hostname, &exit_host)
-            .cmp(&strsim::damerau_levenshtein(&b.hostname, &exit_host))
+        strsim::damerau_levenshtein(&a.hostname, &cfg.exit_server)
+            .cmp(&strsim::damerau_levenshtein(&b.hostname, &cfg.exit_server))
     });
-    let exit_host = exits[0].hostname.clone();
+    let exit_info = exits[0].clone();
 
-    let bridge_sess_async = async {
-        let bridges = ccache
-            .get_bridges(&exit_host)
-            .await
-            .context("can't get bridges")?;
-        log::debug!("got {} bridges", bridges.len());
-        if bridges.is_empty() {
-            anyhow::bail!("absolutely no bridges found")
-        }
-        let start = Instant::now();
-        // spawn a task for *every* bridge
-        let (send, recv) = smol::channel::unbounded();
-        let _tasks: Vec<_> = bridges
-            .into_iter()
-            .map(|desc| {
-                let send = send.clone();
-                smolscale::spawn(async move {
-                    log::debug!("connecting through {}...", desc.endpoint);
-                    drop(
-                        send.send((desc.endpoint, {
-                            // we effectively sum 5 RTTs. this filters out the high-jitter/high-loss crap.
-                            for _ in 0..5 {
-                                let _ =
-                                    sosistab::connect_udp(desc.endpoint, desc.sosistab_key).await;
-                            }
-                            sosistab::connect_udp(desc.endpoint, desc.sosistab_key).await
-                        }))
-                        .await,
-                    )
-                })
-            })
-            .collect();
-        // wait for a successful result
-        loop {
-            let (saddr, res) = recv.recv().await.context("ran out of bridges")?;
-            if let Ok(res) = res {
-                log::info!(
-                    "{} is our fastest bridge, 5rtt={}",
-                    saddr,
-                    start.elapsed().as_millis()
-                );
-                break Ok(res);
-            }
-        }
-    };
-    let exit_info = exits.iter().find(|v| v.hostname == exit_host).unwrap();
-    let connected_sess_async = async {
-        if use_bridges {
-            bridge_sess_async.await
-        } else {
-            async {
-                Ok(infal(
-                    sosistab::connect_tcp(
-                        aioutils::resolve(&format!("{}:19831", exit_info.hostname))
-                            .await
-                            .context("can't resolve hostname of exit")?
-                            .into_iter()
-                            .find(|v| v.is_ipv4())
-                            .context("can't find ipv4 address for exit")?,
-                        exit_info.sosistab_key,
-                    )
-                    .await,
-                )
-                .await)
-            }
+    let session = if cfg.use_tcp {
+        get_session(exit_info, &ccache, cfg.use_bridges, true).await?
+    } else {
+        // give UDP a 2 second head start
+        get_session(exit_info.clone(), &ccache, cfg.use_bridges, false)
             .or(async {
-                smol::Timer::after(Duration::from_secs(1)).await;
-                log::warn!("racing with bridges because direct connection took a while");
-                bridge_sess_async.await
+                smol::Timer::after(Duration::from_secs(2)).await;
+                log::warn!("UDP seems to be stuck, racing with TCP...");
+                get_session(exit_info, &ccache, cfg.use_bridges, true).await
             })
-            .await
-        }
+            .await?
     };
-    let session: anyhow::Result<sosistab::Session> = connected_sess_async
-        .or(async {
-            smol::Timer::after(Duration::from_secs(20)).await;
-            anyhow::bail!("initial connection timeout after 20");
-        })
-        .await;
-    let session = session?;
+
     let mux = Arc::new(sosistab::mux::Multiplex::new(session));
     let scope = smol::Executor::new();
     // now let's authenticate
@@ -196,8 +116,8 @@ async fn keepalive_actor_once(
         .ok_or_else(|| anyhow::anyhow!("authentication timed out"))??;
     log::info!(
         "KEEPALIVE MAIN LOOP for exit_host={}, use_bridges={}",
-        exit_host,
-        use_bridges
+        cfg.exit_server,
+        cfg.use_bridges
     );
     stats.set_exit_descriptor(Some(exits[0].clone()));
     scope
@@ -220,7 +140,7 @@ async fn keepalive_actor_once(
 
     // VPN mode
     let mut _nuunuu = None;
-    if stdio_vpn {
+    if cfg.stdio_vpn {
         let mux = mux.clone();
         let send_death = send_death.clone();
         let stats = stats.clone();
