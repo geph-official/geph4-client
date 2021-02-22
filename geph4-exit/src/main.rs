@@ -1,8 +1,9 @@
-use std::{alloc::System, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
 use cap::Cap;
 use env_logger::Env;
+use jemallocator::Jemalloc;
 use std::os::unix::fs::PermissionsExt;
 use structopt::StructOpt;
 
@@ -54,10 +55,10 @@ struct Opt {
 }
 
 #[global_allocator]
-pub static ALLOCATOR: Cap<System> = Cap::new(System, usize::max_value());
+pub static ALLOCATOR: Cap<Jemalloc> = Cap::new(Jemalloc, usize::max_value());
 
 fn main() -> anyhow::Result<()> {
-    smolscale::permanently_single_threaded();
+    // smolscale::permanently_single_threaded();
     let opt: Opt = Opt::from_args();
     let stat_client = statsd::Client::new(opt.statsd_addr, "geph4")?;
     env_logger::Builder::from_env(Env::default().default_filter_or("geph4_exit=debug,warn")).init();

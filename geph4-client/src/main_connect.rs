@@ -17,7 +17,7 @@ pub struct ConnectOpt {
 
     #[structopt(long)]
     /// whether or not to use bridges
-    use_bridges: bool,
+    pub use_bridges: bool,
 
     #[structopt(long, default_value = "127.0.0.1:9910")]
     /// where to listen for HTTP proxy connections
@@ -35,7 +35,7 @@ pub struct ConnectOpt {
 
     #[structopt(long, default_value = "us-hio-01.exits.geph.io")]
     /// which exit server to connect to. If there isn't an exact match, the exit server with the most similar hostname is picked.
-    exit_server: String,
+    pub exit_server: String,
 
     #[structopt(long)]
     /// whether or not to exclude PRC domains
@@ -43,7 +43,7 @@ pub struct ConnectOpt {
 
     #[structopt(long)]
     /// whether or not to wait for VPN commands on stdio
-    stdio_vpn: bool,
+    pub stdio_vpn: bool,
 
     #[structopt(long)]
     /// an endpoint to send test results. If set, will periodically do network testing.
@@ -52,6 +52,10 @@ pub struct ConnectOpt {
     #[structopt(long)]
     /// a name for this test instance.
     nettest_name: Option<String>,
+
+    #[structopt(long)]
+    /// whether or not to force TCP mode.
+    pub use_tcp: bool,
 }
 
 pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
@@ -70,13 +74,7 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     let client_cache =
         ClientCache::from_opts(&opt.common, &opt.auth).context("cannot create ClientCache")?;
     // create a kalive
-    let keepalive = Keepalive::new(
-        stat_collector.clone(),
-        &opt.exit_server,
-        opt.use_bridges,
-        opt.stdio_vpn,
-        Arc::new(client_cache),
-    );
+    let keepalive = Keepalive::new(stat_collector.clone(), opt.clone(), Arc::new(client_cache));
     // enter the socks5 loop
     let socks5_listener = smol::net::TcpListener::bind(opt.socks5_listen)
         .await

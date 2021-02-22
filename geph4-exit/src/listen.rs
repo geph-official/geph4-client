@@ -9,6 +9,7 @@ use binder_transport::BinderClient;
 
 use smol::prelude::*;
 use smolscale::OnError;
+use x25519_dalek::StaticSecret;
 
 mod control;
 mod session;
@@ -44,14 +45,24 @@ impl RootCtx {
         }
     }
 
-    async fn listen_udp(&self, addr: SocketAddr, flow_key: &str) -> sosistab::Listener {
+    async fn listen_udp(
+        &self,
+        sk: Option<StaticSecret>,
+        addr: SocketAddr,
+        flow_key: &str,
+    ) -> sosistab::Listener {
         let stat = self.stat_client.clone();
         let stat2 = self.stat_client.clone();
         let flow_key = flow_key.to_owned();
         let fk2 = flow_key.clone();
+        let long_sk = if let Some(sk) = sk {
+            sk
+        } else {
+            self.sosistab_sk.clone()
+        };
         sosistab::Listener::listen_udp(
             addr,
-            self.sosistab_sk.clone(),
+            long_sk,
             move |len, _| {
                 if fastrand::f32() < 0.05 {
                     stat.count(&flow_key, len as f64 * 20.0)
@@ -66,14 +77,24 @@ impl RootCtx {
         .await
     }
 
-    async fn listen_tcp(&self, addr: SocketAddr, flow_key: &str) -> sosistab::Listener {
+    async fn listen_tcp(
+        &self,
+        sk: Option<StaticSecret>,
+        addr: SocketAddr,
+        flow_key: &str,
+    ) -> sosistab::Listener {
         let stat = self.stat_client.clone();
         let stat2 = self.stat_client.clone();
         let flow_key = flow_key.to_owned();
         let fk2 = flow_key.clone();
+        let long_sk = if let Some(sk) = sk {
+            sk
+        } else {
+            self.sosistab_sk.clone()
+        };
         sosistab::Listener::listen_tcp(
             addr,
-            self.sosistab_sk.clone(),
+            long_sk,
             move |len, _| {
                 if fastrand::f32() < 0.05 {
                     stat.count(&flow_key, len as f64 * 20.0)
@@ -158,10 +179,10 @@ pub async fn main_loop<'a>(
     let self_bridge_fut = async {
         let flow_key = bridge_pkt_key("SELF");
         let udp_listen = ctx
-            .listen_udp("[::0]:19831".parse().unwrap(), &flow_key)
+            .listen_udp(None, "[::0]:19831".parse().unwrap(), &flow_key)
             .await;
         let tcp_listen = ctx
-            .listen_tcp("[::0]:19831".parse().unwrap(), &flow_key)
+            .listen_tcp(None, "[::0]:19831".parse().unwrap(), &flow_key)
             .await;
         log::debug!("sosis_listener initialized");
         loop {
