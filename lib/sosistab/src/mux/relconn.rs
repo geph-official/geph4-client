@@ -299,7 +299,7 @@ async fn relconn_actor(
                     let new_pkt = async {
                         Ok::<Evt, anyhow::Error>(Evt::NewPkt(recv_wire_read.recv().await?))
                     };
-                    new_pkt.or(ack_timer.or(rto_timeout.or(new_write))).await
+                    ack_timer.or(new_pkt.or(rto_timeout.or(new_write))).await
                 };
                 match event {
                     Ok(Evt::Closing) => {
@@ -448,6 +448,9 @@ async fn relconn_actor(
                         let mut ack_seqnos: Vec<_> = conn_vars.ack_seqnos.iter().collect();
                         ack_seqnos.sort_unstable();
                         let encoded_acks = bincode::serialize(&ack_seqnos).unwrap();
+                        if encoded_acks.len() > 1000 {
+                            tracing::warn!("encoded_acks {} bytes", encoded_acks.len());
+                        }
                         transmit(Message::Rel {
                             kind: RelKind::DataAck,
                             stream_id,

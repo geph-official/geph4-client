@@ -1,12 +1,12 @@
-use bytes::BytesMut;
+use bytes::Bytes;
 use parking_lot::Mutex;
 use smol::future::Future;
 use smol::prelude::*;
-use std::{pin::Pin, sync::Arc, task::Context, task::Poll};
+use std::{collections::LinkedList, pin::Pin, sync::Arc, task::Context, task::Poll};
 
 /// Create a "bipe". Use async_dup's methods if you want something cloneable/shareable
 pub fn bipe(capacity: usize) -> (BipeWriter, BipeReader) {
-    let info = Arc::new(Mutex::new((false, BytesMut::new())));
+    let info = Arc::new(Mutex::new(BipeQueue::default()));
     let event = Arc::new(event_listener::Event::new());
     (
         BipeWriter {
@@ -23,9 +23,41 @@ pub fn bipe(capacity: usize) -> (BipeWriter, BipeReader) {
     )
 }
 
+#[derive(Default)]
+struct BipeQueue {
+    inner: LinkedList<Bytes>,
+    closed: bool,
+    counter: usize,
+}
+
+impl BipeQueue {
+    fn push(&mut self, bts: &[u8]) {
+        self.inner.push_front(Bytes::copy_from_slice(bts));
+        self.counter += bts.len()
+    }
+
+    fn pop_fill(&mut self, fill: &mut [u8]) -> usize {
+        let tentative = self.inner.pop_back();
+        if let Some(tentative) = tentative {
+            if tentative.len() <= fill.len() {
+                fill[..tentative.len()].copy_from_slice(&tentative);
+                self.counter -= tentative.len();
+                tentative.len()
+            } else {
+                fill.copy_from_slice(&tentative[..fill.len()]);
+                self.inner.push_back(tentative.slice(fill.len()..));
+                self.counter -= fill.len();
+                fill.len()
+            }
+        } else {
+            0
+        }
+    }
+}
+
 /// Writing end of a byte pipe.
 pub struct BipeWriter {
-    queue: Arc<Mutex<(bool, BytesMut)>>,
+    queue: Arc<Mutex<BipeQueue>>,
     capacity: usize,
     signal: Arc<event_listener::Event>,
     listener: event_listener::EventListener,
@@ -33,7 +65,7 @@ pub struct BipeWriter {
 
 impl Drop for BipeWriter {
     fn drop(&mut self) {
-        self.queue.lock().0 = true;
+        self.queue.lock().closed = true;
         self.signal.notify(usize::MAX);
     }
 }
@@ -53,15 +85,12 @@ impl AsyncWrite for BipeWriter {
             {
                 let boo = &self.queue;
                 let mut boo = boo.lock();
-                if boo.0 {
+                if boo.closed {
                     return Poll::Ready(Err(broken_pipe()));
                 }
-                let queue = &mut boo.1;
-                if queue.len() < self.capacity + buf.len() {
-                    if queue.is_empty() {
-                        self.signal.notify(usize::MAX);
-                    }
-                    queue.extend_from_slice(buf);
+                if boo.counter < self.capacity + buf.len() {
+                    boo.push(buf);
+                    self.signal.notify(usize::MAX);
                     return Poll::Ready(Ok(buf.len()));
                 }
             }
@@ -78,7 +107,7 @@ impl AsyncWrite for BipeWriter {
     }
 
     fn poll_close(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        self.queue.lock().0 = true;
+        self.queue.lock().closed = true;
         self.signal.notify(usize::MAX);
         Poll::Ready(Ok(()))
     }
@@ -86,7 +115,7 @@ impl AsyncWrite for BipeWriter {
 
 /// Read end of a byte pipe.
 pub struct BipeReader {
-    queue: Arc<Mutex<(bool, BytesMut)>>,
+    queue: Arc<Mutex<BipeQueue>>,
     signal: Arc<event_listener::Event>,
     listener: event_listener::EventListener,
 }
@@ -101,19 +130,12 @@ impl AsyncRead for BipeReader {
             {
                 let boo = &self.queue;
                 let mut boo = boo.lock();
-                let queue = &mut boo.1;
-                if !queue.is_empty() {
-                    let to_copy_len = queue.len().min(buf.len());
-                    (&mut buf[..to_copy_len]).copy_from_slice(&queue[..to_copy_len]);
-                    *queue = queue.split_off(to_copy_len);
-                    // dbg!(queue.capacity());
-                    if queue.is_empty() {
-                        *queue = BytesMut::new();
-                    }
+                if boo.counter > 0 {
+                    let to_copy_len = boo.pop_fill(buf);
                     self.signal.notify(usize::MAX);
                     return Poll::Ready(Ok(to_copy_len));
                 }
-                if boo.0 {
+                if boo.closed {
                     return Poll::Ready(Err(broken_pipe()));
                 }
             }

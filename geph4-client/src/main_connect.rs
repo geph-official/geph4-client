@@ -52,6 +52,10 @@ pub struct ConnectOpt {
     #[structopt(long)]
     /// a name for this test instance.
     nettest_name: Option<String>,
+
+    #[structopt(long)]
+    /// whether or not to force TCP mode.
+    force_tcp: bool,
 }
 
 pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
