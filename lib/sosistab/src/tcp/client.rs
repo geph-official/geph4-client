@@ -168,8 +168,10 @@ impl Backhaul for TcpClientBackhaul {
                 .ok_or_else(|| anyhow::anyhow!("timeout"))??;
             conn.write(&buf[..to_send.len() + 2])
                 .or(async {
-                    tracing::warn!("skipping write due to full buffers");
-                    Ok(())
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::TimedOut,
+                        "TCP write buffer is full, throwing connection away",
+                    ))
                 })
                 .await?;
             self.put_conn(dest, conn, time);
