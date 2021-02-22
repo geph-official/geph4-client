@@ -88,7 +88,8 @@ impl ConnVars {
         let now = Instant::now();
         if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() {
             let bdp = self.inflight.bdp();
-            self.cwnd = self.cwnd.min((self.cwnd * 0.5).max(bdp));
+            // self.cwnd = self.cwnd.min((self.cwnd * 0.5).max(bdp));
+            self.cwnd *= 0.8;
             tracing::debug!(
                 "LOSS CWND => {}; loss rate {}, srtt {}ms, rate {}",
                 self.cwnd,

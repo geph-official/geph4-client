@@ -163,7 +163,7 @@ impl Backhaul for TcpClientBackhaul {
         let res: anyhow::Result<()> = async {
             let (conn, time) = self
                 .get_conn(dest)
-                .timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(1))
                 .await
                 .ok_or_else(|| anyhow::anyhow!("timeout"))??;
             conn.write(&buf[..to_send.len() + 2])
