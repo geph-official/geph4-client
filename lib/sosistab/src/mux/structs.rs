@@ -1,10 +1,10 @@
 use bytes::Bytes;
+
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
 /// A sequence number.
 pub type Seqno = u64;
-
 /// A message.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum Message {

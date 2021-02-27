@@ -14,8 +14,6 @@ pub struct FrameEncoder {
     rate_table: FxHashMap<(u8, usize), usize>,
     // target loss rate
     target_loss: u8,
-    // encoder pool
-    rs_encoders: FxHashMap<(usize, usize), Arc<WrappedReedSolomon>>,
 }
 
 impl FrameEncoder {
@@ -25,7 +23,6 @@ impl FrameEncoder {
         FrameEncoder {
             rate_table: FxHashMap::default(),
             target_loss,
-            rs_encoders: FxHashMap::default(),
         }
     }
 
@@ -54,10 +51,7 @@ impl FrameEncoder {
             parity_shards
         );
         if parity_shards > 0 {
-            let encoder = self
-                .rs_encoders
-                .entry((data_shards, parity_shards))
-                .or_insert_with(|| WrappedReedSolomon::new_cached(data_shards, parity_shards));
+            let encoder = WrappedReedSolomon::new_cached(data_shards, parity_shards);
             // do the encoding
             encoder
                 .get_inner()

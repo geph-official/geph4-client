@@ -106,8 +106,8 @@ async fn init_session(
     let remind_ratelimit = Arc::new(RateLimiter::direct(Quota::per_second(
         NonZeroU32::new(3).unwrap(),
     )));
-    let (send_frame_out, recv_frame_out) = smol::channel::bounded(1000);
-    let (send_frame_in, recv_frame_in) = smol::channel::bounded(1000);
+    let (send_frame_out, recv_frame_out) = smol::channel::bounded(100);
+    let (send_frame_in, recv_frame_in) = smol::channel::bounded(100);
     let backhaul_tasks: Vec<_> = (0..cfg.num_shards)
         .map(|i| {
             runtime::spawn(client_backhaul_once(

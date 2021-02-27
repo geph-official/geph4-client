@@ -5,7 +5,7 @@ use ed25519_dalek::Signer;
 use rand::prelude::*;
 use smol::{channel::Sender, prelude::*};
 use smol_timeout::TimeoutExt;
-use smolscale::OnError;
+
 use std::{
     net::SocketAddr,
     sync::Arc,
@@ -15,6 +15,13 @@ pub async fn handle_control(
     ctx: Arc<RootCtx>,
     mut client: smol::net::TcpStream,
 ) -> anyhow::Result<()> {
+    ctx.control_count
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let _guard = scopeguard::guard((), |_| {
+        ctx.control_count
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    });
+
     let exit_hostname = ctx.exit_hostname.clone();
     let bridge_pkt_key = move |bridge_group: &str| {
         format!(
@@ -85,7 +92,7 @@ pub async fn handle_control(
                 send,
             ));
             // spawn a task that dies when the binding is gone
-            ctx.nursery.clone().spawn(OnError::Ignore, move |nursery| {
+            let task: smol::Task<anyhow::Result<()>> = smolscale::spawn(
                 async move {
                     loop {
                         let sess = sosis_listener_udp
@@ -94,13 +101,12 @@ pub async fn handle_control(
                             .await
                             .ok_or_else(|| anyhow::anyhow!("could not accept sosis session"))?;
                         let ctx = ctx.clone();
-                        nursery.spawn(OnError::Ignore, move |_| {
-                            session::handle_session(ctx.new_sess(sess))
-                        });
+                        smolscale::spawn(session::handle_session(ctx.new_sess(sess))).detach();
                     }
                 }
-                .or(async move { Ok(recv.recv().await?) })
-            });
+                .or(async move { Ok(recv.recv().await?) }),
+            );
+            task.detach();
         }
         // send to the other side and then binder
         let (port, sosistab_pk, _) = info.as_ref().unwrap();

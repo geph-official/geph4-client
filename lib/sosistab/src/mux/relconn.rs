@@ -5,6 +5,7 @@ use bipe::{BipeReader, BipeWriter};
 use bytes::{Bytes, BytesMut};
 use connvars::ConnVars;
 use mux::structs::{Message, RelKind, Seqno};
+
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use std::{
@@ -41,7 +42,7 @@ impl RelConn {
     ) -> (Self, RelConnBack) {
         let (send_write, recv_write) = bipe::bipe(1024 * 1024);
         let (send_read, recv_read) = bipe::bipe(1024 * 1024);
-        let (send_wire_read, recv_wire_read) = smol::channel::bounded(1024);
+        let (send_wire_read, recv_wire_read) = smol::channel::bounded(64);
         let aic = additional_info.clone();
         let _task = runtime::spawn(async move {
             if let Err(e) = relconn_actor(
@@ -136,6 +137,8 @@ pub(crate) enum RelConnState {
 }
 use RelConnState::*;
 
+// static RELCONN_COUNT: Lazy<AtomicUsize> = Lazy::new(AtomicUsize::default);
+
 async fn relconn_actor(
     mut state: RelConnState,
     mut recv_write: BipeReader,
@@ -145,9 +148,14 @@ async fn relconn_actor(
     additional_info: Option<String>,
     dropper: impl FnOnce(),
 ) -> anyhow::Result<()> {
-    let _guard = scopeguard::guard((), |_| dropper());
+    // dbg!(RELCONN_COUNT.fetch_add(1, Ordering::Relaxed));
+
+    let _guard = scopeguard::guard((), |_| {
+        // dbg!(RELCONN_COUNT.fetch_sub(1, Ordering::Relaxed));
+        dropper()
+    });
     // match on our current state repeatedly
-    #[derive(Debug, Clone)]
+    #[derive(Debug)]
     enum Evt {
         Rto(Option<(Seqno, bool)>),
         AckTimer,
@@ -299,7 +307,13 @@ async fn relconn_actor(
                     let new_pkt = async {
                         Ok::<Evt, anyhow::Error>(Evt::NewPkt(recv_wire_read.recv().await?))
                     };
-                    ack_timer.or(new_pkt.or(rto_timeout.or(new_write))).await
+                    let final_timeout = async {
+                        smol::Timer::after(Duration::from_secs(600)).await;
+                        anyhow::bail!("final timeout within relconn actor")
+                    };
+                    ack_timer
+                        .or(new_pkt.or(rto_timeout.or(new_write.or(final_timeout))))
+                        .await
                 };
                 match event {
                     Ok(Evt::Closing) => {
@@ -466,7 +480,7 @@ async fn relconn_actor(
                         }
                     }
                     err => {
-                        tracing::trace!("forced to RESET due to {:?}", err);
+                        tracing::warn!("forced to RESET due to {:?}", err);
                         Reset {
                             stream_id,
                             death: smol::Timer::after(Duration::from_secs(MAX_WAIT_SECS)),
@@ -517,8 +531,8 @@ pub(crate) struct RelConnBack {
 }
 
 impl RelConnBack {
-    pub fn process(&self, input: Message) {
-        let res = self.send_wire_read.try_send(input);
+    pub async fn process(&self, input: Message) {
+        let res = self.send_wire_read.send(input).await;
         if let Err(e) = res {
             tracing::trace!("relconn failed to accept pkt: {}", e)
         }

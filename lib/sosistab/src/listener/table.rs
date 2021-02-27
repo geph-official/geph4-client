@@ -1,4 +1,9 @@
-use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Instant};
+use std::{
+    collections::{BTreeMap, HashMap},
+    net::SocketAddr,
+    sync::Arc,
+    time::Instant,
+};
 
 use bytes::Bytes;
 use indexmap::IndexMap;
@@ -46,8 +51,8 @@ struct SessEntry {
 
 #[derive(Default)]
 pub struct SessionTable {
-    token_to_sess: HashMap<Bytes, SessEntry>,
-    addr_to_token: HashMap<SocketAddr, Bytes>,
+    token_to_sess: BTreeMap<Bytes, SessEntry>,
+    addr_to_token: BTreeMap<SocketAddr, Bytes>,
 }
 
 impl SessionTable {

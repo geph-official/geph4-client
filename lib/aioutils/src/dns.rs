@@ -1,3 +1,4 @@
+use cached::proc_macro::cached;
 use std::net::SocketAddr;
 
 /// Resolves a string into a vector of SocketAddrs.
@@ -30,5 +31,10 @@ pub async fn resolve(host_port: &str) -> std::io::Result<Vec<SocketAddr>> {
 
 #[cfg(not(target_os = "windows"))]
 pub async fn resolve(host_port: &str) -> std::io::Result<Vec<SocketAddr>> {
+    resolve_inner(host_port.into()).await
+}
+
+#[cached(time = 60, result = true)]
+pub async fn resolve_inner(host_port: String) -> std::io::Result<Vec<SocketAddr>> {
     smol::net::resolve(host_port).await
 }

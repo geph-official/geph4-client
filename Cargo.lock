@@ -103,6 +103,7 @@ dependencies = [
  "anyhow",
  "async-dup",
  "bincode",
+ "cached",
  "concurrent-queue",
  "dnsclient",
  "log 0.4.14",
@@ -1619,7 +1620,7 @@ dependencies = [
 
 [[package]]
 name = "geph4-client"
-version = "4.1.8"
+version = "4.2.0"
 dependencies = [
  "aioutils",
  "anyhow",

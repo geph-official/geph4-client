@@ -126,6 +126,7 @@ async fn authenticate_sess(
     }
     // send response
     aioutils::write_pascalish(&mut stream, &1u8).await?;
+    smol::Timer::after(Duration::from_secs(1));
     Ok(is_plus)
 }
 
@@ -141,7 +142,7 @@ async fn handle_proxy_stream(
         Some(s) => s.to_string(),
         None => aioutils::read_pascalish(&mut client).await?,
     };
-    let addr = smol::net::resolve(&to_prox)
+    let addr = aioutils::resolve(&to_prox)
         .await?
         .first()
         .cloned()
