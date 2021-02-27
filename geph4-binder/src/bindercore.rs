@@ -36,8 +36,8 @@ impl BinderCore {
             captcha_service: captcha_service_url.to_string(),
             mizaru_sk: Mutex::new(HashMap::new()),
             conn_pool: r2d2::Builder::new()
-                .min_idle(Some(16))
-                .max_size(64)
+                .min_idle(Some(2))
+                .max_size(8)
                 .build(manager)
                 .unwrap(),
         }
@@ -258,6 +258,8 @@ impl BinderCore {
         }
         self.verify_password(&username, &password)?;
         let user_info = self.get_user_info(&username)?;
+        self.check_login_ratelimit(user_info.userid)?;
+
         let actual_level = user_info
             .clone()
             .subscription
@@ -274,6 +276,36 @@ impl BinderCore {
         } else {
             Err(BinderError::Other("mizaru failed".into()))
         }
+    }
+
+    /// checks whether the login violated the rate limit.
+    fn check_login_ratelimit(&self, uid: i32) -> Result<(), BinderError> {
+        const MAX_INTENSITY: f32 = 20.0;
+        let mut conn = self.get_pg_conn()?;
+        let mut txn = conn
+            .transaction()
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
+        let row = txn
+            .query_one(
+                "select coalesce(max(intensity), 0.0), coalesce(MAX(last_login), NOW()) from login_intensity where id = $1",
+                &[&uid],
+            )
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
+        let existing_intensity: f32 = row.get(0);
+        let existing_time: SystemTime = row.get(1);
+        let days_past = existing_time.elapsed().unwrap_or_default().as_secs_f32() / 86400.0;
+        let new_intensity = existing_intensity * (0.5f32.powf(days_past)) + 1.0;
+        if new_intensity > MAX_INTENSITY {
+            return Err(BinderError::Other(format!(
+                "too many logins recently (intensity {})",
+                existing_intensity
+            )));
+        }
+        txn.execute("insert into login_intensity (id, intensity, last_login) values ($1, $2, $3) on conflict (id) do update set intensity = excluded.intensity", 
+        &[&uid, &new_intensity, &SystemTime::now()]).map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
+        txn.commit()
+            .map_err(|e| BinderError::DatabaseFailed(e.to_string()))?;
+        Ok(())
     }
 
     /// Validates an token

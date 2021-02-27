@@ -2,7 +2,7 @@ use bytes::Bytes;
 use parking_lot::Mutex;
 use smol::future::Future;
 use smol::prelude::*;
-use std::{collections::LinkedList, pin::Pin, sync::Arc, task::Context, task::Poll};
+use std::{collections::VecDeque, pin::Pin, sync::Arc, task::Context, task::Poll};
 
 /// Create a "bipe". Use async_dup's methods if you want something cloneable/shareable
 pub fn bipe(capacity: usize) -> (BipeWriter, BipeReader) {
@@ -25,7 +25,7 @@ pub fn bipe(capacity: usize) -> (BipeWriter, BipeReader) {
 
 #[derive(Default)]
 struct BipeQueue {
-    inner: LinkedList<Bytes>,
+    inner: VecDeque<Bytes>,
     closed: bool,
     counter: usize,
 }

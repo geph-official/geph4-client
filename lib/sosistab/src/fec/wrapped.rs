@@ -17,7 +17,7 @@ pub struct WrappedReedSolomon {
 }
 
 /// New cached arc.
-#[cached]
+#[cached(size = 20)]
 fn new_cached_wrs(data_shards: usize, parity_shards: usize) -> Arc<WrappedReedSolomon> {
     Arc::new(WrappedReedSolomon::new(data_shards, parity_shards))
 }

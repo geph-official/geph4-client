@@ -8,7 +8,7 @@ use crate::{vpn, ALLOCATOR};
 use binder_transport::BinderClient;
 
 use smol::prelude::*;
-use smolscale::OnError;
+
 use x25519_dalek::StaticSecret;
 
 mod control;
@@ -25,20 +25,17 @@ pub struct RootCtx {
     session_count: AtomicUsize,
     raw_session_count: AtomicUsize,
     pub conn_count: AtomicUsize,
+    pub control_count: AtomicUsize,
 
     free_limit: u32,
     port_whitelist: bool,
 
     pub google_proxy: Option<SocketAddr>,
-
     // pub conn_tasks: Mutex<cached::SizedCache<u128, smol::Task<Option<()>>>>,
-    nursery: smolscale::NurseryHandle,
 }
 
 impl RootCtx {
     fn new_sess(self: &Arc<Self>, sess: sosistab::Session) -> SessCtx {
-        let new_nurs = smolscale::Nursery::new();
-        self.nursery.spawn(OnError::Ignore, |_| new_nurs.wait());
         SessCtx {
             root: self.clone(),
             sess,
@@ -129,7 +126,6 @@ pub async fn main_loop<'a>(
     google_proxy: Option<SocketAddr>,
     port_whitelist: bool,
 ) -> anyhow::Result<()> {
-    let nursery = smolscale::Nursery::new();
     let ctx = Arc::new(RootCtx {
         stat_client: Arc::new(stat_client),
         exit_hostname: exit_hostname.to_string(),
@@ -143,8 +139,7 @@ pub async fn main_loop<'a>(
         free_limit,
         port_whitelist,
         google_proxy,
-        // conn_tasks: Mutex::new(SizedCache::with_size(1000)),
-        nursery: nursery.handle(),
+        control_count: AtomicUsize::new(0),
     });
 
     smolscale::spawn(vpn::transparent_proxy_helper(ctx.clone())).detach();
@@ -155,15 +150,8 @@ pub async fn main_loop<'a>(
     let control_prot_fut = async {
         loop {
             let ctx = ctx.clone();
-            let sp = ctx.nursery.clone();
             let (client, _) = control_prot_listen.accept().await?;
-            let claddr = client.peer_addr()?;
-            sp.spawn(
-                OnError::ignore_with(move |e| {
-                    log::warn!("control protocol for {} died with {:?}", claddr, e)
-                }),
-                |_| control::handle_control(ctx, client),
-            );
+            smolscale::spawn(control::handle_control(ctx, client)).detach();
         }
     };
     let exit_hostname2 = exit_hostname.to_string();
@@ -192,10 +180,7 @@ pub async fn main_loop<'a>(
                 .await
                 .ok_or_else(|| anyhow::anyhow!("can't accept from sosistab"))?;
             let ctx1 = ctx1.clone();
-            let sp = ctx1.nursery.clone();
-            sp.spawn(OnError::Ignore, move |_| {
-                session::handle_session(ctx1.new_sess(sess))
-            });
+            smolscale::spawn(session::handle_session(ctx1.new_sess(sess))).detach();
         }
     };
     // future that uploads gauge statistics
@@ -205,6 +190,8 @@ pub async fn main_loop<'a>(
         let rskey = format!("raw_session_count.{}", exit_hostname.replace(".", "-"));
         let memkey = format!("bytes_allocated.{}", exit_hostname.replace(".", "-"));
         let connkey = format!("conn_count.{}", exit_hostname.replace(".", "-"));
+        let ctrlkey = format!("control_count.{}", exit_hostname.replace(".", "-"));
+        let taskkey = format!("task_count.{}", exit_hostname.replace(".", "-"));
         loop {
             let session_count = ctx.session_count.load(std::sync::atomic::Ordering::Relaxed);
             stat_client.gauge(&key, session_count as f64);
@@ -216,12 +203,15 @@ pub async fn main_loop<'a>(
             stat_client.gauge(&memkey, memory_usage as f64);
             let conn_count = ctx.conn_count.load(std::sync::atomic::Ordering::Relaxed);
             stat_client.gauge(&connkey, conn_count as f64);
-            smol::Timer::after(Duration::from_secs(5)).await;
+            let control_count = ctx.control_count.load(std::sync::atomic::Ordering::Relaxed);
+            stat_client.gauge(&ctrlkey, control_count as f64);
+            let task_count = smolscale::active_task_count();
+            stat_client.gauge(&taskkey, task_count as f64);
+            smol::Timer::after(Duration::from_secs(10)).await;
         }
     };
     // race
     smol::future::race(control_prot_fut, self_bridge_fut)
         .or(gauge_fut)
-        .or(nursery.wait())
         .await
 }

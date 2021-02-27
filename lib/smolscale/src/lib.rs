@@ -12,7 +12,6 @@
 
 use futures_lite::prelude::*;
 use once_cell::sync::OnceCell;
-use pin_project_lite::pin_project;
 use std::{
     pin::Pin,
     sync::atomic::AtomicUsize,
@@ -25,6 +24,8 @@ pub use nursery::*;
 
 //const CHANGE_THRESH: u32 = 10;
 const MONITOR_MS: u64 = 5;
+
+const MAX_THREADS: usize = 500;
 
 static EXEC: async_executor::Executor<'static> = async_executor::Executor::new();
 
@@ -95,7 +96,7 @@ fn monitor_loop() {
             listener.wait();
         };
         let running_threads = THREAD_COUNT.load(Ordering::SeqCst);
-        if fbp >= running_threads {
+        if fbp >= running_threads && running_threads <= MAX_THREADS {
             consecutive_busy += 1;
             if consecutive_busy > 10 {
                 start_thread(true);
@@ -123,18 +124,27 @@ pub fn spawn<T: Send + 'static>(
     // async_global_executor::spawn(future)
 }
 
-pin_project! {
 struct WrappedFuture<T, F: Future<Output = T>> {
-    #[pin]
     fut: F,
 }
+
+static RUNNING_TASKS: AtomicUsize = AtomicUsize::new(0);
+
+/// Returns the current number of active tasks.
+pub fn active_task_count() -> usize {
+    RUNNING_TASKS.load(Ordering::Relaxed)
+}
+
+impl<T, F: Future<Output = T>> Drop for WrappedFuture<T, F> {
+    fn drop(&mut self) {
+        RUNNING_TASKS.fetch_sub(1, Ordering::Relaxed);
+    }
 }
 
 impl<T, F: Future<Output = T>> Future for WrappedFuture<T, F> {
     type Output = T;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.project();
         let pval = FUTURES_BEING_POLLED.fetch_add(1, Ordering::SeqCst);
         if pval == 0 {
             FBP_NONZERO.notify(1);
@@ -143,12 +153,14 @@ impl<T, F: Future<Output = T>> Future for WrappedFuture<T, F> {
         scopeguard::defer!({
             FUTURES_BEING_POLLED.fetch_sub(1, Ordering::Relaxed);
         });
-        this.fut.poll(cx)
+        let fut = unsafe { self.map_unchecked_mut(|v| &mut v.fut) };
+        fut.poll(cx)
     }
 }
 
 impl<T, F: Future<Output = T> + 'static> WrappedFuture<T, F> {
     pub fn new(fut: F) -> Self {
+        RUNNING_TASKS.fetch_add(1, Ordering::Relaxed);
         WrappedFuture { fut }
     }
 }

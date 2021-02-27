@@ -29,7 +29,7 @@ impl RecvMachine {
         Self {
             version,
             decoder: RunDecoder::default(),
-            oob_decoder: OobDecoder::new(1000),
+            oob_decoder: OobDecoder::new(100),
             recv_crypt_legacy,
             recv_crypt_ng,
             replay_filter: ReplayFilter::default(),
