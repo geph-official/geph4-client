@@ -101,7 +101,9 @@ async fn keepalive_actor_once(
             .or(async {
                 smol::Timer::after(Duration::from_secs(2)).await;
                 log::warn!("UDP seems to be stuck, racing with TCP...");
-                get_session(exit_info, &ccache, cfg.use_bridges, true).await
+                let toret = get_session(exit_info, &ccache, cfg.use_bridges, true).await;
+                log::warn!("TCP WON!");
+                toret
             })
             .await?
     };
@@ -115,9 +117,10 @@ async fn keepalive_actor_once(
         .await
         .ok_or_else(|| anyhow::anyhow!("authentication timed out"))??;
     log::info!(
-        "KEEPALIVE MAIN LOOP for exit_host={}, use_bridges={}",
+        "KEEPALIVE MAIN LOOP for exit_host={}, use_bridges={}, use_tcp={}",
         cfg.exit_server,
-        cfg.use_bridges
+        cfg.use_bridges,
+        cfg.use_tcp
     );
     stats.set_exit_descriptor(Some(exits[0].clone()));
     scope
