@@ -53,7 +53,7 @@ pub async fn get_session(
             let (saddr, res) = recv.recv().await.context("ran out of bridges")?;
             if let Ok(res) = res {
                 log::info!(
-                    "{} is our fastest bridge, 5rtt={}",
+                    "{} is our fastest bridge, latency={}",
                     saddr,
                     start.elapsed().as_millis()
                 );
