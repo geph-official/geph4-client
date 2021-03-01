@@ -99,7 +99,7 @@ async fn keepalive_actor_once(
         // give UDP a 2 second head start
         get_session(exit_info.clone(), &ccache, cfg.use_bridges, false)
             .or(async {
-                smol::Timer::after(Duration::from_secs(2)).await;
+                smol::Timer::after(Duration::from_secs(4)).await;
                 log::warn!("UDP seems to be stuck, racing with TCP...");
                 let toret = get_session(exit_info, &ccache, cfg.use_bridges, true).await;
                 log::warn!("TCP WON!");
