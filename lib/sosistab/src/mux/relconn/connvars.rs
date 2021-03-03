@@ -76,7 +76,7 @@ impl ConnVars {
         self.loss_rate *= 0.99;
         let bdp = self.inflight.bdp();
         if self.cwnd >= bdp * 2.0 {
-            tracing::debug!("MAX CWND ({:.2} > {:.2})", self.cwnd, bdp * 2.0);
+            tracing::trace!("MAX CWND ({:.2} > {:.2})", self.cwnd, bdp * 2.0);
             return;
         }
         if self.slow_start && self.cwnd < self.ssthresh {

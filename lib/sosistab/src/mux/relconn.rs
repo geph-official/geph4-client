@@ -250,6 +250,7 @@ async fn relconn_actor(
                         && conn_vars.inflight.len() < 10000
                         && !conn_vars.closing;
                     let force_ack = conn_vars.ack_seqnos.len() >= 32;
+                    assert!(conn_vars.ack_seqnos.len() <= 32);
 
                     let ack_timer = conn_vars.delayed_ack_timer;
                     let ack_timer = async {
@@ -379,10 +380,9 @@ async fn relconn_actor(
                         seqno,
                         ..
                     })) => {
-                        tracing::trace!("new ACK pkt with {} seqnos", payload.len() / 2);
-                        for seqno in
-                            bincode::deserialize::<BTreeSet<Seqno>>(&payload).unwrap_or_default()
-                        {
+                        let seqnos = bincode::deserialize::<Vec<Seqno>>(&payload)?;
+                        tracing::trace!("new ACK pkt with {} seqnos", seqnos.len());
+                        for seqno in seqnos {
                             if conn_vars.inflight.mark_acked(seqno) {
                                 conn_vars.congestion_ack();
                             }
@@ -410,7 +410,7 @@ async fn relconn_actor(
                         tracing::trace!("new data pkt with seqno={}", seqno);
                         if conn_vars.delayed_ack_timer.is_none() {
                             conn_vars.delayed_ack_timer =
-                                Instant::now().checked_add(Duration::from_millis(5));
+                                Instant::now().checked_add(Duration::from_millis(1));
                         }
                         if conn_vars.reorderer.insert(seqno, payload) {
                             conn_vars.ack_seqnos.insert(seqno);
@@ -460,6 +460,7 @@ async fn relconn_actor(
                     Ok(Evt::AckTimer) => {
                         // eprintln!("acking {} seqnos", conn_vars.ack_seqnos.len());
                         let mut ack_seqnos: Vec<_> = conn_vars.ack_seqnos.iter().collect();
+                        assert!(ack_seqnos.len() <= 32);
                         ack_seqnos.sort_unstable();
                         let encoded_acks = bincode::serialize(&ack_seqnos).unwrap();
                         if encoded_acks.len() > 1000 {

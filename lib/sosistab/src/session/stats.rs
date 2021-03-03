@@ -150,7 +150,7 @@ impl SendLossCalc {
             let median = {
                 let mut lala: Vec<f64> = self.loss_samples.iter().cloned().collect();
                 lala.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
-                lala[lala.len() / 2]
+                lala[lala.len() / 4]
             };
             self.median = median;
             self.last_time = now;
