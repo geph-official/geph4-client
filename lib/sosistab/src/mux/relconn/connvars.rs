@@ -74,6 +74,11 @@ impl ConnVars {
             self.last_flight = now
         }
         self.loss_rate *= 0.99;
+        let bdp = self.inflight.bdp();
+        if self.cwnd >= bdp * 2.0 {
+            tracing::debug!("MAX CWND ({:.2} > {:.2})", self.cwnd, bdp * 2.0);
+            return;
+        }
         if self.slow_start && self.cwnd < self.ssthresh {
             self.cwnd += 1.0
         } else {
@@ -87,14 +92,15 @@ impl ConnVars {
         self.loss_rate = self.loss_rate * 0.99 + 0.01;
         let now = Instant::now();
         if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() {
-            // let bdp = self.inflight.bdp();
-            // self.cwnd = self.cwnd.min((self.cwnd * 0.5).max(bdp));
-            self.cwnd *= 0.8;
+            let bdp = self.inflight.bdp();
+            self.cwnd = self.cwnd.min((self.cwnd * 0.5).max(bdp));
+            // self.cwnd *= 0.8;
             tracing::debug!(
-                "LOSS CWND => {}; loss rate {}, srtt {}ms, rate {}",
+                "LOSS CWND => {:.2}; loss rate {:.2}, srtt {}ms (var {}ms), rate {:.1}",
                 self.cwnd,
                 self.loss_rate,
                 self.inflight.srtt().as_millis(),
+                self.inflight.rtt_var().as_millis(),
                 self.inflight.rate()
             );
             self.last_loss = now;

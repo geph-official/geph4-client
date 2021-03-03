@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use bytes::{Bytes, BytesMut};
 use probability::distribution::Distribution;
 
@@ -27,7 +25,7 @@ impl FrameEncoder {
     }
 
     /// Encodes a slice of packets into more packets.
-    #[tracing::instrument(level = "trace")]
+    #[tracing::instrument(level = "trace", skip(pkts))]
     pub fn encode(&mut self, measured_loss: u8, pkts: &[Bytes]) -> Vec<Bytes> {
         // max length
         let max_length = pkts.iter().map(|v| v.len()).max().unwrap();
@@ -46,7 +44,7 @@ impl FrameEncoder {
         }
         tracing::trace!(
             "{:.1}% => {}/{}",
-            measured_loss as f64 / 256.0,
+            100.0 * measured_loss as f64 / 256.0,
             data_shards,
             parity_shards
         );

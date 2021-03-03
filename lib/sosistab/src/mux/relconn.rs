@@ -41,7 +41,7 @@ impl RelConn {
         additional_info: Option<String>,
     ) -> (Self, RelConnBack) {
         let (send_write, recv_write) = bipe::bipe(1024 * 1024);
-        let (send_read, recv_read) = bipe::bipe(1024 * 1024);
+        let (send_read, recv_read) = bipe::bipe(10 * 1024 * 1024);
         let (send_wire_read, recv_wire_read) = smol::channel::bounded(64);
         let aic = additional_info.clone();
         let _task = runtime::spawn(async move {
@@ -341,13 +341,13 @@ async fn relconn_actor(
                                 //     "retrans {} {} for the {} time",
                                 //     seqno, is_timeout, v.retrans
                                 // );
-                                if retrans == 1 {
-                                    // if is_timeout {
-                                    //     conn_vars.congestion_rto()
-                                    // } else {
-                                    conn_vars.congestion_loss();
-                                    // }
-                                }
+                                // if retrans == 1 {
+                                // if is_timeout {
+                                //     conn_vars.congestion_rto()
+                                // } else {
+                                conn_vars.congestion_loss();
+                                // }
+                                // }
                                 if retrans > 8 {
                                     anyhow::bail!("full timeout")
                                 }

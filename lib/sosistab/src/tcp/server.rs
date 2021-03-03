@@ -37,7 +37,7 @@ impl TcpServerBackhaul {
         let (send_upcoming, recv_upcoming) = smol::channel::bounded(1000);
         let _task = runtime::spawn(async move {
             if let Err(err) = backhaul_loop(listener, seckey, table_cloned, send_upcoming).await {
-                tracing::warn!("backhaul_loop exited: {:?}", err)
+                tracing::debug!("backhaul_loop exited: {:?}", err)
             }
         });
         Self {
@@ -83,7 +83,7 @@ async fn backhaul_loop(
                                 })
                                 .await
                         {
-                            tracing::warn!("backhaul_one exited: {:?}", err)
+                            tracing::debug!("backhaul_one exited: {:?}", err)
                         }
                     })
                     .detach();

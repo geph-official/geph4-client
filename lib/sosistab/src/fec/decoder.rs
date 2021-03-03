@@ -49,7 +49,7 @@ impl FrameDecoder {
         self.data_shards - self.good_pkts()
     }
 
-    #[tracing::instrument(level = "trace", skip(pkt))]
+    #[tracing::instrument(level = "trace", skip(self, pkt))]
     pub fn decode(&mut self, pkt: &[u8], pkt_idx: usize) -> Option<Vec<Bytes>> {
         // if we don't have parity shards, don't touch anything
         if self.parity_shards == 0 {

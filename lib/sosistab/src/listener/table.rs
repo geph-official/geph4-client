@@ -1,9 +1,4 @@
-use std::{
-    collections::{BTreeMap, HashMap},
-    net::SocketAddr,
-    sync::Arc,
-    time::Instant,
-};
+use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Instant};
 
 use bytes::Bytes;
 use indexmap::IndexMap;

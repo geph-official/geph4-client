@@ -334,7 +334,7 @@ impl ListenerActor {
                                                 accepted.try_send(session).ok()?;
                                             } else {
                                                 tracing::debug!(
-                                                    "[{}] ClientResume from {} can't be decrypted",
+                                                    "[{}] ClientResume from {} rebound",
                                                     trace_id,
                                                     addr
                                                 );

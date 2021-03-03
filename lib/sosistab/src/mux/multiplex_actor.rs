@@ -75,7 +75,7 @@ pub async fn multiplex(
                     stream_id, kind, ..
                 } => {
                     if let Some(handle) = conn_tab.get_stream(stream_id) {
-                        tracing::trace!("handing over {:?} to {}", kind, stream_id);
+                        // tracing::trace!("handing over {:?} to {}", kind, stream_id);
                         handle.process(msg).await
                     } else {
                         tracing::trace!("discarding {:?} to nonexistent {}", kind, stream_id);

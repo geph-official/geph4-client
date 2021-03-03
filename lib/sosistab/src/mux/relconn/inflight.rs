@@ -72,6 +72,10 @@ impl Inflight {
         Duration::from_millis(self.rtt.srtt)
     }
 
+    pub fn rtt_var(&self) -> Duration {
+        Duration::from_millis(self.rtt.rttvar)
+    }
+
     pub fn min_rtt(&self) -> Duration {
         Duration::from_millis(self.rtt.min_rtt)
     }
@@ -92,8 +96,28 @@ impl Inflight {
         // mark the right one
         if let Some(entry) = self.segments.front() {
             let first_seqno = entry.seqno;
+            let offset = (seqno - first_seqno) as usize;
             if seqno >= first_seqno {
-                let offset = (seqno - first_seqno) as usize;
+                let rtt_var = self.rtt_var().max(Duration::from_millis(50));
+                // fast: if this ack is for something more than FASTRT_THRESH "into" the buffer, we do fast retransmit
+                if let Some(acked_send_time) = self.segments.get_mut(offset).map(|v| v.send_time) {
+                    for entry in self.segments.iter_mut() {
+                        if entry.send_time + rtt_var < acked_send_time {
+                            if !entry.acked && entry.retrans == 0 {
+                                entry.retrans += 1;
+                                tracing::debug!(
+                                    "fast retransmit {} (retrans {})",
+                                    entry.seqno,
+                                    entry.retrans
+                                );
+                                self.fast_retrans.insert(entry.seqno);
+                            }
+                        } else {
+                            break;
+                        }
+                    }
+                }
+
                 if let Some(seg) = self.segments.get_mut(offset) {
                     if !seg.acked {
                         self.delivered += 1;
@@ -177,8 +201,8 @@ impl Inflight {
                     seg.retrans += 1;
                     let rtx = seg.retrans;
                     for _ in 0..rtx {
-                        rto *= 3;
-                        rto /= 2
+                        rto *= 2;
+                        // rto /= 2
                     }
 
                     self.times.push(seqno, Reverse(Instant::now() + rto));
@@ -248,8 +272,9 @@ impl Default for RttCalculator {
 impl RttCalculator {
     fn record_sample(&mut self, sample: Option<Duration>) {
         if let Some(sample) = sample {
-            let sample = sample.as_millis() as u64;
+            let sample = (sample.as_millis() as u64).max(1);
             if !self.existing {
+                self.existing = true;
                 self.srtt = sample;
                 self.rttvar = sample / 2;
             } else {

@@ -34,7 +34,6 @@ fn main() -> anyhow::Result<()> {
     unsafe {
         winapi::um::timeapi::timeBeginPeriod(1);
     }
-    smolscale::permanently_single_threaded();
 
     // the logging function
     fn logger(
