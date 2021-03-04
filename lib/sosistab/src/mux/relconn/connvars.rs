@@ -184,6 +184,7 @@ impl ConnVars {
                                 anyhow::bail!("full timeout")
                             }
                             self.retrans_count += 1;
+                            // self.limiter.wait(implied_rate).await;
                             transmit(payload);
                         }
                     }
@@ -242,7 +243,7 @@ impl ConnVars {
             Ok(Evt::NewPkt(_)) => anyhow::bail!("unrecognized packet"),
             Ok(Evt::NewWrite(bts)) => {
                 assert!(bts.len() <= MSS);
-                self.limiter.wait(implied_rate).await;
+                // self.limiter.wait(implied_rate).await;
                 let seqno = self.next_free_seqno;
                 self.next_free_seqno += 1;
                 let msg = Message::Rel {
@@ -315,8 +316,8 @@ impl ConnVars {
         let now = Instant::now();
         if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() {
             let bdp = self.inflight.bdp();
-            self.cwnd = self.cwnd.min((self.cwnd * 0.5).max(bdp));
-            // self.cwnd *= 0.8;
+            // self.cwnd = self.cwnd.min((self.cwnd * 0.5).max(bdp));
+            self.cwnd *= 0.8;
             tracing::debug!(
                 "LOSS CWND => {:.2}; loss rate {:.2}, srtt {}ms (var {}ms), rate {:.1}",
                 self.cwnd,
