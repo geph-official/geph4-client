@@ -7,6 +7,7 @@ use std::{
 };
 
 #[derive(Debug, Clone)]
+/// An element of Inflight.
 pub struct InflightEntry {
     seqno: Seqno,
     acked: bool,
@@ -18,6 +19,7 @@ pub struct InflightEntry {
     delivered_time: Instant,
 }
 
+/// A data structure that tracks in-flight packets.
 pub struct Inflight {
     segments: VecDeque<InflightEntry>,
     inflight_count: usize,
@@ -96,8 +98,8 @@ impl Inflight {
         // mark the right one
         if let Some(entry) = self.segments.front() {
             let first_seqno = entry.seqno;
-            let offset = (seqno - first_seqno) as usize;
             if seqno >= first_seqno {
+                let offset = (seqno - first_seqno) as usize;
                 let rtt_var = self.rtt_var().max(Duration::from_millis(50));
                 // fast: if this ack is for something more than FASTRT_THRESH "into" the buffer, we do fast retransmit
                 if let Some(acked_send_time) = self.segments.get_mut(offset).map(|v| v.send_time) {
@@ -181,20 +183,27 @@ impl Inflight {
         None
     }
 
-    pub async fn wait_first(&mut self) -> Option<(Seqno, bool)> {
+    pub fn wait_first(&mut self) -> smol::Timer {
+        if self.fast_retrans.iter().next().is_some() {
+            return smol::Timer::at(Instant::now());
+        }
+        if !self.times.is_empty() {
+            let (_, time) = self.times.peek().unwrap();
+            return smol::Timer::at(time.0);
+        }
+        smol::Timer::at(Instant::now() + Duration::from_secs(100000000))
+    }
+
+    pub fn pop_first(&mut self) -> anyhow::Result<u64> {
         if let Some(seq) = self.fast_retrans.iter().next() {
             let seq = *seq;
             self.fast_retrans.remove(&seq);
-            return Some((seq, false));
-        }
-        while !self.times.is_empty() {
-            let (_, time) = self.times.peek().unwrap();
-            let durat = time.0.saturating_duration_since(Instant::now());
-            if durat.as_secs() > 30 {
-                return None;
-            }
-            smol::Timer::at(time.0).await;
-            let (seqno, _) = self.times.pop().unwrap();
+            Ok(seq)
+        } else {
+            let (seqno, _) = self
+                .times
+                .pop()
+                .ok_or_else(|| anyhow::anyhow!("could not pop from times"))?;
             let mut rto = self.rtt.rto();
             if let Some(seg) = self.get_seqno(seqno) {
                 if !seg.acked {
@@ -206,11 +215,14 @@ impl Inflight {
                     }
 
                     self.times.push(seqno, Reverse(Instant::now() + rto));
-                    return Some((seqno, true));
+                    Ok(seqno)
+                } else {
+                    anyhow::bail!("popped was already acked?!")
                 }
+            } else {
+                anyhow::bail!("popped was already acked?!");
             }
         }
-        smol::future::pending().await
     }
 }
 
@@ -279,7 +291,7 @@ impl RttCalculator {
                 self.rttvar = sample / 2;
             } else {
                 self.rttvar = self.rttvar * 3 / 4 + diff(self.srtt, sample) / 4;
-                self.srtt = self.srtt * 7 / 8 + sample / 8;
+                self.srtt = (self.srtt * 7 / 8 + sample / 8).max(1);
             }
             self.rto = sample.max(self.srtt + (4 * self.rttvar).max(10)) + 50;
         }
