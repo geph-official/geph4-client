@@ -61,7 +61,7 @@ impl Default for ConnVars {
 
             slow_start: true,
             cwnd: 64.0,
-            ssthresh: 500.0,
+            ssthresh: -500.0,
             last_loss: Instant::now(),
 
             flights: 0,
@@ -297,27 +297,30 @@ impl ConnVars {
             self.last_flight = now
         }
         self.loss_rate *= 0.99;
-        let bdp = self.inflight.bdp();
-        if self.cwnd >= bdp * 2.0 {
-            tracing::trace!("MAX CWND ({:.2} > {:.2})", self.cwnd, bdp * 2.0);
-            return;
-        }
-        if self.slow_start && self.cwnd < self.ssthresh {
-            self.cwnd += 1.0
+
+        let bic_inc = if self.cwnd < self.ssthresh {
+            (self.ssthresh - self.cwnd) / 2.0
         } else {
-            let n = (0.23 * self.cwnd.powf(0.8)).max(1.0);
-            self.cwnd += n / self.cwnd;
+            self.cwnd - self.ssthresh
         }
+        .max(1.0)
+        .min(128.0);
+        self.cwnd += bic_inc / self.cwnd;
     }
 
     pub fn congestion_loss(&mut self) {
         self.slow_start = false;
         self.loss_rate = self.loss_rate * 0.99 + 0.01;
         let now = Instant::now();
-        if now.saturating_duration_since(self.last_loss) > self.inflight.srtt() {
-            let bdp = self.inflight.bdp();
-            // self.cwnd = self.cwnd.min((self.cwnd * 0.5).max(bdp));
-            self.cwnd *= 0.8;
+        if now.saturating_duration_since(self.last_loss) > self.inflight.rto() {
+            let beta = 0.2;
+            if self.cwnd < self.ssthresh {
+                self.ssthresh = self.cwnd * (2.0 - beta) / 2.0;
+            } else {
+                self.ssthresh = self.cwnd;
+            }
+
+            self.cwnd *= 1.0 - beta;
             tracing::debug!(
                 "LOSS CWND => {:.2}; loss rate {:.2}, srtt {}ms (var {}ms), rate {:.1}",
                 self.cwnd,

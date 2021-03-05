@@ -6,6 +6,10 @@ use std::{
     time::{Duration, Instant},
 };
 
+use self::calc::RttCalculator;
+
+mod calc;
+
 #[derive(Debug, Clone)]
 /// An element of Inflight.
 pub struct InflightEntry {
@@ -60,6 +64,7 @@ impl Inflight {
     }
 
     pub fn inflight(&self) -> usize {
+        dbg!(self.inflight_count);
         if self.inflight_count > self.segments.len() {
             panic!(
                 "inflight_count = {}, segment len = {}",
@@ -71,15 +76,19 @@ impl Inflight {
     }
 
     pub fn srtt(&self) -> Duration {
-        Duration::from_millis(self.rtt.srtt)
+        self.rtt.srtt()
+    }
+
+    pub fn rto(&self) -> Duration {
+        self.rtt.rto()
     }
 
     pub fn rtt_var(&self) -> Duration {
-        Duration::from_millis(self.rtt.rttvar)
+        self.rtt.rtt_var()
     }
 
     pub fn min_rtt(&self) -> Duration {
-        Duration::from_millis(self.rtt.min_rtt)
+        self.rtt.min_rtt()
     }
 
     pub fn mark_acked_lt(&mut self, seqno: Seqno) {
@@ -139,11 +148,10 @@ impl Inflight {
                             }
                         }
 
-                        self.rtt.record_sample(if seg.retrans == 0 {
-                            Some(now.saturating_duration_since(seg.send_time))
-                        } else {
-                            None
-                        });
+                        if seg.retrans == 0 {
+                            self.rtt
+                                .record_sample(now.saturating_duration_since(seg.send_time))
+                        }
                     }
                 }
                 // shrink if possible
@@ -252,64 +260,6 @@ impl RateCalculator {
             self.rate = sample;
             self.rate_update_time = now;
         }
-    }
-}
-
-struct RttCalculator {
-    // standard TCP stuff
-    srtt: u64,
-    rttvar: u64,
-    rto: u64,
-
-    // rate estimation
-    min_rtt: u64,
-    rtt_update_time: Instant,
-
-    existing: bool,
-}
-
-impl Default for RttCalculator {
-    fn default() -> Self {
-        RttCalculator {
-            srtt: 300,
-            rttvar: 0,
-            rto: 300,
-            min_rtt: 300,
-            rtt_update_time: Instant::now(),
-            existing: false,
-        }
-    }
-}
-
-impl RttCalculator {
-    fn record_sample(&mut self, sample: Option<Duration>) {
-        if let Some(sample) = sample {
-            let sample = (sample.as_millis() as u64).max(1);
-            if !self.existing {
-                self.existing = true;
-                self.srtt = sample;
-                self.rttvar = sample / 2;
-            } else {
-                self.rttvar = self.rttvar * 3 / 4 + diff(self.srtt, sample) / 4;
-                self.srtt = (self.srtt * 7 / 8 + sample / 8).max(1);
-            }
-            self.rto = sample.max(self.srtt + (4 * self.rttvar).max(10)) + 50;
-        }
-        // delivery rate
-        let now = Instant::now();
-        if self.srtt < self.min_rtt
-            || now
-                .saturating_duration_since(self.rtt_update_time)
-                .as_millis()
-                > 10000
-        {
-            self.min_rtt = self.srtt;
-            self.rtt_update_time = now;
-        }
-    }
-
-    fn rto(&self) -> Duration {
-        Duration::from_millis(self.rto)
     }
 }
 
