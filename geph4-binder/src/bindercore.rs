@@ -256,9 +256,9 @@ impl BinderCore {
         if level != "free" && level != "plus" {
             return Err(BinderError::Other("mizaru failed".into()));
         }
-        self.verify_password(&username, &password)?;
         let user_info = self.get_user_info(&username)?;
         self.check_login_ratelimit(user_info.userid)?;
+        self.verify_password(&username, &password)?;
 
         let actual_level = user_info
             .clone()

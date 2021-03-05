@@ -42,12 +42,12 @@ impl FrameEncoder {
         for r in parity_shard_space.iter_mut() {
             padded_pkts.push(r);
         }
-        tracing::trace!(
-            "{:.1}% => {}/{}",
-            100.0 * measured_loss as f64 / 256.0,
-            data_shards,
-            parity_shards
-        );
+        // tracing::debug!(
+        //     "{:.1}% => {}/{}",
+        //     100.0 * measured_loss as f64 / 256.0,
+        //     data_shards,
+        //     parity_shards
+        // );
         if parity_shards > 0 {
             let encoder = WrappedReedSolomon::new_cached(data_shards, parity_shards);
             // do the encoding

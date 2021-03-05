@@ -64,7 +64,7 @@ impl Inflight {
     }
 
     pub fn inflight(&self) -> usize {
-        dbg!(self.inflight_count);
+        // dbg!(self.inflight_count);
         if self.inflight_count > self.segments.len() {
             panic!(
                 "inflight_count = {}, segment len = {}",
@@ -111,23 +111,30 @@ impl Inflight {
                 let offset = (seqno - first_seqno) as usize;
                 let rtt_var = self.rtt_var().max(Duration::from_millis(50));
                 // fast: if this ack is for something more than FASTRT_THRESH "into" the buffer, we do fast retransmit
-                if let Some(acked_send_time) = self.segments.get_mut(offset).map(|v| v.send_time) {
-                    for entry in self.segments.iter_mut() {
-                        if entry.send_time + rtt_var < acked_send_time {
-                            if !entry.acked && entry.retrans == 0 {
-                                entry.retrans += 1;
-                                tracing::debug!(
-                                    "fast retransmit {} (retrans {})",
-                                    entry.seqno,
-                                    entry.retrans
-                                );
-                                self.fast_retrans.insert(entry.seqno);
-                            }
-                        } else {
-                            break;
-                        }
-                    }
-                }
+                // we fast-retransmit at most a quarter the inflight
+                // if self.fast_retrans.len() < self.segments.len() / 4 {
+                //     if let Some(acked_send_time) =
+                //         self.segments.get_mut(offset).map(|v| v.send_time)
+                //     {
+                //         for entry in self.segments.iter_mut() {
+                //             if entry.send_time + rtt_var < acked_send_time {
+                //                 if !entry.acked && entry.retrans == 0 {
+                //                     entry.retrans += 1;
+                //                     tracing::debug!(
+                //                         "fast retransmit {} (retrans {})",
+                //                         entry.seqno,
+                //                         entry.retrans
+                //                     );
+                //                     self.fast_retrans.insert(entry.seqno);
+                //                 }
+                //             } else {
+                //                 break;
+                //             }
+                //         }
+                //     }
+                // } else {
+                //     tracing::warn!("too much fast retrans")
+                // }
 
                 if let Some(seg) = self.segments.get_mut(offset) {
                     if !seg.acked {

@@ -100,15 +100,15 @@ impl Session {
     /// Takes a Bytes to be sent and stuffs it into the session.
     pub fn send_bytes(&self, to_send: Bytes) {
         let rate = self.rate_limit.load(Ordering::Relaxed);
-        if rate < 1000 {
-            // RED with max 250ms latency
-            let target_queue_len = rate / 4;
-            let fill_ratio = self.send_tosend.len() as f64 / target_queue_len as f64;
-            if rand::random::<f64>() < fill_ratio.powi(4) {
-                tracing::warn!("RED dropping packet (fill ratio {:.3})", fill_ratio);
-                return;
-            }
+        // if rate < 1000 {
+        // RED with max 250ms latency
+        let target_queue_len = rate / 4;
+        let fill_ratio = self.send_tosend.len() as f64 / target_queue_len as f64;
+        if rand::random::<f64>() < fill_ratio.powi(4) {
+            // tracing::warn!("RED dropping packet (fill ratio {:.3})", fill_ratio);
+            return;
         }
+        // }
         if let Err(err) = self.send_tosend.try_send(to_send) {
             if let TrySendError::Closed(_) = err {
                 self.recv_packet.close();
@@ -312,7 +312,7 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
     let mut fec_timer = smol::Timer::after(Duration::from_millis(FEC_TIMEOUT_MS));
     // Vector of "unfecked" frames.
     let mut unfecked: Vec<(u64, Bytes)> = Vec::new();
-    let mut fec_encoder = FrameEncoder::new(4);
+    let mut fec_encoder = FrameEncoder::new(1);
     let mut frame_no = 0;
     loop {
         // we die an early death if something went wrong

@@ -9,8 +9,6 @@ pub struct RttCalculator {
     // rate estimation
     min_rtt: u64,
     rtt_update_time: Instant,
-
-    existing: bool,
 }
 
 impl Default for RttCalculator {
@@ -19,7 +17,6 @@ impl Default for RttCalculator {
             rtt_measurements: vec![300],
             min_rtt: 300,
             rtt_update_time: Instant::now(),
-            existing: false,
         }
     }
 }
@@ -52,7 +49,7 @@ impl RttCalculator {
     }
 
     pub fn rto(&self) -> Duration {
-        Duration::from_millis(*self.rtt_measurements.last().unwrap() * 2)
+        Duration::from_millis(*self.rtt_measurements.last().unwrap() + 50)
     }
 
     pub fn srtt(&self) -> Duration {

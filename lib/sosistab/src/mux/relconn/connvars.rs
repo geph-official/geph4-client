@@ -161,6 +161,8 @@ impl ConnVars {
                 .await
         };
         let implied_rate = self.pacing_rate() as u32;
+        // let cwnd_choked =
+        //     self.inflight.inflight() <= self.cwnd as usize && self.inflight.len() < 10000;
         match event {
             Ok(Evt::Closing) => {
                 self.closing = true;
@@ -189,6 +191,7 @@ impl ConnVars {
                         }
                     }
                 }
+
                 Ok(())
             }
             Ok(Evt::NewPkt(Message::Rel {
@@ -243,7 +246,7 @@ impl ConnVars {
             Ok(Evt::NewPkt(_)) => anyhow::bail!("unrecognized packet"),
             Ok(Evt::NewWrite(bts)) => {
                 assert!(bts.len() <= MSS);
-                // self.limiter.wait(implied_rate).await;
+                self.limiter.wait(implied_rate).await;
                 let seqno = self.next_free_seqno;
                 self.next_free_seqno += 1;
                 let msg = Message::Rel {
@@ -303,7 +306,7 @@ impl ConnVars {
         } else {
             self.cwnd - self.ssthresh
         }
-        .max(1.0)
+        .max(3.0)
         .min(128.0);
         self.cwnd += bic_inc / self.cwnd;
     }

@@ -110,8 +110,6 @@ async fn backhaul_one(
         let s2c_enc = NgAEAD::new(s2c_key.as_bytes());
         // if we can succesfully decrypt the hello length, that's awesome! it means that we got the right up/down key
         if let Some(hello_length) = c2s_dec.decrypt(&encrypted_hello_length) {
-            dbg!(&hello_length.len());
-            dbg!(&encrypted_hello_length.len());
             let hello_length = u16::from_be_bytes(
                 (&hello_length[..])
                     .try_into()
