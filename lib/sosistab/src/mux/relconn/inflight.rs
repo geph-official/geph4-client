@@ -109,7 +109,7 @@ impl Inflight {
             let first_seqno = entry.seqno;
             if seqno >= first_seqno {
                 let offset = (seqno - first_seqno) as usize;
-                let rtt_var = self.rtt_var().max(Duration::from_millis(50));
+                // let rtt_var = self.rtt_var().max(Duration::from_millis(50));
                 // fast: if this ack is for something more than FASTRT_THRESH "into" the buffer, we do fast retransmit
                 // we fast-retransmit at most a quarter the inflight
                 // if self.fast_retrans.len() < self.segments.len() / 4 {

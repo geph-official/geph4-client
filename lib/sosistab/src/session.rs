@@ -194,7 +194,7 @@ async fn session_send_loop(ctx: SessionSendCtx) {
     }
 }
 
-const BURST_SIZE: usize = 32;
+const BURST_SIZE: usize = 12;
 
 #[tracing::instrument(skip(ctx))]
 async fn session_send_loop_v1(ctx: SessionSendCtx) -> Option<()> {
