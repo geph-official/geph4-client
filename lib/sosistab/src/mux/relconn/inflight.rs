@@ -1,8 +1,6 @@
 use crate::mux::structs::*;
 use std::{
-    cmp::Reverse,
-    collections::BTreeSet,
-    collections::VecDeque,
+    collections::BTreeMap,
     time::{Duration, Instant},
 };
 
@@ -19,44 +17,30 @@ pub struct InflightEntry {
     pub retrans: u64,
     pub payload: Message,
 
-    delivered: u64,
-    delivered_time: Instant,
+    rto_duration: Duration,
+}
+
+impl InflightEntry {
+    fn retrans_time(&self) -> Instant {
+        self.send_time + self.rto_duration
+    }
 }
 
 /// A data structure that tracks in-flight packets.
 pub struct Inflight {
-    segments: VecDeque<InflightEntry>,
-    inflight_count: usize,
-    times: priority_queue::PriorityQueue<Seqno, Reverse<Instant>>,
-    fast_retrans: BTreeSet<Seqno>,
+    segments: BTreeMap<Seqno, InflightEntry>,
+    first_rto: Option<(Seqno, Instant)>,
     rtt: RttCalculator,
-    rate: RateCalculator,
-
-    delivered: u64,
-    delivered_time: Instant,
 }
 
 impl Inflight {
+    /// Creates a new Inflight.
     pub fn new() -> Self {
         Inflight {
-            segments: VecDeque::new(),
-            inflight_count: 0,
-            times: priority_queue::PriorityQueue::new(),
-            fast_retrans: BTreeSet::new(),
-            rtt: RttCalculator::default(),
-            rate: RateCalculator::default(),
-
-            delivered: 0,
-            delivered_time: Instant::now(),
+            segments: Default::default(),
+            first_rto: None,
+            rtt: Default::default(),
         }
-    }
-
-    pub fn rate(&self) -> f64 {
-        self.rate.rate
-    }
-
-    pub fn bdp(&self) -> f64 {
-        self.rate() * self.min_rtt().as_secs_f64()
     }
 
     pub fn len(&self) -> usize {
@@ -64,15 +48,7 @@ impl Inflight {
     }
 
     pub fn inflight(&self) -> usize {
-        // dbg!(self.inflight_count);
-        if self.inflight_count > self.segments.len() {
-            panic!(
-                "inflight_count = {}, segment len = {}",
-                self.inflight_count,
-                self.segments.len()
-            );
-        }
-        self.inflight_count
+        self.len()
     }
 
     pub fn srtt(&self) -> Duration {
@@ -91,153 +67,89 @@ impl Inflight {
         self.rtt.min_rtt()
     }
 
+    /// Mark all inflight packets less than a certain sequence number as acknowledged.
     pub fn mark_acked_lt(&mut self, seqno: Seqno) {
-        for segseq in self.segments.iter().map(|v| v.seqno).collect::<Vec<_>>() {
-            if segseq < seqno {
-                self.mark_acked(segseq);
+        let mut to_remove = vec![];
+        for (k, _) in self.segments.iter() {
+            if *k < seqno {
+                to_remove.push(*k);
             } else {
+                // we can rely on iteration order
                 break;
             }
         }
-    }
-
-    pub fn mark_acked(&mut self, seqno: Seqno) -> bool {
-        let mut toret = false;
-        let now = Instant::now();
-        // mark the right one
-        if let Some(entry) = self.segments.front() {
-            let first_seqno = entry.seqno;
-            if seqno >= first_seqno {
-                let offset = (seqno - first_seqno) as usize;
-                // let rtt_var = self.rtt_var().max(Duration::from_millis(50));
-                // fast: if this ack is for something more than FASTRT_THRESH "into" the buffer, we do fast retransmit
-                // we fast-retransmit at most a quarter the inflight
-                // if self.fast_retrans.len() < self.segments.len() / 4 {
-                //     if let Some(acked_send_time) =
-                //         self.segments.get_mut(offset).map(|v| v.send_time)
-                //     {
-                //         for entry in self.segments.iter_mut() {
-                //             if entry.send_time + rtt_var < acked_send_time {
-                //                 if !entry.acked && entry.retrans == 0 {
-                //                     entry.retrans += 1;
-                //                     tracing::debug!(
-                //                         "fast retransmit {} (retrans {})",
-                //                         entry.seqno,
-                //                         entry.retrans
-                //                     );
-                //                     self.fast_retrans.insert(entry.seqno);
-                //                 }
-                //             } else {
-                //                 break;
-                //             }
-                //         }
-                //     }
-                // } else {
-                //     tracing::warn!("too much fast retrans")
-                // }
-
-                if let Some(seg) = self.segments.get_mut(offset) {
-                    if !seg.acked {
-                        self.delivered += 1;
-                        self.delivered_time = now;
-                        toret = true;
-                        seg.acked = true;
-                        self.inflight_count -= 1;
-                        if seg.retrans == 0 {
-                            if let Message::Rel { .. } = &seg.payload {
-                                // calculate rate
-                                let data_acked = self.delivered - seg.delivered;
-                                let ack_elapsed = self
-                                    .delivered_time
-                                    .saturating_duration_since(seg.delivered_time);
-                                let rate_sample = data_acked as f64 / ack_elapsed.as_secs_f64();
-                                self.rate.record_sample(rate_sample)
-                            }
-                        }
-
-                        if seg.retrans == 0 {
-                            self.rtt
-                                .record_sample(now.saturating_duration_since(seg.send_time))
-                        }
-                    }
-                }
-                // shrink if possible
-                while self.len() > 0 && self.segments.front().unwrap().acked {
-                    self.segments.pop_front();
-                }
-            }
+        for seqno in to_remove {
+            self.mark_acked(seqno);
         }
-        toret
     }
 
+    /// Marks a particular inflight packet as acknowledged. Returns whether or not there was actually such an inflight packet.
+    pub fn mark_acked(&mut self, seqno: Seqno) -> bool {
+        let now = Instant::now();
+
+        if let Some(seg) = self.segments.remove(&seqno) {
+            if seg.retrans == 0 {
+                self.rtt
+                    .record_sample(now.saturating_duration_since(seg.send_time))
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Inserts a packet to the inflight.
     pub fn insert(&mut self, seqno: Seqno, msg: Message) {
-        let rto = self.rtt.rto();
-        if self.get_seqno(seqno).is_none() {
-            self.segments.push_back(InflightEntry {
+        let now = Instant::now();
+        let rto_duration = self.rtt.rto();
+        let rto = now + rto_duration;
+        self.segments.insert(
+            seqno,
+            InflightEntry {
                 seqno,
                 acked: false,
-                send_time: Instant::now(),
+                send_time: now,
                 payload: msg,
                 retrans: 0,
-                delivered: self.delivered,
-                delivered_time: self.delivered_time,
-            });
-            self.inflight_count += 1;
-        }
-        self.times.push(seqno, Reverse(Instant::now() + rto));
-    }
-
-    pub fn get_seqno(&mut self, seqno: Seqno) -> Option<&mut InflightEntry> {
-        if let Some(first_entry) = self.segments.front() {
-            let first_seqno = first_entry.seqno;
-            if seqno >= first_seqno {
-                let offset = (seqno - first_seqno) as usize;
-                return self.segments.get_mut(offset);
+                rto_duration,
+            },
+        );
+        if let Some((_, old_rto)) = self.first_rto {
+            if rto < old_rto {
+                self.first_rto = Some((seqno, rto))
             }
-        }
-        None
-    }
-
-    pub fn wait_first(&mut self) -> smol::Timer {
-        if self.fast_retrans.iter().next().is_some() {
-            return smol::Timer::at(Instant::now());
-        }
-        if !self.times.is_empty() {
-            let (_, time) = self.times.peek().unwrap();
-            return smol::Timer::at(time.0);
-        }
-        smol::Timer::at(Instant::now() + Duration::from_secs(100000000))
-    }
-
-    pub fn pop_first(&mut self) -> anyhow::Result<u64> {
-        if let Some(seq) = self.fast_retrans.iter().next() {
-            let seq = *seq;
-            self.fast_retrans.remove(&seq);
-            Ok(seq)
         } else {
-            let (seqno, _) = self
-                .times
-                .pop()
-                .ok_or_else(|| anyhow::anyhow!("could not pop from times"))?;
-            let mut rto = self.rtt.rto();
-            if let Some(seg) = self.get_seqno(seqno) {
-                if !seg.acked {
-                    seg.retrans += 1;
-                    let rtx = seg.retrans;
-                    for _ in 0..rtx {
-                        rto *= 2;
-                        // rto /= 2
-                    }
-
-                    self.times.push(seqno, Reverse(Instant::now() + rto));
-                    Ok(seqno)
-                } else {
-                    anyhow::bail!("popped was already acked?!")
-                }
-            } else {
-                anyhow::bail!("popped was already acked?!");
-            }
+            self.first_rto = Some((seqno, rto))
         }
+    }
+
+    /// Returns the retransmission time of the first possibly retransmitted packet, as well as its seqno.
+    pub fn first_rto(&self) -> Option<(Seqno, Instant)> {
+        self.first_rto
+    }
+
+    /// Recalculates the first rto
+    fn recalc_first_rto(&mut self) {
+        // hopefully this is not way too slow
+        self.first_rto = self
+            .segments
+            .iter()
+            .min_by_key(|v| v.1.retrans_time())
+            .map(|v| (*v.0, v.1.retrans_time()))
+    }
+
+    /// Retransmits a particular seqno.
+    pub fn retransmit(&mut self, seqno: Seqno) -> Option<Message> {
+        let payload = {
+            let entry = self.segments.get_mut(&seqno);
+            entry.map(|entry| {
+                entry.rto_duration += entry.rto_duration;
+                entry.retrans += 1;
+                entry.payload.clone()
+            })
+        };
+        self.recalc_first_rto();
+        payload
     }
 }
 

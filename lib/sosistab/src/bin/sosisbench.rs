@@ -70,7 +70,7 @@ async fn client_main(args: ClientArgs) -> anyhow::Result<()> {
     eprintln!("RelConn established in {:?}", start.elapsed());
     let mut buffer = [0u8; 16384];
     let start = Instant::now();
-    for buffs in 1u128.. {
+    for buffs in 1u128..=1000000 {
         conn.read_exact(&mut buffer).await?;
         let total_bytes = (buffs as f64) * 16384.0;
         let total_time = start.elapsed().as_secs_f64();
@@ -85,7 +85,8 @@ async fn client_main(args: ClientArgs) -> anyhow::Result<()> {
             )
         }
     }
-    unreachable!()
+    eprintln!("got all 1000000 buffers right!");
+    Ok(())
 }
 
 async fn server_main(args: ServerArgs) -> anyhow::Result<()> {
@@ -104,7 +105,7 @@ async fn server_main(args: ServerArgs) -> anyhow::Result<()> {
                 let mut conn = mux.accept_conn().await?;
                 eprintln!("accepted connection for session {}", count);
                 let buff = [0u8; 16384];
-                loop {
+                for _ in 0..1000000 {
                     conn.write_all(&buff).await?;
                 }
             }

@@ -38,6 +38,8 @@ pub async fn write_pascalish<T: Serialize>(
     Ok(())
 }
 
+const IDLE_TIMEOUT: Duration = Duration::from_secs(86400);
+
 /// Copies a *TCP socket* to an AsyncWrite, while being as memory-efficient as posib
 pub async fn copy_socket_to_with_stats(
     mut reader: smol::Async<std::net::TcpStream>,
@@ -46,7 +48,7 @@ pub async fn copy_socket_to_with_stats(
 ) -> std::io::Result<()> {
     static POOL: Lazy<ConcurrentQueue<Vec<u8>>> = Lazy::new(|| ConcurrentQueue::bounded(1048576));
 
-    let mut timeout = smol::Timer::after(Duration::from_secs(300));
+    let mut timeout = smol::Timer::after(IDLE_TIMEOUT);
     loop {
         let to_write = reader
             .read_with_mut(|sock| {
@@ -67,7 +69,7 @@ pub async fn copy_socket_to_with_stats(
         if to_write.is_empty() {
             return Ok(());
         }
-        timeout.set_after(Duration::from_secs(300));
+        timeout.set_after(IDLE_TIMEOUT);
         on_write(to_write.len());
         writer
             .write_all(&to_write)
@@ -91,7 +93,7 @@ pub async fn copy_with_stats(
     mut on_write: impl FnMut(usize),
 ) -> std::io::Result<()> {
     let mut buffer = [0u8; 8192];
-    let mut timeout = smol::Timer::after(Duration::from_secs(300));
+    let mut timeout = smol::Timer::after(IDLE_TIMEOUT);
     loop {
         // first read into the small buffer
         let n = reader
@@ -107,8 +109,8 @@ pub async fn copy_with_stats(
         if n == 0 {
             return Ok(());
         }
-        timeout.set_after(Duration::from_secs(300));
         on_write(n);
+        timeout.set_after(IDLE_TIMEOUT);
         writer
             .write_all(&buffer[..n])
             .or(async {

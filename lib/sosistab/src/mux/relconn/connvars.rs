@@ -78,6 +78,8 @@ impl Default for ConnVars {
     }
 }
 
+const ACK_BATCH: usize = 64;
+
 impl ConnVars {
     /// Process a *single* event. Returns false when the thing should be closed.
     pub async fn process_one(
@@ -91,7 +93,7 @@ impl ConnVars {
         // match on our current state repeatedly
         #[derive(Debug)]
         enum Evt {
-            Rto,
+            Rto(Seqno),
             AckTimer,
             NewWrite(Bytes),
             NewPkt(Message),
@@ -101,8 +103,8 @@ impl ConnVars {
             let writeable = self.inflight.inflight() <= self.cwnd as usize
                 && self.inflight.len() < 10000
                 && !self.closing;
-            let force_ack = self.ack_seqnos.len() >= 32;
-            assert!(self.ack_seqnos.len() <= 32);
+            let force_ack = self.ack_seqnos.len() >= ACK_BATCH;
+            assert!(self.ack_seqnos.len() <= ACK_BATCH);
 
             let ack_timer = self.delayed_ack_timer;
             let ack_timer = async {
@@ -116,10 +118,14 @@ impl ConnVars {
                     smol::future::pending().await
                 }
             };
-            let rto_timer = self.inflight.wait_first();
-            let rto_timeout = async {
-                rto_timer.await;
-                Ok::<Evt, anyhow::Error>(Evt::Rto)
+            let rto_timeout = if let Some((rto_seqno, rto_time)) = self.inflight.first_rto() {
+                async move {
+                    smol::Timer::at(rto_time).await;
+                    Ok::<Evt, anyhow::Error>(Evt::Rto(rto_seqno))
+                }
+                .boxed()
+            } else {
+                async { smol::future::pending().await }.boxed()
             };
             let new_write = async {
                 if writeable {
@@ -172,26 +178,13 @@ impl ConnVars {
                     anyhow::bail!("closing when inflight is zero")
                 }
             }
-            Ok(Evt::Rto) => {
-                let seqno = self.inflight.pop_first();
-                // retransmit packet
-                // assert!(!conn_vars.inflight.len() == 0);
-                if let Ok(seqno) = seqno {
-                    if self.inflight.len() > 0 {
-                        if let Some(v) = self.inflight.get_seqno(seqno) {
-                            let payload = v.payload.clone();
-                            let retrans = v.retrans;
-                            self.congestion_loss();
-                            if retrans > 8 {
-                                anyhow::bail!("full timeout")
-                            }
-                            self.retrans_count += 1;
-                            // self.limiter.wait(implied_rate).await;
-                            transmit(payload);
-                        }
-                    }
+            Ok(Evt::Rto(seqno)) => {
+                if let Some(payload) = self.inflight.retransmit(seqno) {
+                    self.congestion_loss();
+                    self.retrans_count += 1;
+                    self.limiter.wait(implied_rate).await;
+                    transmit(payload);
                 }
-
                 Ok(())
             }
             Ok(Evt::NewPkt(Message::Rel {
@@ -243,7 +236,6 @@ impl ConnVars {
                     anyhow::bail!("cannot write into send_read")
                 }
             }
-            Ok(Evt::NewPkt(_)) => anyhow::bail!("unrecognized packet"),
             Ok(Evt::NewWrite(bts)) => {
                 assert!(bts.len() <= MSS);
                 self.limiter.wait(implied_rate).await;
@@ -265,7 +257,7 @@ impl ConnVars {
             Ok(Evt::AckTimer) => {
                 // eprintln!("acking {} seqnos", conn_vars.ack_seqnos.len());
                 let mut ack_seqnos: Vec<_> = self.ack_seqnos.iter().collect();
-                assert!(ack_seqnos.len() <= 32);
+                assert!(ack_seqnos.len() <= ACK_BATCH);
                 ack_seqnos.sort_unstable();
                 let encoded_acks = bincode::serialize(&ack_seqnos).unwrap();
                 if encoded_acks.len() > 1000 {
@@ -284,6 +276,10 @@ impl ConnVars {
             Err(err) => {
                 tracing::warn!("forced to RESET due to {:?}", err);
                 anyhow::bail!(err);
+            }
+            evt => {
+                tracing::warn!("unrecognized event: {:#?}", evt);
+                Ok(())
             }
         }
     }
@@ -306,8 +302,8 @@ impl ConnVars {
         } else {
             self.cwnd - self.ssthresh
         }
-        .max(3.0)
-        .min(128.0);
+        .max(1.0)
+        .min(self.cwnd);
         self.cwnd += bic_inc / self.cwnd;
     }
 
@@ -324,13 +320,13 @@ impl ConnVars {
             }
 
             self.cwnd *= 1.0 - beta;
+            self.cwnd = self.cwnd.max(3.0);
             tracing::debug!(
-                "LOSS CWND => {:.2}; loss rate {:.2}, srtt {}ms (var {}ms), rate {:.1}",
+                "LOSS CWND => {:.2}; loss rate {:.2}, srtt {}ms (var {}ms)",
                 self.cwnd,
                 self.loss_rate,
                 self.inflight.srtt().as_millis(),
                 self.inflight.rtt_var().as_millis(),
-                self.inflight.rate()
             );
             self.last_loss = now;
         }
