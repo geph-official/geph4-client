@@ -229,7 +229,7 @@ async fn relconn_actor(
                     )
                     .await
                 {
-                    tracing::warn!("connection reset: {:?}", err);
+                    // tracing::warn!("connection reset: {:?}", err);
                     Reset {
                         stream_id,
                         death: smol::Timer::after(Duration::from_secs(MAX_WAIT_SECS)),
