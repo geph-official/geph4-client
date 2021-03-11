@@ -66,11 +66,3 @@ impl RttCalculator {
         Duration::from_millis(self.min_rtt)
     }
 }
-
-fn diff(a: u64, b: u64) -> u64 {
-    if b > a {
-        b - a
-    } else {
-        a - b
-    }
-}

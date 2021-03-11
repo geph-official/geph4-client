@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{vpn, ALLOCATOR};
+use crate::vpn;
 use binder_transport::BinderClient;
 
 use jemalloc_ctl::epoch;

@@ -26,6 +26,7 @@ aioutils={path="../aioutils"}
 thiserror= "1.0.23"
 rsa-fdh = "0.5.0"
 async-trait= "0.1.42"
+smol-timeout="0.6"
 
 
 [dependencies.async-tls]

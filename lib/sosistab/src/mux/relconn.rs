@@ -182,7 +182,6 @@ async fn relconn_actor(
                         }
                     }
                 };
-                let start = Instant::now();
                 let success = synack_evt
                     .or(async {
                         smol::Timer::after(Duration::from_millis(wait_interval as u64)).await;
