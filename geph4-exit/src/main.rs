@@ -55,7 +55,7 @@ struct Opt {
 }
 
 #[global_allocator]
-pub static ALLOCATOR: Cap<Jemalloc> = Cap::new(Jemalloc, usize::max_value());
+pub static ALLOCATOR: Jemalloc = Jemalloc;
 
 fn main() -> anyhow::Result<()> {
     // smolscale::permanently_single_threaded();

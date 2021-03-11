@@ -32,7 +32,7 @@ impl RelConn {
     ) -> (Self, RelConnBack) {
         let (send_write, recv_write) = bipe::bipe(1024 * 1024);
         let (send_read, recv_read) = bipe::bipe(10 * 1024 * 1024);
-        let (send_wire_read, recv_wire_read) = smol::channel::bounded(64);
+        let (send_wire_read, recv_wire_read) = smol::channel::bounded(1024);
         let aic = additional_info.clone();
         let _task = runtime::spawn(async move {
             if let Err(e) = relconn_actor(
@@ -182,6 +182,7 @@ async fn relconn_actor(
                         }
                     }
                 };
+                let start = Instant::now();
                 let success = synack_evt
                     .or(async {
                         smol::Timer::after(Duration::from_millis(wait_interval as u64)).await;
@@ -229,7 +230,7 @@ async fn relconn_actor(
                     )
                     .await
                 {
-                    // tracing::warn!("connection reset: {:?}", err);
+                    tracing::debug!("connection reset: {:?}", err);
                     Reset {
                         stream_id,
                         death: smol::Timer::after(Duration::from_secs(MAX_WAIT_SECS)),
@@ -283,8 +284,8 @@ pub(crate) struct RelConnBack {
 }
 
 impl RelConnBack {
-    pub async fn process(&self, input: Message) {
-        let res = self.send_wire_read.send(input).await;
+    pub fn process(&self, input: Message) {
+        let res = self.send_wire_read.try_send(input);
         if let Err(e) = res {
             tracing::trace!("relconn failed to accept pkt: {}", e)
         }

@@ -339,14 +339,14 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
             // we have something to send as a data packet.
             Event::NewPayload(send_payload) => {
                 let limit = ctx.rate_limit.load(Ordering::Relaxed);
-                // if limit < 1000 {
-                let multiplier = 25600 / limit;
-                while let Err(NegativeMultiDecision::BatchNonConforming(_, err)) =
-                    policy_limiter.check_n(NonZeroU32::new(multiplier).unwrap())
-                {
-                    smol::Timer::at(err.earliest_possible()).await;
+                if limit < 1000 {
+                    let multiplier = 25600 / limit;
+                    while let Err(NegativeMultiDecision::BatchNonConforming(_, err)) =
+                        policy_limiter.check_n(NonZeroU32::new(multiplier).unwrap())
+                    {
+                        smol::Timer::at(err.earliest_possible()).await;
+                    }
                 }
-                // }
                 // while let Err(e) = hard_limiter.check() {
                 //     smol::Timer::at(e.earliest_possible()).await;
                 // }

@@ -9,7 +9,7 @@ use smol::prelude::*;
 use std::sync::Arc;
 
 pub async fn multiplex(
-    session: Arc<Session>,
+    recv_session: Receiver<Arc<Session>>,
     urel_recv_send: Sender<Bytes>,
     conn_open_recv: Receiver<(Option<String>, Sender<RelConn>)>,
     conn_accept_send: Sender<RelConn>,
@@ -17,72 +17,128 @@ pub async fn multiplex(
     let conn_tab = Arc::new(ConnTable::default());
     let (glob_send, glob_recv) = smol::channel::bounded(100);
     let (dead_send, dead_recv) = smol::channel::unbounded();
+    let mut session = recv_session.recv().await?;
+
+    // enum of possible events
+    enum Event {
+        SessionReplace(Arc<Session>),
+        RecvMsg(Message),
+        SendMsg(Message),
+        ConnOpen(Option<String>, Sender<RelConn>),
+        Dead(u16),
+    };
+
     loop {
+        // fires on session replacement
+        let sess_replace = async {
+            let new_session = recv_session.recv().await?;
+            Ok::<_, anyhow::Error>(Event::SessionReplace(new_session))
+        };
         // fires on receiving messages
-        let recv_evt = async {
+        let recv_msg = async {
             let msg = session
                 .recv_bytes()
                 .await
                 .ok_or_else(|| anyhow::anyhow!("underlying session is dead"))?;
             let msg = bincode::deserialize::<Message>(&msg)?;
-            match msg {
-                // unreliable
-                Message::Urel(bts) => {
-                    tracing::trace!("urel recv {}B", bts.len());
-                    if urel_recv_send.try_send(bts).is_err() {
-                        tracing::warn!("urel recv overflow");
-                    }
-                }
-                // connection opening
-                Message::Rel {
-                    kind: RelKind::Syn,
-                    stream_id,
-                    payload,
-                    ..
-                } => {
-                    if conn_tab.get_stream(stream_id).is_some() {
-                        tracing::trace!("syn recv {} REACCEPT", stream_id);
-                        session.send_bytes(
-                            bincode::serialize(&Message::Rel {
-                                kind: RelKind::SynAck,
+            Ok::<_, anyhow::Error>(Event::RecvMsg(msg))
+        };
+        // fires on sending messages
+        let send_msg = async {
+            let to_send = glob_recv.recv().await?;
+            Ok::<_, anyhow::Error>(Event::SendMsg(to_send))
+        };
+        // fires on stream open events
+        let conn_open = async {
+            let (additional_data, result_chan) = conn_open_recv.recv().await?;
+            Ok::<_, anyhow::Error>(Event::ConnOpen(additional_data, result_chan))
+        };
+        // fires on death
+        let death = async {
+            let res = dead_recv.recv().await?;
+            Ok::<_, anyhow::Error>(Event::Dead(res))
+        };
+        // match on the event
+        match conn_open
+            .or(recv_msg.or(send_msg.or(sess_replace.or(death))))
+            .await?
+        {
+            Event::SessionReplace(new_sess) => session = new_sess,
+            Event::Dead(id) => conn_tab.del_stream(id),
+            Event::ConnOpen(additional_data, result_chan) => {
+                let conn_tab = conn_tab.clone();
+                let glob_send = glob_send.clone();
+                let dead_send = dead_send.clone();
+                runtime::spawn(async move {
+                    let stream_id = {
+                        let stream_id = conn_tab.find_id();
+                        if let Some(stream_id) = stream_id {
+                            let (send_sig, recv_sig) = smol::channel::bounded(1);
+                            let (conn, conn_back) = RelConn::new(
+                                RelConnState::SynSent {
+                                    stream_id,
+                                    tries: 0,
+                                    result: send_sig,
+                                },
+                                glob_send.clone(),
+                                move || {
+                                    let _ = dead_send.try_send(stream_id);
+                                },
+                                additional_data.clone(),
+                            );
+                            runtime::spawn(async move {
+                                recv_sig.recv().await.ok()?;
+                                result_chan.send(conn).await.ok()?;
+                                Some(())
+                            })
+                            .detach();
+                            conn_tab.set_stream(stream_id, conn_back);
+                            stream_id
+                        } else {
+                            return;
+                        }
+                    };
+                    tracing::trace!("conn open send {}", stream_id);
+                    drop(
+                        glob_send
+                            .send(Message::Rel {
+                                kind: RelKind::Syn,
                                 stream_id,
                                 seqno: 0,
-                                payload: Bytes::new(),
+                                payload: Bytes::copy_from_slice(
+                                    additional_data.clone().unwrap_or_default().as_bytes(),
+                                ),
                             })
-                            .unwrap()
-                            .into(),
-                        );
-                    } else {
-                        let dead_send = dead_send.clone();
-                        tracing::trace!("syn recv {} ACCEPT", stream_id);
-                        let lala = String::from_utf8_lossy(&payload).to_string();
-                        let additional_info = if lala.is_empty() { None } else { Some(lala) };
-                        let (new_conn, new_conn_back) = RelConn::new(
-                            RelConnState::SynReceived { stream_id },
-                            glob_send.clone(),
-                            move || {
-                                let _ = dead_send.try_send(stream_id);
-                            },
-                            additional_info,
-                        );
-                        // the RelConn itself is responsible for sending the SynAck. Here we just store the connection into the table, accept it, and be done with it.
-                        conn_tab.set_stream(stream_id, new_conn_back);
-                        drop(conn_accept_send.send(new_conn).await);
+                            .await,
+                    );
+                })
+                .detach();
+            }
+            Event::SendMsg(msg) => {
+                let msg = bincode::serialize(&msg).unwrap();
+                session.send_bytes(msg.into());
+            }
+            Event::RecvMsg(msg) => {
+                match msg {
+                    // unreliable
+                    Message::Urel(bts) => {
+                        tracing::trace!("urel recv {}B", bts.len());
+                        if urel_recv_send.try_send(bts).is_err() {
+                            tracing::warn!("urel recv overflow");
+                        }
                     }
-                }
-                // associated with existing connection
-                Message::Rel {
-                    stream_id, kind, ..
-                } => {
-                    if let Some(handle) = conn_tab.get_stream(stream_id) {
-                        // tracing::trace!("handing over {:?} to {}", kind, stream_id);
-                        handle.process(msg).await
-                    } else {
-                        tracing::trace!("discarding {:?} to nonexistent {}", kind, stream_id);
-                        if kind != RelKind::Rst {
+                    // connection opening
+                    Message::Rel {
+                        kind: RelKind::Syn,
+                        stream_id,
+                        payload,
+                        ..
+                    } => {
+                        if conn_tab.get_stream(stream_id).is_some() {
+                            tracing::trace!("syn recv {} REACCEPT", stream_id);
                             session.send_bytes(
                                 bincode::serialize(&Message::Rel {
-                                    kind: RelKind::Rst,
+                                    kind: RelKind::SynAck,
                                     stream_id,
                                     seqno: 0,
                                     payload: Bytes::new(),
@@ -90,81 +146,122 @@ pub async fn multiplex(
                                 .unwrap()
                                 .into(),
                             );
+                        } else {
+                            let dead_send = dead_send.clone();
+                            tracing::trace!("syn recv {} ACCEPT", stream_id);
+                            let lala = String::from_utf8_lossy(&payload).to_string();
+                            let additional_info = if lala.is_empty() { None } else { Some(lala) };
+                            let (new_conn, new_conn_back) = RelConn::new(
+                                RelConnState::SynReceived { stream_id },
+                                glob_send.clone(),
+                                move || {
+                                    let _ = dead_send.try_send(stream_id);
+                                },
+                                additional_info,
+                            );
+                            // the RelConn itself is responsible for sending the SynAck. Here we just store the connection into the table, accept it, and be done with it.
+                            conn_tab.set_stream(stream_id, new_conn_back);
+                            drop(conn_accept_send.send(new_conn).await);
+                        }
+                    }
+                    // associated with existing connection
+                    Message::Rel {
+                        stream_id, kind, ..
+                    } => {
+                        if let Some(handle) = conn_tab.get_stream(stream_id) {
+                            // tracing::trace!("handing over {:?} to {}", kind, stream_id);
+                            handle.process(msg)
+                        } else {
+                            tracing::trace!("discarding {:?} to nonexistent {}", kind, stream_id);
+                            if kind != RelKind::Rst {
+                                session.send_bytes(
+                                    bincode::serialize(&Message::Rel {
+                                        kind: RelKind::Rst,
+                                        stream_id,
+                                        seqno: 0,
+                                        payload: Bytes::new(),
+                                    })
+                                    .unwrap()
+                                    .into(),
+                                );
+                            }
                         }
                     }
                 }
             }
-            Ok::<(), anyhow::Error>(())
-        };
-        // fires on sending messages
-        let send_evt = async {
-            let to_send = glob_recv.recv().await?;
-            session.send_bytes(bincode::serialize(&to_send).unwrap().into());
-            Ok::<(), anyhow::Error>(())
-        };
-        // fires on a new stream open request
-        let conn_open_evt = async {
-            let (additional_data, result_chan) = conn_open_recv.recv().await?;
-            let conn_tab = conn_tab.clone();
-            let glob_send = glob_send.clone();
-            let dead_send = dead_send.clone();
-            runtime::spawn(async move {
-                let stream_id = {
-                    let stream_id = conn_tab.find_id();
-                    if let Some(stream_id) = stream_id {
-                        let (send_sig, recv_sig) = smol::channel::bounded(1);
-                        let (conn, conn_back) = RelConn::new(
-                            RelConnState::SynSent {
-                                stream_id,
-                                tries: 0,
-                                result: send_sig,
-                            },
-                            glob_send.clone(),
-                            move || {
-                                let _ = dead_send.try_send(stream_id);
-                            },
-                            additional_data.clone(),
-                        );
-                        runtime::spawn(async move {
-                            recv_sig.recv().await.ok()?;
-                            result_chan.send(conn).await.ok()?;
-                            Some(())
-                        })
-                        .detach();
-                        conn_tab.set_stream(stream_id, conn_back);
-                        stream_id
-                    } else {
-                        return;
-                    }
-                };
-                tracing::trace!("conn open send {}", stream_id);
-                drop(
-                    glob_send
-                        .send(Message::Rel {
-                            kind: RelKind::Syn,
-                            stream_id,
-                            seqno: 0,
-                            payload: Bytes::copy_from_slice(
-                                additional_data.clone().unwrap_or_default().as_bytes(),
-                            ),
-                        })
-                        .await,
-                );
-            })
-            .detach();
-            Ok::<(), anyhow::Error>(())
-        };
-        // dead stuff
-        let dead_evt = async {
-            let lala = dead_recv.recv().await?;
-            tracing::debug!("removing stream {} from table", lala);
-            conn_tab.del_stream(lala);
-            Ok(())
-        };
-        // await on them all
-        recv_evt.or(send_evt.or(conn_open_evt.or(dead_evt))).await?;
+        }
     }
 }
+
+// match msg {
+//     // unreliable
+//     Message::Urel(bts) => {
+//         tracing::trace!("urel recv {}B", bts.len());
+//         if urel_recv_send.try_send(bts).is_err() {
+//             tracing::warn!("urel recv overflow");
+//         }
+//     }
+//     // connection opening
+//     Message::Rel {
+//         kind: RelKind::Syn,
+//         stream_id,
+//         payload,
+//         ..
+//     } => {
+//         if conn_tab.get_stream(stream_id).is_some() {
+//             tracing::trace!("syn recv {} REACCEPT", stream_id);
+//             session.send_bytes(
+//                 bincode::serialize(&Message::Rel {
+//                     kind: RelKind::SynAck,
+//                     stream_id,
+//                     seqno: 0,
+//                     payload: Bytes::new(),
+//                 })
+//                 .unwrap()
+//                 .into(),
+//             );
+//         } else {
+//             let dead_send = dead_send.clone();
+//             tracing::trace!("syn recv {} ACCEPT", stream_id);
+//             let lala = String::from_utf8_lossy(&payload).to_string();
+//             let additional_info = if lala.is_empty() { None } else { Some(lala) };
+//             let (new_conn, new_conn_back) = RelConn::new(
+//                 RelConnState::SynReceived { stream_id },
+//                 glob_send.clone(),
+//                 move || {
+//                     let _ = dead_send.try_send(stream_id);
+//                 },
+//                 additional_info,
+//             );
+//             // the RelConn itself is responsible for sending the SynAck. Here we just store the connection into the table, accept it, and be done with it.
+//             conn_tab.set_stream(stream_id, new_conn_back);
+//             drop(conn_accept_send.send(new_conn).await);
+//         }
+//     }
+//     // associated with existing connection
+//     Message::Rel {
+//         stream_id, kind, ..
+//     } => {
+//         if let Some(handle) = conn_tab.get_stream(stream_id) {
+//             // tracing::trace!("handing over {:?} to {}", kind, stream_id);
+//             handle.process(msg).await
+//         } else {
+//             tracing::trace!("discarding {:?} to nonexistent {}", kind, stream_id);
+//             if kind != RelKind::Rst {
+//                 session.send_bytes(
+//                     bincode::serialize(&Message::Rel {
+//                         kind: RelKind::Rst,
+//                         stream_id,
+//                         seqno: 0,
+//                         payload: Bytes::new(),
+//                     })
+//                     .unwrap()
+//                     .into(),
+//                 );
+//             }
+//         }
+//     }
+// }
 
 #[derive(Default)]
 struct ConnTable {

@@ -182,7 +182,7 @@ impl ConnVars {
                 if let Some(payload) = self.inflight.retransmit(seqno) {
                     self.congestion_loss();
                     self.retrans_count += 1;
-                    self.limiter.wait(implied_rate).await;
+                    // self.limiter.wait(implied_rate).await;
                     transmit(payload);
                 }
                 Ok(())
@@ -274,11 +274,11 @@ impl ConnVars {
                 Ok(())
             }
             Err(err) => {
-                tracing::warn!("forced to RESET due to {:?}", err);
+                tracing::debug!("forced to RESET due to {:?}", err);
                 anyhow::bail!(err);
             }
             evt => {
-                tracing::warn!("unrecognized event: {:#?}", evt);
+                tracing::debug!("unrecognized event: {:#?}", evt);
                 Ok(())
             }
         }
@@ -303,7 +303,7 @@ impl ConnVars {
             self.cwnd - self.ssthresh
         }
         .max(1.0)
-        .min(self.cwnd);
+        .min(256.0);
         self.cwnd += bic_inc / self.cwnd;
     }
 
@@ -312,7 +312,7 @@ impl ConnVars {
         self.loss_rate = self.loss_rate * 0.99 + 0.01;
         let now = Instant::now();
         if now.saturating_duration_since(self.last_loss) > self.inflight.rto() {
-            let beta = 0.2;
+            let beta = 0.125;
             if self.cwnd < self.ssthresh {
                 self.ssthresh = self.cwnd * (2.0 - beta) / 2.0;
             } else {

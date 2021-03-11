@@ -1,7 +1,8 @@
 use crate::*;
 use bytes::Bytes;
+use parking_lot::RwLock;
 use smol::channel::{Receiver, Sender};
-use std::sync::Arc;
+use std::{ops::Deref, sync::Arc};
 mod multiplex_actor;
 mod relconn;
 mod structs;
@@ -14,7 +15,8 @@ pub struct Multiplex {
     urel_recv: Receiver<Bytes>,
     conn_open: Sender<(Option<String>, Sender<RelConn>)>,
     conn_accept: Receiver<RelConn>,
-    sess_ref: Arc<Session>,
+    sess_ref: RwLock<Arc<Session>>,
+    send_session: Sender<Arc<Session>>,
     _task: smol::Task<()>,
 }
 
@@ -25,14 +27,15 @@ fn to_ioerror<T: Into<Box<dyn std::error::Error + Send + Sync>>>(val: T) -> std:
 impl Multiplex {
     /// Creates a new multiplexed session
     pub fn new(session: Session) -> Self {
+        let (send_session, recv_session) = smol::channel::unbounded();
         let (urel_recv_send, urel_recv) = smol::channel::unbounded();
         let (conn_open, conn_open_recv) = smol::channel::unbounded();
         let (conn_accept_send, conn_accept) = smol::channel::bounded(100);
         let session = Arc::new(session);
-        let sess_cloned = session.clone();
+        send_session.try_send(session.clone()).unwrap();
         let _task = runtime::spawn(async move {
             let retval = multiplex_actor::multiplex(
-                sess_cloned,
+                recv_session,
                 urel_recv_send,
                 conn_open_recv,
                 conn_accept_send,
@@ -41,10 +44,11 @@ impl Multiplex {
             tracing::debug!("multiplex actor returned {:?}", retval);
         });
         Multiplex {
+            send_session,
             urel_recv,
             conn_open,
             conn_accept,
-            sess_ref: session,
+            sess_ref: RwLock::new(session),
             _task,
         }
     }
@@ -54,6 +58,7 @@ impl Multiplex {
     pub fn send_urel(&self, msg: Bytes) -> std::io::Result<()> {
         // self.urel_send.send(msg).await.map_err(to_ioerror)
         self.sess_ref
+            .read()
             .send_bytes(bincode::serialize(&Message::Urel(msg)).unwrap().into());
         Ok(())
     }
@@ -70,8 +75,16 @@ impl Multiplex {
     }
 
     /// Gets a reference to the underlying Session
-    pub fn get_session(&self) -> &Session {
-        &self.sess_ref
+    pub fn get_session(&self) -> impl '_ + Deref<Target = Session> {
+        self.sess_ref.read().clone()
+    }
+
+    /// Replaces the internal Session
+    pub fn replace_session(&self, sess: Session) {
+        let sess = Arc::new(sess);
+        let mut sess_ref = self.sess_ref.write();
+        *sess_ref = sess.clone();
+        let _ = self.send_session.try_send(sess);
     }
 
     /// Open a reliable conn to the other end.

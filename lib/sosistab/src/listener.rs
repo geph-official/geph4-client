@@ -150,7 +150,7 @@ impl ListenerActor {
                     for (buffer, addr) in items {
                         // first we attempt to map this to an existing session
                         if let Some(handle) = session_table.lookup(addr) {
-                            let _ = handle.send(buffer.clone()).await;
+                            let _ = handle.try_send(buffer.clone());
                             if fallthrough_limiter.check_key(&addr).is_err() {
                                 continue;
                             }

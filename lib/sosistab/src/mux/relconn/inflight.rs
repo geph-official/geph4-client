@@ -153,39 +153,39 @@ impl Inflight {
     }
 }
 
-struct RateCalculator {
-    rate: f64,
-    rate_update_time: Instant,
-}
+// struct RateCalculator {
+//     rate: f64,
+//     rate_update_time: Instant,
+// }
 
-impl Default for RateCalculator {
-    fn default() -> Self {
-        RateCalculator {
-            rate: 500.0,
-            rate_update_time: Instant::now(),
-        }
-    }
-}
+// impl Default for RateCalculator {
+//     fn default() -> Self {
+//         RateCalculator {
+//             rate: 500.0,
+//             rate_update_time: Instant::now(),
+//         }
+//     }
+// }
 
-impl RateCalculator {
-    fn record_sample(&mut self, sample: f64) {
-        let now = Instant::now();
-        if now
-            .saturating_duration_since(self.rate_update_time)
-            .as_secs()
-            > 3
-            || sample > self.rate
-        {
-            self.rate = sample;
-            self.rate_update_time = now;
-        }
-    }
-}
+// impl RateCalculator {
+//     fn record_sample(&mut self, sample: f64) {
+//         let now = Instant::now();
+//         if now
+//             .saturating_duration_since(self.rate_update_time)
+//             .as_secs()
+//             > 3
+//             || sample > self.rate
+//         {
+//             self.rate = sample;
+//             self.rate_update_time = now;
+//         }
+//     }
+// }
 
-fn diff(a: u64, b: u64) -> u64 {
-    if b > a {
-        b - a
-    } else {
-        a - b
-    }
-}
+// fn diff(a: u64, b: u64) -> u64 {
+//     if b > a {
+//         b - a
+//     } else {
+//         a - b
+//     }
+// }
