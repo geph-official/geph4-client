@@ -6,6 +6,7 @@ use crate::{
 use async_tls::TlsConnector;
 use http_types::{Method, Request, StatusCode, Url};
 use smol::channel::{Receiver, Sender};
+use smol_timeout::TimeoutExt;
 use std::{
     net::SocketAddr,
     sync::Arc,
@@ -41,35 +42,41 @@ impl HttpClient {
 #[async_trait::async_trait]
 impl BinderClient for HttpClient {
     async fn request(&self, brequest: BinderRequestData) -> BinderResult<BinderResponse> {
-        // open connection
-        let conn = endpoint_to_conn(&self.endpoint)
-            .await
-            .map_err(|v| BinderError::Other(v.to_string()))?;
-        // send request
-        let mut req = Request::new(Method::Post, Url::parse(&self.endpoint).unwrap());
-        for (header, value) in self.headers.iter() {
-            req.insert_header(header.as_str(), value.as_str());
-        }
-        // set body
-        let my_esk = x25519_dalek::EphemeralSecret::new(rand::rngs::OsRng {});
-        let (encrypted, reply_key) = brequest.encrypt(my_esk, self.binder_lpk);
-        req.set_body(bincode::serialize(&encrypted).unwrap());
-        // do the request
-        let mut response = async_h1::connect(conn, req)
-            .await
-            .map_err(|v| BinderError::Other(v.to_string()))?;
-
-        // read response
-        let response: EncryptedBinderResponse = bincode::deserialize(
-            &response
-                .body_bytes()
+        let everything = async move {
+            // open connection
+            let conn = endpoint_to_conn(&self.endpoint)
                 .await
-                .map_err(|v| BinderError::Other(v.to_string()))?,
-        )
-        .map_err(|v| BinderError::Other(v.to_string()))?;
-        response
-            .decrypt(reply_key)
-            .ok_or_else(|| BinderError::Other("decryption failure".into()))?
+                .map_err(|v| BinderError::Other(v.to_string()))?;
+            // send request
+            let mut req = Request::new(Method::Post, Url::parse(&self.endpoint).unwrap());
+            for (header, value) in self.headers.iter() {
+                req.insert_header(header.as_str(), value.as_str());
+            }
+            // set body
+            let my_esk = x25519_dalek::EphemeralSecret::new(rand::rngs::OsRng {});
+            let (encrypted, reply_key) = brequest.encrypt(my_esk, self.binder_lpk);
+            req.set_body(bincode::serialize(&encrypted).unwrap());
+            // do the request
+            let mut response = async_h1::connect(conn, req)
+                .await
+                .map_err(|v| BinderError::Other(v.to_string()))?;
+
+            // read response
+            let response: EncryptedBinderResponse = bincode::deserialize(
+                &response
+                    .body_bytes()
+                    .await
+                    .map_err(|v| BinderError::Other(v.to_string()))?,
+            )
+            .map_err(|v| BinderError::Other(v.to_string()))?;
+            response
+                .decrypt(reply_key)
+                .ok_or_else(|| BinderError::Other("decryption failure".into()))?
+        };
+        everything
+            .timeout(Duration::from_secs(5))
+            .await
+            .ok_or_else(|| BinderError::Other("timeout".into()))?
     }
 }
 

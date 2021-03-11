@@ -1,12 +1,15 @@
 use crate::mux::structs::*;
 use std::{
-    cmp::Reverse,
-    collections::BTreeSet,
-    collections::VecDeque,
+    collections::BTreeMap,
     time::{Duration, Instant},
 };
 
+use self::calc::RttCalculator;
+
+mod calc;
+
 #[derive(Debug, Clone)]
+/// An element of Inflight.
 pub struct InflightEntry {
     seqno: Seqno,
     acked: bool,
@@ -14,43 +17,30 @@ pub struct InflightEntry {
     pub retrans: u64,
     pub payload: Message,
 
-    delivered: u64,
-    delivered_time: Instant,
+    rto_duration: Duration,
 }
 
-pub struct Inflight {
-    segments: VecDeque<InflightEntry>,
-    inflight_count: usize,
-    times: priority_queue::PriorityQueue<Seqno, Reverse<Instant>>,
-    fast_retrans: BTreeSet<Seqno>,
-    rtt: RttCalculator,
-    rate: RateCalculator,
+impl InflightEntry {
+    fn retrans_time(&self) -> Instant {
+        self.send_time + self.rto_duration
+    }
+}
 
-    delivered: u64,
-    delivered_time: Instant,
+/// A data structure that tracks in-flight packets.
+pub struct Inflight {
+    segments: BTreeMap<Seqno, InflightEntry>,
+    first_rto: Option<(Seqno, Instant)>,
+    rtt: RttCalculator,
 }
 
 impl Inflight {
+    /// Creates a new Inflight.
     pub fn new() -> Self {
         Inflight {
-            segments: VecDeque::new(),
-            inflight_count: 0,
-            times: priority_queue::PriorityQueue::new(),
-            fast_retrans: BTreeSet::new(),
-            rtt: RttCalculator::default(),
-            rate: RateCalculator::default(),
-
-            delivered: 0,
-            delivered_time: Instant::now(),
+            segments: Default::default(),
+            first_rto: None,
+            rtt: Default::default(),
         }
-    }
-
-    pub fn rate(&self) -> f64 {
-        self.rate.rate
-    }
-
-    pub fn bdp(&self) -> f64 {
-        self.rate() * self.min_rtt().as_secs_f64()
     }
 
     pub fn len(&self) -> usize {
@@ -58,228 +48,144 @@ impl Inflight {
     }
 
     pub fn inflight(&self) -> usize {
-        if self.inflight_count > self.segments.len() {
-            panic!(
-                "inflight_count = {}, segment len = {}",
-                self.inflight_count,
-                self.segments.len()
-            );
-        }
-        self.inflight_count
+        self.len()
     }
 
     pub fn srtt(&self) -> Duration {
-        Duration::from_millis(self.rtt.srtt)
+        self.rtt.srtt()
+    }
+
+    pub fn rto(&self) -> Duration {
+        self.rtt.rto()
+    }
+
+    pub fn rtt_var(&self) -> Duration {
+        self.rtt.rtt_var()
     }
 
     pub fn min_rtt(&self) -> Duration {
-        Duration::from_millis(self.rtt.min_rtt)
+        self.rtt.min_rtt()
     }
 
+    /// Mark all inflight packets less than a certain sequence number as acknowledged.
     pub fn mark_acked_lt(&mut self, seqno: Seqno) {
-        for segseq in self.segments.iter().map(|v| v.seqno).collect::<Vec<_>>() {
-            if segseq < seqno {
-                self.mark_acked(segseq);
+        let mut to_remove = vec![];
+        for (k, _) in self.segments.iter() {
+            if *k < seqno {
+                to_remove.push(*k);
             } else {
+                // we can rely on iteration order
                 break;
             }
         }
-    }
-
-    pub fn mark_acked(&mut self, seqno: Seqno) -> bool {
-        let mut toret = false;
-        let now = Instant::now();
-        // mark the right one
-        if let Some(entry) = self.segments.front() {
-            let first_seqno = entry.seqno;
-            if seqno >= first_seqno {
-                let offset = (seqno - first_seqno) as usize;
-                if let Some(seg) = self.segments.get_mut(offset) {
-                    if !seg.acked {
-                        self.delivered += 1;
-                        self.delivered_time = now;
-                        toret = true;
-                        seg.acked = true;
-                        self.inflight_count -= 1;
-                        if seg.retrans == 0 {
-                            if let Message::Rel { .. } = &seg.payload {
-                                // calculate rate
-                                let data_acked = self.delivered - seg.delivered;
-                                let ack_elapsed = self
-                                    .delivered_time
-                                    .saturating_duration_since(seg.delivered_time);
-                                let rate_sample = data_acked as f64 / ack_elapsed.as_secs_f64();
-                                self.rate.record_sample(rate_sample)
-                            }
-                        }
-
-                        self.rtt.record_sample(if seg.retrans == 0 {
-                            Some(now.saturating_duration_since(seg.send_time))
-                        } else {
-                            None
-                        });
-                    }
-                }
-                // shrink if possible
-                while self.len() > 0 && self.segments.front().unwrap().acked {
-                    self.segments.pop_front();
-                }
-            }
+        for seqno in to_remove {
+            self.mark_acked(seqno);
         }
-        toret
     }
 
+    /// Marks a particular inflight packet as acknowledged. Returns whether or not there was actually such an inflight packet.
+    pub fn mark_acked(&mut self, seqno: Seqno) -> bool {
+        let now = Instant::now();
+
+        if let Some(seg) = self.segments.remove(&seqno) {
+            if seg.retrans == 0 {
+                self.rtt
+                    .record_sample(now.saturating_duration_since(seg.send_time))
+            }
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Inserts a packet to the inflight.
     pub fn insert(&mut self, seqno: Seqno, msg: Message) {
-        let rto = self.rtt.rto();
-        if self.get_seqno(seqno).is_none() {
-            self.segments.push_back(InflightEntry {
+        let now = Instant::now();
+        let rto_duration = self.rtt.rto();
+        let rto = now + rto_duration;
+        self.segments.insert(
+            seqno,
+            InflightEntry {
                 seqno,
                 acked: false,
-                send_time: Instant::now(),
+                send_time: now,
                 payload: msg,
                 retrans: 0,
-                delivered: self.delivered,
-                delivered_time: self.delivered_time,
-            });
-            self.inflight_count += 1;
-        }
-        self.times.push(seqno, Reverse(Instant::now() + rto));
-    }
-
-    pub fn get_seqno(&mut self, seqno: Seqno) -> Option<&mut InflightEntry> {
-        if let Some(first_entry) = self.segments.front() {
-            let first_seqno = first_entry.seqno;
-            if seqno >= first_seqno {
-                let offset = (seqno - first_seqno) as usize;
-                return self.segments.get_mut(offset);
+                rto_duration,
+            },
+        );
+        if let Some((_, old_rto)) = self.first_rto {
+            if rto < old_rto {
+                self.first_rto = Some((seqno, rto))
             }
-        }
-        None
-    }
-
-    pub async fn wait_first(&mut self) -> Option<(Seqno, bool)> {
-        if let Some(seq) = self.fast_retrans.iter().next() {
-            let seq = *seq;
-            self.fast_retrans.remove(&seq);
-            return Some((seq, false));
-        }
-        while !self.times.is_empty() {
-            let (_, time) = self.times.peek().unwrap();
-            let durat = time.0.saturating_duration_since(Instant::now());
-            if durat.as_secs() > 30 {
-                return None;
-            }
-            smol::Timer::at(time.0).await;
-            let (seqno, _) = self.times.pop().unwrap();
-            let mut rto = self.rtt.rto();
-            if let Some(seg) = self.get_seqno(seqno) {
-                if !seg.acked {
-                    seg.retrans += 1;
-                    let rtx = seg.retrans;
-                    for _ in 0..rtx {
-                        rto *= 3;
-                        rto /= 2
-                    }
-
-                    self.times.push(seqno, Reverse(Instant::now() + rto));
-                    return Some((seqno, true));
-                }
-            }
-        }
-        smol::future::pending().await
-    }
-}
-
-struct RateCalculator {
-    rate: f64,
-    rate_update_time: Instant,
-}
-
-impl Default for RateCalculator {
-    fn default() -> Self {
-        RateCalculator {
-            rate: 500.0,
-            rate_update_time: Instant::now(),
-        }
-    }
-}
-
-impl RateCalculator {
-    fn record_sample(&mut self, sample: f64) {
-        let now = Instant::now();
-        if now
-            .saturating_duration_since(self.rate_update_time)
-            .as_secs()
-            > 3
-            || sample > self.rate
-        {
-            self.rate = sample;
-            self.rate_update_time = now;
-        }
-    }
-}
-
-struct RttCalculator {
-    // standard TCP stuff
-    srtt: u64,
-    rttvar: u64,
-    rto: u64,
-
-    // rate estimation
-    min_rtt: u64,
-    rtt_update_time: Instant,
-
-    existing: bool,
-}
-
-impl Default for RttCalculator {
-    fn default() -> Self {
-        RttCalculator {
-            srtt: 300,
-            rttvar: 0,
-            rto: 300,
-            min_rtt: 300,
-            rtt_update_time: Instant::now(),
-            existing: false,
-        }
-    }
-}
-
-impl RttCalculator {
-    fn record_sample(&mut self, sample: Option<Duration>) {
-        if let Some(sample) = sample {
-            let sample = sample.as_millis() as u64;
-            if !self.existing {
-                self.srtt = sample;
-                self.rttvar = sample / 2;
-            } else {
-                self.rttvar = self.rttvar * 3 / 4 + diff(self.srtt, sample) / 4;
-                self.srtt = self.srtt * 7 / 8 + sample / 8;
-            }
-            self.rto = sample.max(self.srtt + (4 * self.rttvar).max(10)) + 50;
-        }
-        // delivery rate
-        let now = Instant::now();
-        if self.srtt < self.min_rtt
-            || now
-                .saturating_duration_since(self.rtt_update_time)
-                .as_millis()
-                > 10000
-        {
-            self.min_rtt = self.srtt;
-            self.rtt_update_time = now;
+        } else {
+            self.first_rto = Some((seqno, rto))
         }
     }
 
-    fn rto(&self) -> Duration {
-        Duration::from_millis(self.rto)
+    /// Returns the retransmission time of the first possibly retransmitted packet, as well as its seqno.
+    pub fn first_rto(&self) -> Option<(Seqno, Instant)> {
+        self.first_rto
+    }
+
+    /// Recalculates the first rto
+    fn recalc_first_rto(&mut self) {
+        // hopefully this is not way too slow
+        self.first_rto = self
+            .segments
+            .iter()
+            .min_by_key(|v| v.1.retrans_time())
+            .map(|v| (*v.0, v.1.retrans_time()))
+    }
+
+    /// Retransmits a particular seqno.
+    pub fn retransmit(&mut self, seqno: Seqno) -> Option<Message> {
+        let payload = {
+            let entry = self.segments.get_mut(&seqno);
+            entry.map(|entry| {
+                entry.rto_duration += entry.rto_duration;
+                entry.retrans += 1;
+                entry.payload.clone()
+            })
+        };
+        self.recalc_first_rto();
+        payload
     }
 }
 
-fn diff(a: u64, b: u64) -> u64 {
-    if b > a {
-        b - a
-    } else {
-        a - b
-    }
-}
+// struct RateCalculator {
+//     rate: f64,
+//     rate_update_time: Instant,
+// }
+
+// impl Default for RateCalculator {
+//     fn default() -> Self {
+//         RateCalculator {
+//             rate: 500.0,
+//             rate_update_time: Instant::now(),
+//         }
+//     }
+// }
+
+// impl RateCalculator {
+//     fn record_sample(&mut self, sample: f64) {
+//         let now = Instant::now();
+//         if now
+//             .saturating_duration_since(self.rate_update_time)
+//             .as_secs()
+//             > 3
+//             || sample > self.rate
+//         {
+//             self.rate = sample;
+//             self.rate_update_time = now;
+//         }
+//     }
+// }
+
+// fn diff(a: u64, b: u64) -> u64 {
+//     if b > a {
+//         b - a
+//     } else {
+//         a - b
+//     }
+// }

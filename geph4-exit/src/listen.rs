@@ -4,9 +4,10 @@ use std::{
     time::Duration,
 };
 
-use crate::{vpn, ALLOCATOR};
+use crate::vpn;
 use binder_transport::BinderClient;
 
+use jemalloc_ctl::epoch;
 use smol::prelude::*;
 
 use x25519_dalek::StaticSecret;
@@ -192,14 +193,19 @@ pub async fn main_loop<'a>(
         let connkey = format!("conn_count.{}", exit_hostname.replace(".", "-"));
         let ctrlkey = format!("control_count.{}", exit_hostname.replace(".", "-"));
         let taskkey = format!("task_count.{}", exit_hostname.replace(".", "-"));
+        let e = epoch::mib().unwrap();
+        // let allocated = jemalloc_ctl::stats::allocated::mib().unwrap();
+        let resident = jemalloc_ctl::stats::resident::mib().unwrap();
         loop {
+            e.advance().unwrap();
+
             let session_count = ctx.session_count.load(std::sync::atomic::Ordering::Relaxed);
             stat_client.gauge(&key, session_count as f64);
             let raw_session_count = ctx
                 .raw_session_count
                 .load(std::sync::atomic::Ordering::Relaxed);
             stat_client.gauge(&rskey, raw_session_count as f64);
-            let memory_usage = ALLOCATOR.allocated();
+            let memory_usage = resident.read().unwrap();
             stat_client.gauge(&memkey, memory_usage as f64);
             let conn_count = ctx.conn_count.load(std::sync::atomic::Ordering::Relaxed);
             stat_client.gauge(&connkey, conn_count as f64);

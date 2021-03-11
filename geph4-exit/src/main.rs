@@ -1,7 +1,6 @@
-use std::{alloc::System, net::SocketAddr, path::PathBuf, sync::Arc};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
-use cap::Cap;
 use env_logger::Env;
 use jemallocator::Jemalloc;
 use std::os::unix::fs::PermissionsExt;
@@ -55,7 +54,7 @@ struct Opt {
 }
 
 #[global_allocator]
-pub static ALLOCATOR: Cap<Jemalloc> = Cap::new(Jemalloc, usize::max_value());
+pub static ALLOCATOR: Jemalloc = Jemalloc;
 
 fn main() -> anyhow::Result<()> {
     // smolscale::permanently_single_threaded();

@@ -50,7 +50,7 @@ async fn server_dispatch(
                     req.method(),
                     req.uri()
                 );
-                return make_bad_request();
+                return Ok(make_bad_request());
             } else {
                 trace!(
                     "HTTP {} URI {} doesn't have a valid host",
@@ -60,11 +60,11 @@ async fn server_dispatch(
             }
             match req.headers().get("Host") {
                 None => {
-                    return make_bad_request();
+                    return Ok(make_bad_request());
                 }
                 Some(hhost) => match hhost.to_str() {
                     Err(..) => {
-                        return make_bad_request();
+                        return Ok(make_bad_request());
                     }
                     Ok(shost) => {
                         match Authority::from_str(shost) {
@@ -102,7 +102,7 @@ async fn server_dispatch(
                                             shost
                                         );
 
-                                        return make_bad_request();
+                                        return Ok(make_bad_request());
                                     }
                                 }
                             }
@@ -114,7 +114,7 @@ async fn server_dispatch(
                                     hhost
                                 );
 
-                                return make_bad_request();
+                                return Ok(make_bad_request());
                             }
                         }
                     }
@@ -253,10 +253,10 @@ async fn establish_connect_tunnel(
     );
 }
 
-fn make_bad_request() -> std::io::Result<Response<Body>> {
+fn make_bad_request() -> Response<Body> {
     let mut resp = Response::new(Body::empty());
     *resp.status_mut() = StatusCode::BAD_REQUEST;
-    Ok(resp)
+    resp
 }
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};

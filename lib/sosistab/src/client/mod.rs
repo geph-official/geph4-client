@@ -17,8 +17,8 @@ pub async fn connect_udp(
         backhaul_gen: Arc::new(|| {
             Arc::new(smol::future::block_on(runtime::new_udp_socket_bind("0.0.0.0:0")).unwrap())
         }),
-        num_shards: 4,
-        reset_interval: Some(Duration::from_secs(10)),
+        num_shards: 8,
+        reset_interval: Some(Duration::from_secs(20)),
     })
     .await
 }

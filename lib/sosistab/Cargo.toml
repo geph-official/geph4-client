@@ -10,6 +10,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+argh="0.1.4"
 smol= "1.2.5"
 socket2= "0.3.19"
 x25519-dalek={ version = "1.1.0", features = ["serde"] }
@@ -21,6 +22,7 @@ rand={ version = "0.7", features = ["small_rng"] }
 constant_time_eq= "0.1.5"
 bincode= "1.3.1"
 event-listener= "2.5.1"
+futures-util="0.3"
 parking_lot= "0.11.1"
 governor= "0.3.1"
 probability= "0.17.0"
@@ -35,11 +37,11 @@ reed-solomon-erasure={version="4.0.2"}
 indexmap= "1.6.1"
 bloomfilter = "1.0.3"
 concurrent-queue= "1.2.2"
+rand_chacha="0.2"
 smolscale={path="../smolscale"}
 async-trait= "0.1.42"
 dashmap= "4.0.1"
 smol-timeout= "0.6.0"
-hex= "0.4.2"
 env_logger= "0.8.2"
 futures-timer= "3.0.2"
 nonzero_ext= "0.2.0"

@@ -61,20 +61,18 @@ async fn bridge_loop<'a>(
     loop {
         let binder_client = binder_client.clone();
         let exits = binder_client.request(BinderRequestData::GetExits).await;
-        if let Ok(exits) = exits {
-            if let BinderResponse::GetExitsResp(exits) = exits {
-                log::info!("got {} exits!", exits.len());
-                // insert all exits that aren't in current exit
-                for exit in exits {
-                    if current_exits.get(&exit.hostname).is_none() {
-                        log::info!("{} is a new exit, spawning a manager!", exit.hostname);
-                        let task = smol::spawn(manage_exit(
-                            exit.clone(),
-                            bridge_secret.to_string(),
-                            bridge_group.to_string(),
-                        ));
-                        current_exits.insert(exit.hostname, task);
-                    }
+        if let Ok(BinderResponse::GetExitsResp(exits)) = exits {
+            log::info!("got {} exits!", exits.len());
+            // insert all exits that aren't in current exit
+            for exit in exits {
+                if current_exits.get(&exit.hostname).is_none() {
+                    log::info!("{} is a new exit, spawning a manager!", exit.hostname);
+                    let task = smol::spawn(manage_exit(
+                        exit.clone(),
+                        bridge_secret.to_string(),
+                        bridge_group.to_string(),
+                    ));
+                    current_exits.insert(exit.hostname, task);
                 }
             }
         }

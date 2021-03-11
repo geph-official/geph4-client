@@ -144,7 +144,7 @@ impl SendLossCalc {
             self.last_total_seqno = total_seqno;
             let loss_sample = 1.0 - delta_total / delta_top.max(delta_total);
             self.loss_samples.push_back(loss_sample);
-            if self.loss_samples.len() > 8 {
+            if self.loss_samples.len() > 16 {
                 self.loss_samples.pop_front();
             }
             let median = {
