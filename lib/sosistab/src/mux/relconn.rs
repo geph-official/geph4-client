@@ -34,7 +34,7 @@ impl RelConn {
         let (send_read, recv_read) = bipe::bipe(10 * 1024 * 1024);
         let (send_wire_read, recv_wire_read) = smol::channel::bounded(1024);
         let aic = additional_info.clone();
-        let _task = runtime::spawn(async move {
+        let _task = runtime::spawn_local(async move {
             if let Err(e) = relconn_actor(
                 state,
                 recv_write,

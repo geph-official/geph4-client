@@ -168,6 +168,7 @@ async fn backhaul_one_inner(
     let up_loop = async {
         let mut buff = [0u8; 4096];
         loop {
+            smol::future::yield_now().await;
             down_table.set(addr, send_down.clone());
             obfs_tcp.read_exact(&mut buff[..2]).await?;
             let length = u16::from_be_bytes(
@@ -187,6 +188,7 @@ async fn backhaul_one_inner(
     let dn_loop = async {
         let mut buff = [0u8; 4098];
         loop {
+            smol::future::yield_now().await;
             let down = recv_down.recv().await?;
             if down.len() > 4096 {
                 break Err(anyhow::anyhow!("rejecting a down that's too long"));

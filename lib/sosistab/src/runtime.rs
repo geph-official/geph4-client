@@ -26,6 +26,18 @@ pub(crate) fn spawn<T: Send + 'static>(
     }
 }
 
+/// Spawns a future onto the local sosistab worker.
+pub(crate) fn spawn_local<T: Send + 'static>(
+    future: impl Future<Output = T> + Send + 'static,
+) -> smol::Task<T> {
+    if let Some(ex) = USER_EXEC.get() {
+        ex.spawn(future)
+    } else {
+        // TODO actually do something
+        smolscale::spawn(future)
+    }
+}
+
 /// Create a new UDP socket that has a largeish buffer and isn't bound to anything.
 pub(crate) async fn new_udp_socket_bind(
     addr: impl AsyncToSocketAddrs,

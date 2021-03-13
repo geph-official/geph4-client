@@ -29,6 +29,7 @@ pub async fn multiplex(
     };
 
     loop {
+        smol::future::yield_now().await;
         // fires on session replacement
         let sess_replace = async {
             let new_session = recv_session.recv().await?;
@@ -69,7 +70,7 @@ pub async fn multiplex(
                 let conn_tab = conn_tab.clone();
                 let glob_send = glob_send.clone();
                 let dead_send = dead_send.clone();
-                runtime::spawn(async move {
+                runtime::spawn_local(async move {
                     let stream_id = {
                         let stream_id = conn_tab.find_id();
                         if let Some(stream_id) = stream_id {
@@ -86,7 +87,7 @@ pub async fn multiplex(
                                 },
                                 additional_data.clone(),
                             );
-                            runtime::spawn(async move {
+                            runtime::spawn_local(async move {
                                 recv_sig.recv().await.ok()?;
                                 result_chan.send(conn).await.ok()?;
                                 Some(())
