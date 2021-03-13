@@ -160,12 +160,13 @@ impl ListenerActor {
                         // we know it's not part of an existing session then. we decrypt it under the current key
                         let s2c_key = self.cookie.generate_s2c().next().unwrap();
                         for possible_key in self.cookie.generate_c2s() {
+                            smol::future::yield_now().await;
                             let crypter = crypt::LegacyAEAD::new(&possible_key);
                             if let Some(handshake) =
                                 crypter.pad_decrypt_v1::<protocol::HandshakeFrame>(&buffer)
                             {
                                 if !RECENT_FILTER.lock().check(&buffer) {
-                                    tracing::warn!(
+                                    tracing::debug!(
                                         "discarding replay attempt with len {}",
                                         buffer.len()
                                     );

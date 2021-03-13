@@ -86,7 +86,7 @@ fn monitor_loop() {
                     if exitable {
                         async_io::block_on(
                             EXEC.run(async {
-                                async_io::Timer::after(Duration::from_secs(60)).await;
+                                async_io::Timer::after(Duration::from_secs(5)).await;
                             })
                             .or(run_local),
                         );
@@ -181,7 +181,7 @@ impl<T, F: Future<Output = T>> Future for WrappedFuture<T, F> {
         let res = fut.poll(cx);
         let elapsed = start.elapsed();
         log::trace!("poll took {:?}", start.elapsed());
-        if elapsed.as_millis() > 5 {
+        if elapsed.as_millis() > 50 {
             let btrace = Arc::make_mut(&mut btrace);
             btrace.resolve();
             log::warn!(

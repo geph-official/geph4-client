@@ -104,6 +104,7 @@ async fn backhaul_one(
     let mut encrypted_hello_length = vec![0u8; NgAEAD::overhead() + 2];
     client.read_exact(&mut encrypted_hello_length).await?;
     for (possible_c2s, possible_s2c) in cookie.generate_c2s().zip(cookie.generate_s2c()) {
+        smol::future::yield_now().await;
         let c2s_key = blake3::keyed_hash(&TCP_UP_KEY, &possible_c2s);
         let c2s_dec = NgAEAD::new(c2s_key.as_bytes());
         let s2c_key = blake3::keyed_hash(&TCP_DN_KEY, &possible_s2c);
