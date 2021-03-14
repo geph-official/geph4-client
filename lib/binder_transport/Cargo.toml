@@ -23,6 +23,7 @@ rand = "0.7"
 env_logger = "0.8.2"
 mizaru={path="../mizaru"}
 aioutils={path="../aioutils"}
+smolscale={path="../smolscale"}
 thiserror= "1.0.23"
 rsa-fdh = "0.5.0"
 async-trait= "0.1.42"

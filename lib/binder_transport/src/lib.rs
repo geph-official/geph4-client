@@ -74,18 +74,17 @@ impl MultiBinderClient {
     // does the request on all binders
     async fn request_multi(&self, request: BinderRequestData) -> BinderResult<BinderResponse> {
         let (send_res, recv_res) = smol::channel::unbounded();
-        let exec = smol::Executor::new();
         for (idx, client) in self.clients.iter().enumerate() {
             let client = client.clone();
             let request = request.clone();
             let send_res = send_res.clone();
-            exec.spawn(async move {
+            smolscale::spawn(async move {
                 let _ = send_res.send((idx, client.request(request).await)).await;
             })
             .detach();
         }
-        let (idx, res) = exec
-            .run(recv_res.recv())
+        let (idx, res) = recv_res
+            .recv()
             .await
             .expect("result channel shouldn't have closed");
         self.index.store(idx, Ordering::Relaxed);

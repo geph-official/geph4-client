@@ -66,38 +66,33 @@ async fn backhaul_loop(
     down_table: Arc<DownTable>,
     send_upcoming: Sender<(Bytes, SocketAddr)>,
 ) -> anyhow::Result<()> {
-    // use a local executor to make sure stuff gets cleaned up very promptly
-    let lexec = smol::Executor::new();
-    lexec
-        .run(async {
-            loop {
-                let (client, _) = listener.accept().await?;
-                client.set_nodelay(true)?;
-                lexec
-                    .spawn(async {
-                        if let Err(err) =
-                            backhaul_one(client, seckey.clone(), &down_table, &send_upcoming)
-                                .or(async {
-                                    smol::Timer::after(CONN_LIFETIME * 2).await;
-                                    Ok(())
-                                })
-                                .await
-                        {
-                            tracing::debug!("backhaul_one exited: {:?}", err)
-                        }
-                    })
-                    .detach();
+    loop {
+        let (client, _) = listener.accept().await?;
+        client.set_nodelay(true)?;
+        let down_table = down_table.clone();
+        let send_upcoming = send_upcoming.clone();
+        let seckey = seckey.clone();
+        smolscale::spawn(async move {
+            if let Err(err) = backhaul_one(client, seckey.clone(), down_table, send_upcoming)
+                .or(async {
+                    smol::Timer::after(CONN_LIFETIME * 2).await;
+                    Ok(())
+                })
+                .await
+            {
+                tracing::debug!("backhaul_one exited: {:?}", err)
             }
         })
-        .await
+        .detach();
+    }
 }
 
 /// handle a TCP stream
 async fn backhaul_one(
     mut client: TcpStream,
     seckey: x25519_dalek::StaticSecret,
-    down_table: &DownTable,
-    send_upcoming: &Sender<(Bytes, SocketAddr)>,
+    down_table: Arc<DownTable>,
+    send_upcoming: Sender<(Bytes, SocketAddr)>,
 ) -> anyhow::Result<()> {
     let cookie = Cookie::new((&seckey).into());
     // read the initial length
@@ -151,7 +146,7 @@ async fn backhaul_one(
                     .context("cannot read fakeaddr")?;
                 let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::from(fake_addr)), 0);
                 tracing::warn!("starting TCP with fake addr {}", addr);
-                return backhaul_one_inner(obfs_tcp, addr, down_table, send_upcoming).await;
+                return backhaul_one_inner(obfs_tcp, addr, &down_table, &send_upcoming).await;
             }
         }
     }

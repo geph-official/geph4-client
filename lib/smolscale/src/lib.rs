@@ -16,7 +16,6 @@ use futures_lite::prelude::*;
 use once_cell::sync::OnceCell;
 use std::{
     pin::Pin,
-    rc::Rc,
     sync::atomic::AtomicUsize,
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -33,9 +32,9 @@ const MONITOR_MS: u64 = 50;
 
 const MAX_THREADS: usize = 500;
 
-thread_local! {
-    static LEXEC: Rc<async_executor::LocalExecutor<'static>> = Rc::new(async_executor::LocalExecutor::new())
-}
+// thread_local! {
+//     static LEXEC: Rc<async_executor::LocalExecutor<'static>> = Rc::new(async_executor::LocalExecutor::new())
+// }
 static EXEC: async_executor::Executor<'static> = async_executor::Executor::new();
 
 static FUTURES_BEING_POLLED: AtomicUsize = AtomicUsize::new(0);
@@ -77,24 +76,19 @@ fn monitor_loop() {
                 if let Some(affinity) = affinity {
                     core_affinity::set_for_current(affinity);
                 }
-                let local_exec = LEXEC.with(|v| Rc::clone(v));
+                // let local_exec = LEXEC.with(|v| Rc::clone(v));
                 async_io::block_on(async {
                     scopeguard::defer!({
                         THREAD_COUNT.fetch_sub(1, Ordering::Relaxed);
                     });
-                    let run_local = local_exec.run(futures_lite::future::pending::<()>());
+                    // let run_local = local_exec.run(futures_lite::future::pending::<()>());
                     if exitable {
-                        async_io::block_on(
-                            EXEC.run(async {
-                                async_io::Timer::after(Duration::from_secs(5)).await;
-                            })
-                            .or(run_local),
-                        );
+                        EXEC.run(async {
+                            async_io::Timer::after(Duration::from_secs(5)).await;
+                        })
+                        .await;
                     } else {
-                        async_io::block_on(
-                            EXEC.run(futures_lite::future::pending::<()>())
-                                .or(run_local),
-                        );
+                        EXEC.run_pinned(futures_lite::future::pending::<()>()).await;
                     };
                 })
             })

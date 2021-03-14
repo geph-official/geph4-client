@@ -127,7 +127,7 @@ impl Session {
                 if rand::random::<f32>() < 0.1 {
                     let stat = SessionStat {
                         time: SystemTime::now(),
-                        last_recv: raw_stat.high_recv_frame_no(),
+                        high_recv: raw_stat.high_recv_frame_no(),
                         total_recv: raw_stat.total_recv_frames(),
                         total_loss: 1.0
                             - (raw_stat.total_recv_frames() as f64
@@ -431,7 +431,7 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
 #[derive(Copy, Clone, Debug)]
 pub struct SessionStat {
     pub time: SystemTime,
-    pub last_recv: u64,
+    pub high_recv: u64,
     pub total_recv: u64,
     // pub total_parity: u64,
     pub total_loss: f64,

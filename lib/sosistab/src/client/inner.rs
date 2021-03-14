@@ -131,7 +131,7 @@ async fn init_session(
         send_crypt_ng: NgAEAD::new(up_key.as_bytes()),
         recv_crypt_ng: NgAEAD::new(dn_key.as_bytes()),
         recv_timeout: Duration::from_secs(300),
-        statistics: 40000,
+        statistics: 8000,
         version: VERSION,
     });
     session.on_drop(move || {

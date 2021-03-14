@@ -109,7 +109,6 @@ async fn keepalive_actor_once(
     };
 
     let mux = Arc::new(sosistab::mux::Multiplex::new(session));
-    let scope = smol::Executor::new();
     // now let's authenticate
     let token = ccache.get_auth_token().await?;
     authenticate_session(&mux, &token)
@@ -123,21 +122,20 @@ async fn keepalive_actor_once(
         cfg.use_tcp
     );
     stats.set_exit_descriptor(Some(exits[0].clone()));
-    scope
-        .spawn(async {
-            loop {
-                smol::Timer::after(Duration::from_secs(200)).await;
-                if mux
-                    .open_conn(None)
-                    .timeout(Duration::from_secs(60))
-                    .await
-                    .is_none()
-                {
-                    log::warn!("watchdog conn didn't work!");
-                }
+    let mux1 = mux.clone();
+    let _watchdog = smolscale::spawn(async move {
+        loop {
+            smol::Timer::after(Duration::from_secs(200)).await;
+            if mux1
+                .open_conn(None)
+                .timeout(Duration::from_secs(60))
+                .await
+                .is_none()
+            {
+                log::warn!("watchdog conn didn't work!");
             }
-        })
-        .detach();
+        }
+    });
 
     let (send_death, recv_death) = smol::channel::unbounded::<anyhow::Error>();
 
@@ -153,61 +151,59 @@ async fn keepalive_actor_once(
             }
         }));
     }
-    scope
-        .run(
-            async {
-                loop {
-                    let (conn_host, conn_reply) = recv_socks5_conn
-                        .recv()
-                        .await
-                        .context("cannot get socks5 connect request")?;
-                    let mux = &mux;
-                    let send_death = send_death.clone();
-                    scope
-                        .spawn(async move {
-                            let start = Instant::now();
-                            let remote = (&mux).open_conn(Some(conn_host)).await;
-                            match remote {
-                                Ok(remote) => {
-                                    let sess_stats = mux.get_session().latest_stat();
-                                    if let Some(stat) = sess_stats {
-                                        log::debug!(
-                                            "opened connection in {} ms; loss = {:.2}%",
-                                            start.elapsed().as_millis(),
-                                            stat.total_loss * 100.0
-                                        );
-                                    };
-                                    conn_reply.send(remote).await?;
-                                    Ok::<(), anyhow::Error>(())
-                                }
-                                Err(err) => {
-                                    send_death
-                                        .send(anyhow::anyhow!(
-                                            "conn open error {} in {}s",
-                                            err,
-                                            start.elapsed().as_secs_f64()
-                                        ))
-                                        .await?;
-                                    Ok(())
-                                }
-                            }
-                        })
-                        .detach();
+
+    let mux1 = mux.clone();
+    async move {
+        loop {
+            let (conn_host, conn_reply) = recv_socks5_conn
+                .recv()
+                .await
+                .context("cannot get socks5 connect request")?;
+            let mux = mux.clone();
+            let send_death = send_death.clone();
+            smolscale::spawn(async move {
+                let start = Instant::now();
+                let remote = (&mux).open_conn(Some(conn_host)).await;
+                match remote {
+                    Ok(remote) => {
+                        let sess_stats = mux.get_session().latest_stat();
+                        if let Some(stat) = sess_stats {
+                            log::debug!(
+                                "opened connection in {} ms; loss = {:.2}%",
+                                start.elapsed().as_millis(),
+                                stat.total_loss * 100.0
+                            );
+                        };
+                        conn_reply.send(remote).await?;
+                        Ok::<(), anyhow::Error>(())
+                    }
+                    Err(err) => {
+                        send_death
+                            .send(anyhow::anyhow!(
+                                "conn open error {} in {}s",
+                                err,
+                                start.elapsed().as_secs_f64()
+                            ))
+                            .await?;
+                        Ok(())
+                    }
                 }
-            }
-            .or(async {
-                let e = recv_death.recv().await?;
-                anyhow::bail!(e)
             })
-            .or(async {
-                loop {
-                    let stat_send = recv_get_stats.recv().await?;
-                    let stats = mux.get_session().all_stats();
-                    drop(stat_send.send(stats).await);
-                }
-            }),
-        )
-        .await
+            .detach();
+        }
+    }
+    .or(async {
+        let e = recv_death.recv().await?;
+        anyhow::bail!(e)
+    })
+    .or(async {
+        loop {
+            let stat_send = recv_get_stats.recv().await?;
+            let stats = mux1.get_session().all_stats();
+            drop(stat_send.send(stats).await);
+        }
+    })
+    .await
 }
 
 async fn infal<T, E>(v: Result<T, E>) -> T {

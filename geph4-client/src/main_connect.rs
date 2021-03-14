@@ -84,63 +84,51 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         .context("cannot bind stats")?;
     let scollect = stat_collector.clone();
     // scope
-    let scope = smol::Executor::new();
     if let Some(dns_listen) = opt.dns_listen {
         log::debug!("starting dns...");
-        scope
-            .spawn(crate::dns::dns_loop(dns_listen, keepalive.clone()))
-            .detach();
+        smolscale::spawn(crate::dns::dns_loop(dns_listen, keepalive.clone())).detach();
     }
     if let Some(nettest_server) = opt.nettest_server {
         log::info!("Network testing enabled at {}!", nettest_server);
-        scope
-            .spawn(crate::nettest::nettest(
-                opt.nettest_name.unwrap(),
-                nettest_server,
-            ))
-            .detach();
+        smolscale::spawn(crate::nettest::nettest(
+            opt.nettest_name.unwrap(),
+            nettest_server,
+        ))
+        .detach();
     }
-    let _stat: smol::Task<anyhow::Result<()>> = scope.spawn(async {
-        let my_scope = smol::Executor::new();
-        my_scope
-            .run(async {
-                loop {
-                    let (stat_client, _) = stat_listener.accept().await?;
-                    let scollect = scollect.clone();
-                    let keepalive = &keepalive;
-                    my_scope
-                        .spawn(async move {
-                            drop(
-                                async_h1::accept(stat_client, |req| {
-                                    handle_stats(scollect.clone(), keepalive, req)
-                                })
-                                .await,
-                            );
-                        })
-                        .detach();
-                }
-            })
-            .await
-    });
-    let exclude_prc = opt.exclude_prc;
-    scope
-        .run(async {
+    let _stat: smol::Task<anyhow::Result<()>> = {
+        let keepalive = keepalive.clone();
+        smolscale::spawn(async move {
             loop {
-                let (s5client, _) = socks5_listener
-                    .accept()
-                    .await
-                    .context("cannot accept socks5")?;
-                scope
-                    .spawn(handle_socks5(
-                        stat_collector.clone(),
-                        s5client,
-                        &keepalive,
-                        exclude_prc,
-                    ))
-                    .detach()
+                let (stat_client, _) = stat_listener.accept().await?;
+                let scollect = scollect.clone();
+                let keepalive = keepalive.clone();
+                smolscale::spawn(async move {
+                    drop(
+                        async_h1::accept(stat_client, |req| {
+                            handle_stats(scollect.clone(), &keepalive, req)
+                        })
+                        .await,
+                    );
+                })
+                .detach();
             }
         })
-        .await
+    };
+    let exclude_prc = opt.exclude_prc;
+
+    loop {
+        let (s5client, _) = socks5_listener
+            .accept()
+            .await
+            .context("cannot accept socks5")?;
+        let keepalive = keepalive.clone();
+        let stat_collector = stat_collector.clone();
+        smolscale::spawn(async move {
+            handle_socks5(stat_collector, s5client, &keepalive, exclude_prc).await
+        })
+        .detach()
+    }
 }
 use std::io::prelude::*;
 
@@ -179,7 +167,7 @@ async fn handle_stats(
                                 .duration_since(first_time)
                                 .unwrap_or_default()
                                 .as_secs_f64(),
-                            item.last_recv,
+                            item.high_recv,
                             item.total_recv,
                             item.total_loss,
                             item.ping.as_secs_f64() * 1000.0,
@@ -218,9 +206,23 @@ async fn handle_stats(
         "/kill" => std::process::exit(0),
         _ => {
             let detail = kalive.get_stats().timeout(Duration::from_millis(100)).await;
-            if let Some(Ok(detail)) = detail {
-                if let Some(detail) = detail.last() {
+            if let Some(Ok(details)) = detail {
+                if let Some(detail) = details.last() {
                     stats.set_latency(detail.ping.as_secs_f64() * 1000.0);
+                    // compute loss
+                    let midpoint_stat = details[details.len() / 2];
+                    let delta_high = detail
+                        .high_recv
+                        .saturating_sub(midpoint_stat.high_recv)
+                        .max(1) as f64;
+                    let delta_total = detail
+                        .total_recv
+                        .saturating_sub(midpoint_stat.total_recv)
+                        .max(1) as f64;
+                    // dbg!(delta_total);
+                    // dbg!(delta_high);
+                    let loss = 1.0 - (delta_total / delta_high).min(1.0).max(0.0);
+                    stats.set_loss(loss * 100.0)
                 }
             }
             let jstats = serde_json::to_string(&stats)?;
