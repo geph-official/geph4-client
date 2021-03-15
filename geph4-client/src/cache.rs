@@ -18,7 +18,7 @@ pub struct ClientCache {
     binder_client: Arc<dyn BinderClient>,
     free_pk: mizaru::PublicKey,
     plus_pk: mizaru::PublicKey,
-    database: sled::Db,
+    database: Box<dyn Fn() -> sled::Db + Send + Sync>,
     pub force_sync: bool,
 }
 
@@ -33,7 +33,7 @@ impl ClientCache {
         free_pk: mizaru::PublicKey,
         plus_pk: mizaru::PublicKey,
         binder_client: Arc<dyn BinderClient>,
-        database: sled::Db,
+        database: Box<dyn Fn() -> sled::Db + Send + Sync>,
     ) -> Self {
         ClientCache {
             username: username.to_string(),
@@ -49,14 +49,27 @@ impl ClientCache {
     /// Create from options
     pub fn from_opts(common: &CommonOpt, auth: &AuthOpt) -> anyhow::Result<Self> {
         let binder_client = common.to_binder_client();
-        let database = sled::open(&auth.credential_cache)?;
+        let credential_cache = auth.credential_cache.clone();
+        let database = move || loop {
+            match sled::open(credential_cache.clone()) {
+                Ok(val) => return val,
+                Err(sled::Error::Io(err)) => {
+                    if err.kind() == std::io::ErrorKind::WouldBlock {
+                        continue;
+                    } else {
+                        panic!(err)
+                    }
+                }
+                Err(e) => panic!(e),
+            }
+        };
         let client_cache = ClientCache::new(
             &auth.username,
             &auth.password,
             common.binder_mizaru_free.clone(),
             common.binder_mizaru_plus.clone(),
             binder_client.clone(),
-            database,
+            Box::new(database),
         );
         Ok(client_cache)
     }
@@ -66,11 +79,15 @@ impl ClientCache {
             return None;
         }
         let existing: Option<(T, u64)> = self
-            .database
+            .database()
             .get(&key.as_bytes())
             .unwrap()
             .map(|v| bincode::deserialize(&v).unwrap());
         existing.map(|v| v.0)
+    }
+
+    fn database(&self) -> sled::Db {
+        (self.database)()
     }
 
     async fn get_cached_maybe_stale<T: Serialize + DeserializeOwned + Clone + std::fmt::Debug>(
@@ -99,7 +116,7 @@ impl ClientCache {
     ) -> anyhow::Result<T> {
         let key = format!("{}-{}", key, self.username);
         let existing: Option<(T, u64)> = self
-            .database
+            .database()
             .get(key.as_bytes())
             .unwrap()
             .map(|v| bincode::deserialize(&v).unwrap());
@@ -123,7 +140,7 @@ impl ClientCache {
         let fresh = fallback.await?;
         log::trace!("fallback resolved for {}! ({:?})", key, fresh);
         // save to disk
-        self.database
+        self.database()
             .insert(
                 key.as_bytes(),
                 bincode::serialize(&(fresh.clone(), deadline)).unwrap(),

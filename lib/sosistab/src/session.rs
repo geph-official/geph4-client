@@ -102,9 +102,9 @@ impl Session {
         let rate = self.rate_limit.load(Ordering::Relaxed);
         // if rate < 1000 {
         // RED with max 250ms latency
-        let target_queue_len = rate / 4;
-        let fill_ratio = self.send_tosend.len() as f64 / target_queue_len as f64;
-        if rand::random::<f64>() < fill_ratio.powi(4) {
+        let max_queue_length = rate / 2;
+        let fill_ratio = self.send_tosend.len() as f64 / max_queue_length as f64;
+        if rand::random::<f64>() < fill_ratio.powi(2) {
             // tracing::warn!("RED dropping packet (fill ratio {:.3})", fill_ratio);
             return;
         }
