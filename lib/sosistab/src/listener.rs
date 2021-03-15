@@ -48,7 +48,7 @@ impl Listener {
         let local_addr = socket.get_ref().local_addr().unwrap();
         let cookie = crypt::Cookie::new((&long_sk).into());
         let (send, recv) = smol::channel::unbounded();
-        let task = runtime::spawn(
+        let task = runtime::spawn_local(
             ListenerActor {
                 socket: Arc::new(StatsBackhaul::new(socket, on_recv, on_send)),
                 cookie,
@@ -76,7 +76,7 @@ impl Listener {
         let cookie = crypt::Cookie::new((&long_sk).into());
         let socket = TcpServerBackhaul::new(listener, long_sk.clone());
         let (send, recv) = smol::channel::unbounded();
-        let task = runtime::spawn(
+        let task = runtime::spawn_local(
             ListenerActor {
                 socket: Arc::new(StatsBackhaul::new(socket, on_recv, on_send)),
                 cookie,
@@ -140,6 +140,7 @@ impl ListenerActor {
             if rand::random::<f32>() < 0.001 {
                 fallthrough_limiter.retain_recent();
             }
+            smol::future::yield_now().await;
             match event.await? {
                 Evt::DeadSess(resume_token) => {
                     tracing::trace!("removing existing session!");
@@ -159,12 +160,13 @@ impl ListenerActor {
                         // we know it's not part of an existing session then. we decrypt it under the current key
                         let s2c_key = self.cookie.generate_s2c().next().unwrap();
                         for possible_key in self.cookie.generate_c2s() {
+                            smol::future::yield_now().await;
                             let crypter = crypt::LegacyAEAD::new(&possible_key);
                             if let Some(handshake) =
                                 crypter.pad_decrypt_v1::<protocol::HandshakeFrame>(&buffer)
                             {
                                 if !RECENT_FILTER.lock().check(&buffer) {
-                                    tracing::warn!(
+                                    tracing::debug!(
                                         "discarding replay attempt with len {}",
                                         buffer.len()
                                     );
@@ -276,6 +278,7 @@ impl ListenerActor {
                                                         loop {
                                                             match session_output_recv.recv().await {
                                                                 Ok(data) => {
+                                                                    // let start = Instant::now();
                                                                     let remote_addr = locked_addrs
                                                                         .write()
                                                                         .get_addr();

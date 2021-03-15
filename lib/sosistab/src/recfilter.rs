@@ -20,13 +20,11 @@ impl RecentFilter {
     }
 
     pub fn check(&mut self, val: &[u8]) -> bool {
-        if Instant::now()
-            .saturating_duration_since(self.curr_time)
-            .as_secs()
-            > 600
-        {
+        let start = Instant::now();
+        if start.saturating_duration_since(self.curr_time).as_secs() > 300 {
             std::mem::swap(&mut self.curr_bloom, &mut self.last_bloom);
-            self.curr_bloom.clear()
+            self.curr_bloom.clear();
+            self.curr_time = start
         }
         !(self.curr_bloom.check_and_set(val) || self.last_bloom.check(val))
     }

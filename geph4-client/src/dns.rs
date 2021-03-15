@@ -1,3 +1,4 @@
+use async_dup::Arc;
 use async_net::SocketAddr;
 use async_tls::{client::TlsStream, TlsConnector};
 use smol::{
@@ -14,35 +15,29 @@ use crate::kalive::Keepalive;
 pub async fn dns_loop(addr: SocketAddr, keepalive: Keepalive) -> anyhow::Result<()> {
     let socket = smol::net::UdpSocket::bind(addr).await?;
     let mut buf = [0; 2048];
-    let pool = DnsPool::new(keepalive);
-    let scope = smol::Executor::new();
-    scope
-        .run(async {
-            log::debug!("DNS loop started");
-            loop {
-                let (n, c_addr) = socket.recv_from(&mut buf).await?;
-                let buff = buf[..n].to_vec();
-                let socket = &socket;
-                let pool = &pool;
-                scope
-                    .spawn(async move {
-                        let fut = || async {
-                            socket
-                                .send_to(&pool.request(&buff).await?, c_addr)
-                                .await
-                                .ok()?;
-                            Some(())
-                        };
-                        for _ in 0u32..5 {
-                            if fut().await.is_some() {
-                                return;
-                            }
-                        }
-                    })
-                    .detach();
+    let pool = Arc::new(DnsPool::new(keepalive));
+    log::debug!("DNS loop started");
+    loop {
+        let (n, c_addr) = socket.recv_from(&mut buf).await?;
+        let buff = buf[..n].to_vec();
+        let socket = socket.clone();
+        let pool = pool.clone();
+        smolscale::spawn(async move {
+            let fut = || async {
+                socket
+                    .send_to(&pool.request(&buff).await?, c_addr)
+                    .await
+                    .ok()?;
+                Some(())
+            };
+            for _ in 0u32..5 {
+                if fut().await.is_some() {
+                    return;
+                }
             }
         })
-        .await
+        .detach();
+    }
 }
 
 /// A DNS connection pool

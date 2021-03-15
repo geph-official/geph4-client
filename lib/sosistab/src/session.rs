@@ -17,7 +17,7 @@ use stats::StatGatherer;
 use std::{
     num::NonZeroU32,
     sync::atomic::{AtomicU32, Ordering},
-    time::SystemTime,
+    time::{Instant, SystemTime},
 };
 use std::{sync::Arc, time::Duration};
 
@@ -127,7 +127,7 @@ impl Session {
                 if rand::random::<f32>() < 0.1 {
                     let stat = SessionStat {
                         time: SystemTime::now(),
-                        last_recv: raw_stat.high_recv_frame_no(),
+                        high_recv: raw_stat.high_recv_frame_no(),
                         total_recv: raw_stat.total_recv_frames(),
                         total_loss: 1.0
                             - (raw_stat.total_recv_frames() as f64
@@ -194,7 +194,7 @@ async fn session_send_loop(ctx: SessionSendCtx) {
     }
 }
 
-const BURST_SIZE: usize = 2;
+const BURST_SIZE: usize = 20;
 
 #[tracing::instrument(skip(ctx))]
 async fn session_send_loop_v1(ctx: SessionSendCtx) -> Option<()> {
@@ -209,7 +209,7 @@ async fn session_send_loop_v1(ctx: SessionSendCtx) -> Option<()> {
     );
 
     let policy_limiter = RateLimiter::direct_with_clock(
-        Quota::per_second(NonZeroU32::new(10000u32).unwrap()),
+        Quota::per_second(NonZeroU32::new(25600u32).unwrap()),
         &governor::clock::MonotonicClock,
     );
     let mut encoder = FrameEncoder::new(4);
@@ -249,7 +249,7 @@ async fn session_send_loop_v1(ctx: SessionSendCtx) -> Option<()> {
                 if ctx.recv_tosend.len() > 100 {
                     continue;
                 }
-                let multiplier = 10000 / limit;
+                let multiplier = 25600 / limit;
                 while let Err(NegativeMultiDecision::BatchNonConforming(_, err)) =
                     policy_limiter.check_n(NonZeroU32::new(multiplier).unwrap())
                 {
@@ -297,7 +297,7 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
     }
 
     let policy_limiter = RateLimiter::direct_with_clock(
-        Quota::per_second(NonZeroU32::new(20000).unwrap()),
+        Quota::per_second(NonZeroU32::new(25600).unwrap()),
         &governor::clock::MonotonicClock,
     );
 
@@ -306,7 +306,7 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
     //     &governor::clock::MonotonicClock,
     // );
 
-    const FEC_TIMEOUT_MS: u64 = 25;
+    const FEC_TIMEOUT_MS: u64 = 75;
 
     // FEC timer: when this expires, send parity packets regardless if we have assembled BURST_SIZE data packets.
     let mut fec_timer = smol::Timer::after(Duration::from_millis(FEC_TIMEOUT_MS));
@@ -315,6 +315,7 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
     let mut fec_encoder = FrameEncoder::new(1);
     let mut frame_no = 0;
     loop {
+        smol::future::yield_now().await;
         // we die an early death if something went wrong
         if let Ok(elapsed) = SystemTime::now().duration_since(*ctx.last_recv.lock()) {
             if elapsed > ctx.recv_timeout {
@@ -339,14 +340,14 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
             // we have something to send as a data packet.
             Event::NewPayload(send_payload) => {
                 let limit = ctx.rate_limit.load(Ordering::Relaxed);
-                if limit < 1000 {
-                    let multiplier = 25600 / limit;
-                    while let Err(NegativeMultiDecision::BatchNonConforming(_, err)) =
-                        policy_limiter.check_n(NonZeroU32::new(multiplier).unwrap())
-                    {
-                        smol::Timer::at(err.earliest_possible()).await;
-                    }
+                // if limit < 1000 {
+                let multiplier = 25600 / limit;
+                while let Err(NegativeMultiDecision::BatchNonConforming(_, err)) =
+                    policy_limiter.check_n(NonZeroU32::new(multiplier).unwrap())
+                {
+                    smol::Timer::at(err.earliest_possible()).await;
                 }
+                // }
                 // while let Err(e) = hard_limiter.check() {
                 //     smol::Timer::at(e.earliest_possible()).await;
                 // }
@@ -430,7 +431,7 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
 #[derive(Copy, Clone, Debug)]
 pub struct SessionStat {
     pub time: SystemTime,
-    pub last_recv: u64,
+    pub high_recv: u64,
     pub total_recv: u64,
     // pub total_parity: u64,
     pub total_loss: f64,
