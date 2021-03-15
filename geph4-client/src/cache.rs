@@ -1,8 +1,8 @@
-use crate::{persist::KVDatabase, AuthOpt, CommonOpt};
+use crate::{AuthOpt, CommonOpt};
 use binder_transport::{
     BinderClient, BinderError, BinderRequestData, BinderResponse, BridgeDescriptor, ExitDescriptor,
 };
-use parking_lot::Mutex;
+
 use rand::prelude::*;
 use rsa_fdh::blind;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
@@ -18,7 +18,7 @@ pub struct ClientCache {
     binder_client: Arc<dyn BinderClient>,
     free_pk: mizaru::PublicKey,
     plus_pk: mizaru::PublicKey,
-    database: Arc<Mutex<KVDatabase>>,
+    database: sled::Db,
     pub force_sync: bool,
 }
 
@@ -33,7 +33,7 @@ impl ClientCache {
         free_pk: mizaru::PublicKey,
         plus_pk: mizaru::PublicKey,
         binder_client: Arc<dyn BinderClient>,
-        database: Arc<Mutex<KVDatabase>>,
+        database: sled::Db,
     ) -> Self {
         ClientCache {
             username: username.to_string(),
@@ -49,9 +49,7 @@ impl ClientCache {
     /// Create from options
     pub fn from_opts(common: &CommonOpt, auth: &AuthOpt) -> anyhow::Result<Self> {
         let binder_client = common.to_binder_client();
-        let database = Arc::new(Mutex::new(crate::persist::KVDatabase::open(
-            &auth.credential_cache,
-        )?));
+        let database = sled::open(&auth.credential_cache)?;
         let client_cache = ClientCache::new(
             &auth.username,
             &auth.password,
@@ -67,7 +65,11 @@ impl ClientCache {
         if self.force_sync {
             return None;
         }
-        let existing: Option<(T, u64)> = self.database.lock().transaction().get(&key);
+        let existing: Option<(T, u64)> = self
+            .database
+            .get(&key.as_bytes())
+            .unwrap()
+            .map(|v| bincode::deserialize(&v).unwrap());
         existing.map(|v| v.0)
     }
 
@@ -96,7 +98,11 @@ impl ClientCache {
         ttl: Duration,
     ) -> anyhow::Result<T> {
         let key = format!("{}-{}", key, self.username);
-        let existing: Option<(T, u64)> = self.database.lock().transaction().get(&key);
+        let existing: Option<(T, u64)> = self
+            .database
+            .get(key.as_bytes())
+            .unwrap()
+            .map(|v| bincode::deserialize(&v).unwrap());
         if !self.force_sync {
             if let Some((existing, timeout)) = existing {
                 if SystemTime::now()
@@ -116,12 +122,13 @@ impl ClientCache {
             .as_secs();
         let fresh = fallback.await?;
         log::trace!("fallback resolved for {}! ({:?})", key, fresh);
-        let mut database = self.database.lock();
-        log::trace!("database locked for {}!", key);
-        let mut db = database.transaction();
         // save to disk
-        db.insert(&key, (fresh.clone(), deadline));
-        db.commit();
+        self.database
+            .insert(
+                key.as_bytes(),
+                bincode::serialize(&(fresh.clone(), deadline)).unwrap(),
+            )
+            .unwrap();
         log::trace!("about to return for {}!", key);
         Ok(fresh)
     }
