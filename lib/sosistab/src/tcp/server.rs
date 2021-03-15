@@ -99,7 +99,6 @@ async fn backhaul_one(
     let mut encrypted_hello_length = vec![0u8; NgAEAD::overhead() + 2];
     client.read_exact(&mut encrypted_hello_length).await?;
     for (possible_c2s, possible_s2c) in cookie.generate_c2s().zip(cookie.generate_s2c()) {
-        smol::future::yield_now().await;
         let c2s_key = blake3::keyed_hash(&TCP_UP_KEY, &possible_c2s);
         let c2s_dec = NgAEAD::new(c2s_key.as_bytes());
         let s2c_key = blake3::keyed_hash(&TCP_DN_KEY, &possible_s2c);
@@ -164,7 +163,6 @@ async fn backhaul_one_inner(
     let up_loop = async {
         let mut buff = [0u8; 4096];
         loop {
-            smol::future::yield_now().await;
             down_table.set(addr, send_down.clone());
             obfs_tcp.read_exact(&mut buff[..2]).await?;
             let length = u16::from_be_bytes(
@@ -184,7 +182,6 @@ async fn backhaul_one_inner(
     let dn_loop = async {
         let mut buff = [0u8; 4098];
         loop {
-            smol::future::yield_now().await;
             let down = recv_down.recv().await?;
             if down.len() > 4096 {
                 break Err(anyhow::anyhow!("rejecting a down that's too long"));
@@ -208,7 +205,7 @@ struct DownTable {
 impl DownTable {
     /// Creates/overwrites a new entry in the table.
     fn set(&self, addr: SocketAddr, sender: Sender<Bytes>) {
-        if rand::random::<usize>() % self.mapping.len().max(10) == 0 {
+        if rand::random::<usize>() % self.mapping.len().max(1000) == 0 {
             self.gc()
         }
         let now = Instant::now();

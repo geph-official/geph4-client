@@ -17,7 +17,7 @@ use stats::StatGatherer;
 use std::{
     num::NonZeroU32,
     sync::atomic::{AtomicU32, Ordering},
-    time::SystemTime,
+    time::{Instant, SystemTime},
 };
 use std::{sync::Arc, time::Duration};
 

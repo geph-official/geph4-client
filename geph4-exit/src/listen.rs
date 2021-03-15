@@ -1,7 +1,7 @@
 use std::{
     net::SocketAddr,
     sync::{atomic::AtomicUsize, Arc},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use crate::vpn;
@@ -108,6 +108,19 @@ impl RootCtx {
     }
 }
 
+async fn idlejitter(ctx: Arc<RootCtx>) {
+    let key = format!("idlejitter.{}", ctx.exit_hostname.replace(".", "-"));
+    const INTERVAL: Duration = Duration::from_millis(10);
+    loop {
+        let start = Instant::now();
+        smol::Timer::after(INTERVAL).await;
+        let elapsed = start.elapsed();
+        if rand::random::<f32>() < 0.1 {
+            ctx.stat_client.timer(&key, elapsed.as_secs_f64() * 1000.0);
+        }
+    }
+}
+
 /// per-session context
 pub struct SessCtx {
     root: Arc<RootCtx>,
@@ -143,7 +156,9 @@ pub async fn main_loop<'a>(
         control_count: AtomicUsize::new(0),
     });
 
-    smolscale::spawn(vpn::transparent_proxy_helper(ctx.clone())).detach();
+    let _idlejitter = smolscale::spawn(idlejitter(ctx.clone()));
+
+    let _vpn = smolscale::spawn(vpn::transparent_proxy_helper(ctx.clone()));
 
     // control protocol listener
     let control_prot_listen = smol::net::TcpListener::bind("[::0]:28080").await?;

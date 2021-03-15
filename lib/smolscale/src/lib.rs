@@ -61,7 +61,7 @@ fn start_monitor() {
 }
 
 fn monitor_loop() {
-    fn start_thread(affinity: Option<CoreId>, exitable: bool) {
+    fn start_thread(affinity: Option<CoreId>, exitable: bool, process_io: bool) {
         THREAD_COUNT.fetch_add(1, Ordering::Relaxed);
         std::thread::Builder::new()
             .name(
@@ -77,7 +77,7 @@ fn monitor_loop() {
                     core_affinity::set_for_current(affinity);
                 }
                 // let local_exec = LEXEC.with(|v| Rc::clone(v));
-                async_io::block_on(async {
+                let future = async {
                     scopeguard::defer!({
                         THREAD_COUNT.fetch_sub(1, Ordering::Relaxed);
                     });
@@ -88,18 +88,27 @@ fn monitor_loop() {
                         })
                         .await;
                     } else {
-                        EXEC.run_pinned(futures_lite::future::pending::<()>()).await;
+                        EXEC.run(futures_lite::future::pending::<()>()).await;
                     };
-                })
+                };
+                if process_io {
+                    async_io::block_on(future)
+                } else {
+                    futures_lite::future::block_on(future)
+                }
             })
             .unwrap();
     }
     if SINGLE_THREAD.load(Ordering::Relaxed) {
-        start_thread(None, false);
+        start_thread(None, false, true);
         return;
     } else {
-        for affinity in core_affinity::get_core_ids().unwrap() {
-            start_thread(Some(affinity), false);
+        if let Some(ids) = core_affinity::get_core_ids() {
+            for affinity in ids {
+                start_thread(Some(affinity), false, true);
+            }
+        } else {
+            start_thread(None, false, true);
         }
     }
 
@@ -110,7 +119,7 @@ fn monitor_loop() {
         let after_sleep = POLL_COUNT.load(Ordering::Relaxed);
         let running_threads = THREAD_COUNT.load(Ordering::Relaxed);
         if after_sleep == before_sleep && running_threads <= MAX_THREADS && some_running {
-            start_thread(None, true);
+            start_thread(None, true, false);
         }
     }
 }

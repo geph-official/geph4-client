@@ -48,7 +48,10 @@ impl ObfsTCP {
             )
             .unwrap(),
         ));
-        let buf_read = async_dup::Arc::new(async_dup::Mutex::new(BufReader::new(inner.clone())));
+        let buf_read = async_dup::Arc::new(async_dup::Mutex::new(BufReader::with_capacity(
+            65536,
+            inner.clone(),
+        )));
         if is_server {
             Self {
                 inner,
