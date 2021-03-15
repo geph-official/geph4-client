@@ -6,8 +6,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Default, Serialize, Deserialize)]
 pub struct StatCollector {
-    total_rx: AtomicU64,
-    total_tx: AtomicU64,
+    total_rx: Mutex<u64>,
+    total_tx: Mutex<u64>,
 
     open_conns: Mutex<u64>,
     open_latency: Mutex<f64>,
@@ -19,12 +19,10 @@ pub struct StatCollector {
 
 impl StatCollector {
     pub fn incr_total_rx(&self, bytes: u64) {
-        self.total_rx
-            .fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
+        *self.total_rx.lock() += bytes;
     }
     pub fn incr_total_tx(&self, bytes: u64) {
-        self.total_tx
-            .fetch_add(bytes, std::sync::atomic::Ordering::Relaxed);
+        *self.total_tx.lock() += bytes;
     }
 
     pub fn set_latency(&self, ms: f64) {
