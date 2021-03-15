@@ -1,4 +1,4 @@
-use std::{collections::VecDeque, sync::atomic::AtomicU64};
+use std::collections::VecDeque;
 
 use once_cell::sync::Lazy;
 use parking_lot::{Mutex, RwLock};

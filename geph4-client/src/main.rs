@@ -8,7 +8,7 @@ use stats::GLOBAL_LOGGER;
 use structopt::StructOpt;
 mod cache;
 mod kalive;
-mod persist;
+
 use once_cell::sync::Lazy;
 use prelude::*;
 mod dns;
