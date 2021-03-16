@@ -1,4 +1,4 @@
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 
 /// Resolves a string into a vector of SocketAddrs.
 #[cfg(target_os = "windows")]
@@ -12,12 +12,13 @@ pub async fn resolve(host_port: &str) -> std::io::Result<Vec<SocketAddr>> {
         .ok_or_else(|| crate::to_ioerror("no port in address"))?
         .parse()
         .map_err(crate::to_ioerror)?;
-    let resolver = DNSClient::new(vec![
-        UpstreamServer::new("1.1.1.1:53".parse::<SocketAddr>().unwrap()),
+    let mut resolver = DNSClient::new(vec![
+        UpstreamServer::new("8.8.8.8:53".parse::<SocketAddr>().unwrap()),
         UpstreamServer::new("9.9.9.9:53".parse::<SocketAddr>().unwrap()),
         UpstreamServer::new("74.82.42.42:53".parse::<SocketAddr>().unwrap()),
         UpstreamServer::new("114.114.114.114:53".parse::<SocketAddr>().unwrap()),
     ]);
+    resolver.set_timeout(Duration::from_secs(1));
     let result = resolver
         .query_a(exploded[0])
         .await
