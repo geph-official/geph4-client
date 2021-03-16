@@ -297,7 +297,8 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
     }
 
     let policy_limiter = RateLimiter::direct_with_clock(
-        Quota::per_second(NonZeroU32::new(25600).unwrap()),
+        Quota::per_second(NonZeroU32::new(25600).unwrap())
+            .allow_burst(NonZeroU32::new(1280).unwrap()),
         &governor::clock::MonotonicClock,
     );
 
