@@ -3,7 +3,6 @@ use crate::{
     BinderResponse, BinderResult, BinderServer, EncryptedBinderRequestData,
     EncryptedBinderResponse,
 };
-use async_tls::TlsConnector;
 use http_types::{Method, Request, StatusCode, Url};
 use smol::channel::{Receiver, Sender};
 use smol_timeout::TimeoutExt;
@@ -43,10 +42,6 @@ impl HttpClient {
 impl BinderClient for HttpClient {
     async fn request(&self, brequest: BinderRequestData) -> BinderResult<BinderResponse> {
         let everything = async move {
-            // open connection
-            let conn = endpoint_to_conn(&self.endpoint)
-                .await
-                .map_err(|v| BinderError::Other(v.to_string()))?;
             // send request
             let mut req = Request::new(Method::Post, Url::parse(&self.endpoint).unwrap());
             for (header, value) in self.headers.iter() {
@@ -57,7 +52,8 @@ impl BinderClient for HttpClient {
             let (encrypted, reply_key) = brequest.encrypt(my_esk, self.binder_lpk);
             req.set_body(bincode::serialize(&encrypted).unwrap());
             // do the request
-            let mut response = async_h1::connect(conn, req)
+            let mut response = surf::client()
+                .send(req)
                 .await
                 .map_err(|v| BinderError::Other(v.to_string()))?;
 
@@ -74,32 +70,11 @@ impl BinderClient for HttpClient {
                 .ok_or_else(|| BinderError::Other("decryption failure".into()))?
         };
         everything
-            .timeout(Duration::from_secs(5))
+            .timeout(Duration::from_secs(30))
             .await
-            .ok_or_else(|| BinderError::Other("timeout".into()))?
+            .ok_or_else(|| BinderError::Other("HTTP timeout in 30 secs".into()))?
     }
 }
-
-/// Returns a connection, given an endpoint.
-async fn endpoint_to_conn(endpoint: &str) -> std::io::Result<aioutils::ConnLike> {
-    let url = Url::parse(endpoint).map_err(aioutils::to_ioerror)?;
-    let host_string = url
-        .host_str()
-        .ok_or_else(|| aioutils::to_ioerror("no host"))?;
-    let port = url.port_or_known_default().unwrap_or(0);
-    let composed = format!("{}:{}", host_string, port);
-    let tcp_conn =
-        smol::net::TcpStream::connect(aioutils::resolve(&composed).await?.as_slice()).await?;
-    match url.scheme() {
-        "https" => {
-            let connector = TlsConnector::default();
-            let tls_conn = connector.connect(host_string, tcp_conn).await?;
-            Ok(aioutils::connify(tls_conn))
-        }
-        _ => Ok(aioutils::connify(tcp_conn)),
-    }
-}
-
 /// An HTTP-based BinderServer implementation. It uses `async-h1` underneath,
 /// driven by an internal executor so that it exposes a synchronous interface.
 pub struct HttpServer {

@@ -20,6 +20,7 @@ struct Args {
 enum Subcmds {
     Client(ClientArgs),
     Server(ServerArgs),
+    SelfTest(SelfTestArgs),
 }
 
 /// Client
@@ -40,12 +41,29 @@ struct ServerArgs {
     listen: SocketAddr,
 }
 
+/// Self test
+#[derive(FromArgs, PartialEq, Debug)]
+#[argh(subcommand, name = "selftest")]
+struct SelfTestArgs {}
+
 fn main() -> anyhow::Result<()> {
     env_logger::init();
     let args: Args = argh::from_env();
     match args.nested {
         Subcmds::Client(client) => smolscale::block_on(client_main(client)),
         Subcmds::Server(server) => smolscale::block_on(server_main(server)),
+        Subcmds::SelfTest(_) => {
+            let client_args = ClientArgs {
+                connect: "127.0.0.1:19999".into(),
+            };
+            let server_args = ServerArgs {
+                listen: "127.0.0.1:19999".parse().unwrap(),
+            };
+            smolscale::block_on(
+                smolscale::spawn(client_main(client_args))
+                    .race(smolscale::spawn(server_main(server_args))),
+            )
+        }
     }
 }
 

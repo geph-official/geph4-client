@@ -302,8 +302,8 @@ impl ConnVars {
         } else {
             self.cwnd - self.ssthresh
         }
-        .max(1.0)
-        .min(256.0);
+        .max(3.0)
+        .min(self.cwnd);
         self.cwnd += bic_inc / self.cwnd;
     }
 
@@ -312,7 +312,7 @@ impl ConnVars {
         self.loss_rate = self.loss_rate * 0.99 + 0.01;
         let now = Instant::now();
         if now.saturating_duration_since(self.last_loss) > self.inflight.rto() {
-            let beta = 0.125;
+            let beta = 0.25;
             if self.cwnd < self.ssthresh {
                 self.ssthresh = self.cwnd * (2.0 - beta) / 2.0;
             } else {

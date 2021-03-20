@@ -86,7 +86,10 @@ async fn manage_exit(
     bridge_secret: String,
     bridge_group: String,
 ) -> anyhow::Result<()> {
-    let free_socket = std::net::UdpSocket::bind("[::0]:0").unwrap();
+    let free_socket = [80, 443, 22, 995, 989, 530, 8080, 8443]
+        .iter()
+        .find_map(|port| std::net::UdpSocket::bind(format!("[::0]:{}", port)).ok())
+        .unwrap();
     let remote_addr = smol::net::resolve(&format!("{}:28080", exit.hostname)).await?[0];
     log::info!(
         "forward to {} from local address {}",

@@ -103,11 +103,7 @@ fn monitor_loop() {
         start_thread(None, false, true);
         return;
     } else {
-        if let Some(ids) = core_affinity::get_core_ids() {
-            for affinity in ids {
-                start_thread(Some(affinity), false, true);
-            }
-        } else {
+        for i in 0..num_cpus::get() {
             start_thread(None, false, true);
         }
     }
@@ -187,7 +183,7 @@ impl<T, F: Future<Output = T>> Future for WrappedFuture<T, F> {
         if elapsed.as_millis() > 50 {
             let btrace = Arc::make_mut(&mut btrace);
             btrace.resolve();
-            log::warn!(
+            log::trace!(
                 "poll took {:?}. task was created at: {:#?}",
                 elapsed,
                 btrace
