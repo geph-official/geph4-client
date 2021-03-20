@@ -22,7 +22,7 @@ pub struct ClientCache {
     pub force_sync: bool,
 }
 
-static NETWORK_TIMEOUT: Duration = Duration::from_secs(20);
+static NETWORK_TIMEOUT: Duration = Duration::from_secs(120);
 static STALE_TIMEOUT: Duration = Duration::from_secs(3);
 
 impl ClientCache {
@@ -79,6 +79,7 @@ impl ClientCache {
         if self.force_sync {
             return None;
         }
+        let key = self.to_key(key);
         let existing: Option<(T, u64)> = self
             .database()
             .get(&key.as_bytes())
@@ -91,6 +92,10 @@ impl ClientCache {
         (self.database)()
     }
 
+    fn to_key(&self, key: &str) -> String {
+        format!("{}-{}", key, self.username)
+    }
+
     async fn get_cached_maybe_stale<T: Serialize + DeserializeOwned + Clone + std::fmt::Debug>(
         &self,
         key: &str,
@@ -101,8 +106,10 @@ impl ClientCache {
             .or(async {
                 smol::Timer::after(STALE_TIMEOUT).await;
                 if let Some(val) = self.get_cached_stale(key) {
+                    log::warn!("falling back to possibly stale value for {}", key);
                     Ok(val)
                 } else {
+                    log::warn!("no stale value available");
                     smol::future::pending().await
                 }
             })
@@ -115,10 +122,10 @@ impl ClientCache {
         fallback: impl Future<Output = anyhow::Result<T>>,
         ttl: Duration,
     ) -> anyhow::Result<T> {
-        let key = format!("{}-{}", key, self.username);
+        let expanded_key = self.to_key(key);
         let existing: Option<(T, u64)> = self
             .database()
-            .get(key.as_bytes())
+            .get(expanded_key.as_bytes())
             .unwrap()
             .map(|v| bincode::deserialize(&v).unwrap());
         if !self.force_sync {
@@ -138,16 +145,17 @@ impl ClientCache {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
+        log::debug!("refreshing from binder for {}", key);
         let fresh = fallback.await?;
-        log::trace!("fallback resolved for {}! ({:?})", key, fresh);
+        log::trace!("fallback resolved for {}! ({:?})", expanded_key, fresh);
         // save to disk
         self.database()
             .insert(
-                key.as_bytes(),
+                expanded_key.as_bytes(),
                 bincode::serialize(&(fresh.clone(), deadline)).unwrap(),
             )
             .unwrap();
-        log::trace!("about to return for {}!", key);
+        log::trace!("about to return for {}!", expanded_key);
         Ok(fresh)
     }
 

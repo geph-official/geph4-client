@@ -32,9 +32,9 @@ pub async fn get_session(
                     log::debug!("connecting through {}...", desc.endpoint);
                     drop(
                         send.send((desc.endpoint, {
-                            // we effectively sum 5 RTTs. this filters out the high-jitter/high-loss crap.
+                            // we effectively sum 3 RTTs. this filters out the high-jitter/high-loss crap.
                             if !use_tcp {
-                                for _ in 0u8..5 {
+                                for _ in 0u8..3 {
                                     let _ = sosistab::connect_udp(desc.endpoint, desc.sosistab_key)
                                         .await;
                                 }
@@ -90,8 +90,8 @@ pub async fn get_session(
     };
     connected_sess_async
         .or(async {
-            smol::Timer::after(Duration::from_secs(20)).await;
-            anyhow::bail!("initial connection timeout after 20");
+            smol::Timer::after(Duration::from_secs(40)).await;
+            anyhow::bail!("initial connection timeout after 40");
         })
         .await
 }

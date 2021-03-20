@@ -28,7 +28,7 @@ mod nursery;
 pub use nursery::*;
 
 //const CHANGE_THRESH: u32 = 10;
-const MONITOR_MS: u64 = 50;
+const MONITOR_MS: u64 = 200;
 
 const MAX_THREADS: usize = 500;
 
@@ -109,11 +109,11 @@ fn monitor_loop() {
     }
 
     loop {
-        let some_running = FUTURES_BEING_POLLED.load(Ordering::Relaxed) > 0;
         let before_sleep = POLL_COUNT.load(Ordering::Relaxed);
         std::thread::sleep(Duration::from_millis(MONITOR_MS));
         let after_sleep = POLL_COUNT.load(Ordering::Relaxed);
         let running_threads = THREAD_COUNT.load(Ordering::Relaxed);
+        let some_running = FUTURES_BEING_POLLED.load(Ordering::Relaxed) > 0;
         if after_sleep == before_sleep && running_threads <= MAX_THREADS && some_running {
             start_thread(None, true, false);
         }
