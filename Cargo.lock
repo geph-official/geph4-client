@@ -1664,6 +1664,7 @@ dependencies = [
  "blake3",
  "ed25519-dalek",
  "env_logger",
+ "fastrand",
  "flume",
  "hex",
  "log 0.4.14",

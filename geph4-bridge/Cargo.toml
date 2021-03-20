@@ -24,5 +24,5 @@ blake3 = "0.3.7"
 ureq = "1.5"
 flume = "0.10.1"
 once_cell="1"
-
+fastrand="1.4"
 aioutils={path="../lib/aioutils"}
