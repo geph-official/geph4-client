@@ -214,6 +214,9 @@ static INCOMING_PKT_HANDLER: Lazy<smol::Task<()>> = Lazy::new(|| {
                 .read_raw()
                 .await
                 .expect("cannot read from tun device");
+            if rand::random::<f32>() < 0.1 {
+                smol::future::yield_now().await;
+            }
             let dest = Ipv4Packet::new(&pkt).map(|pkt| INCOMING_MAP.get(&pkt.get_destination()));
             if let Some(Some(dest)) = dest {
                 (dest.value())(pkt);

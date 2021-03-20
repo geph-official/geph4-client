@@ -55,6 +55,7 @@ impl ClientCache {
                 Ok(val) => return val,
                 Err(sled::Error::Io(err)) => {
                     if err.kind() == std::io::ErrorKind::WouldBlock {
+                        log::warn!("database busy, retrying...");
                         continue;
                     } else {
                         panic!(err)

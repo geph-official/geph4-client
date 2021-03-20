@@ -1,7 +1,11 @@
 mod wiretypes;
 
-use std::sync::{atomic::AtomicUsize, atomic::Ordering, Arc};
+use std::{
+    sync::{atomic::AtomicUsize, atomic::Ordering, Arc},
+    time::Duration,
+};
 
+use smol_timeout::TimeoutExt;
 pub use wiretypes::*;
 mod http;
 pub use http::*;
@@ -62,13 +66,26 @@ impl MultiBinderClient {
 impl MultiBinderClient {
     // does the request on ONE binder
     async fn request_one(&self, request: BinderRequestData) -> BinderResult<BinderResponse> {
-        let curr_idx = self.index.fetch_add(1, Ordering::Relaxed);
-        let client = &self.clients[curr_idx % self.clients.len()];
-        let res = client.request(request).await;
-        if res.is_ok() {
-            self.index.fetch_sub(1, Ordering::Relaxed);
+        let mut timeout = Duration::from_secs(1);
+        loop {
+            let curr_idx = self.index.fetch_add(1, Ordering::Relaxed);
+            let client = &self.clients[curr_idx % self.clients.len()];
+            log::warn!("request_one started");
+            let res = client.request(request.clone()).timeout(timeout).await;
+            if let Some(res) = res {
+                if res.is_ok() {
+                    log::warn!("request_one succeeded");
+                    self.index.fetch_sub(1, Ordering::Relaxed);
+                }
+                return res;
+            } else {
+                log::warn!(
+                    "MultiBinderClient switching backend due to timeout {:?}",
+                    timeout
+                );
+                timeout *= 2;
+            }
         }
-        res
     }
 
     // does the request on all binders

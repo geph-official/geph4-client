@@ -55,10 +55,26 @@ impl<B: Backhaul> Backhaul for StatsBackhaul<B> {
         self.haul.send_to(to_send, dest).await
     }
 
+    async fn send_to_many(&self, to_send: &[(Bytes, SocketAddr)]) -> io::Result<()> {
+        for (frag, addr) in to_send.iter() {
+            (self.on_recv)(frag.len(), *addr);
+        }
+        self.haul.send_to_many(to_send).await?;
+        Ok(())
+    }
+
     async fn recv_from(&self) -> io::Result<(Bytes, SocketAddr)> {
         let (bts, addr) = self.haul.recv_from().await?;
         (self.on_recv)(bts.len(), addr);
         Ok((bts, addr))
+    }
+
+    async fn recv_from_many(&self) -> io::Result<Vec<(Bytes, SocketAddr)>> {
+        let toret = self.haul.recv_from_many().await?;
+        for (frag, addr) in toret.iter() {
+            (self.on_recv)(frag.len(), *addr);
+        }
+        Ok(toret)
     }
 }
 
