@@ -97,15 +97,7 @@ async fn keepalive_actor_once(
         get_session(exit_info, &ccache, cfg.use_bridges, true).await?
     } else {
         // give UDP a head start
-        get_session(exit_info.clone(), &ccache, cfg.use_bridges, false)
-            .or(async {
-                smol::Timer::after(Duration::from_secs(10)).await;
-                log::warn!("UDP seems to be stuck, racing with TCP...");
-                let toret = get_session(exit_info, &ccache, cfg.use_bridges, true).await;
-                log::warn!("TCP WON!");
-                toret
-            })
-            .await?
+        get_session(exit_info.clone(), &ccache, cfg.use_bridges, false).await?
     };
 
     let mux = Arc::new(sosistab::mux::Multiplex::new(session));

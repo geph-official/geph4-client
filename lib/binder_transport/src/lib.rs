@@ -66,15 +66,15 @@ impl MultiBinderClient {
 impl MultiBinderClient {
     // does the request on ONE binder
     async fn request_one(&self, request: BinderRequestData) -> BinderResult<BinderResponse> {
-        let mut timeout = Duration::from_secs(1);
+        let mut timeout = Duration::from_secs(8);
         loop {
             let curr_idx = self.index.fetch_add(1, Ordering::Relaxed);
             let client = &self.clients[curr_idx % self.clients.len()];
-            log::warn!("request_one started");
+            log::trace!("request_one started");
             let res = client.request(request.clone()).timeout(timeout).await;
             if let Some(res) = res {
                 if res.is_ok() {
-                    log::warn!("request_one succeeded");
+                    log::trace!("request_one succeeded");
                     self.index.fetch_sub(1, Ordering::Relaxed);
                 }
                 return res;
@@ -83,7 +83,7 @@ impl MultiBinderClient {
                     "MultiBinderClient switching backend due to timeout {:?}",
                     timeout
                 );
-                timeout *= 2;
+                timeout += Duration::from_secs(1);
             }
         }
     }
@@ -91,20 +91,21 @@ impl MultiBinderClient {
     // does the request on all binders
     async fn request_multi(&self, request: BinderRequestData) -> BinderResult<BinderResponse> {
         let (send_res, recv_res) = smol::channel::unbounded();
+        let mut _tasks = vec![];
         for (idx, client) in self.clients.iter().enumerate() {
             let client = client.clone();
             let request = request.clone();
             let send_res = send_res.clone();
-            smolscale::spawn(async move {
+            _tasks.push(smolscale::spawn(async move {
                 let _ = send_res.send((idx, client.request(request).await)).await;
-            })
-            .detach();
+            }));
         }
         let (idx, res) = recv_res
             .recv()
             .await
             .expect("result channel shouldn't have closed");
         self.index.store(idx, Ordering::Relaxed);
+        drop(_tasks);
         res
     }
 }

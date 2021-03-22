@@ -28,7 +28,7 @@ incremental=true
 [profile.release]
 panic = "abort"
 opt-level=3
-debug=1
+debug=0
 
 [patch.crates-io]
 async-executor={git="https://github.com/geph-official/async-executor.git", branch="local-queues"}
