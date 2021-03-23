@@ -10,8 +10,6 @@
 //!
 //! `smolscale` also includes `Nursery`, a helper for [structure concurrency](https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/) on the `smolscale` global executor.
 
-use backtrace::Backtrace;
-use core_affinity::CoreId;
 use futures_lite::prelude::*;
 use once_cell::sync::OnceCell;
 use std::{
@@ -61,7 +59,7 @@ fn start_monitor() {
 }
 
 fn monitor_loop() {
-    fn start_thread(affinity: Option<CoreId>, exitable: bool, process_io: bool) {
+    fn start_thread(exitable: bool, process_io: bool) {
         THREAD_COUNT.fetch_add(1, Ordering::Relaxed);
         std::thread::Builder::new()
             .name(
@@ -73,9 +71,6 @@ fn monitor_loop() {
                 .into(),
             )
             .spawn(move || {
-                if let Some(affinity) = affinity {
-                    core_affinity::set_for_current(affinity);
-                }
                 // let local_exec = LEXEC.with(|v| Rc::clone(v));
                 let future = async {
                     scopeguard::defer!({
@@ -100,11 +95,11 @@ fn monitor_loop() {
             .unwrap();
     }
     if SINGLE_THREAD.load(Ordering::Relaxed) {
-        start_thread(None, false, true);
+        start_thread(false, true);
         return;
     } else {
         for i in 0..num_cpus::get() {
-            start_thread(None, false, true);
+            start_thread(false, true);
         }
     }
 
@@ -115,7 +110,7 @@ fn monitor_loop() {
         let running_threads = THREAD_COUNT.load(Ordering::Relaxed);
         let some_running = FUTURES_BEING_POLLED.load(Ordering::Relaxed) > 0;
         if after_sleep == before_sleep && running_threads <= MAX_THREADS && some_running {
-            start_thread(None, true, false);
+            start_thread(true, false);
         }
     }
 }
@@ -148,7 +143,6 @@ pub fn spawn<T: Send + 'static>(
 // }
 
 struct WrappedFuture<T, F: Future<Output = T>> {
-    btrace: Arc<Backtrace>,
     fut: F,
 }
 
@@ -174,29 +168,17 @@ impl<T, F: Future<Output = T>> Future for WrappedFuture<T, F> {
         scopeguard::defer!({
             FUTURES_BEING_POLLED.fetch_sub(1, Ordering::Relaxed);
         });
-        let mut btrace = self.btrace.clone();
         let fut = unsafe { self.map_unchecked_mut(|v| &mut v.fut) };
         let start = Instant::now();
         let res = fut.poll(cx);
-        let elapsed = start.elapsed();
         log::trace!("poll took {:?}", start.elapsed());
-        if elapsed.as_millis() > 50 {
-            let btrace = Arc::make_mut(&mut btrace);
-            btrace.resolve();
-            log::trace!(
-                "poll took {:?}. task was created at: {:#?}",
-                elapsed,
-                btrace
-            );
-        }
         res
     }
 }
 
 impl<T, F: Future<Output = T> + 'static> WrappedFuture<T, F> {
     pub fn new(fut: F) -> Self {
-        let btrace = Arc::new(Backtrace::new_unresolved());
         RUNNING_TASKS.fetch_add(1, Ordering::Relaxed);
-        WrappedFuture { btrace, fut }
+        WrappedFuture { fut }
     }
 }
