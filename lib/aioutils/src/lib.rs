@@ -15,6 +15,7 @@ where
     F2: Future<Output = Result<T, E>>,
 {
     let (send_err, recv_err) = smol::channel::bounded(2);
+    // success future, always returns a success.
     let success = smol::future::race(
         async {
             match future1.await {
@@ -35,6 +36,22 @@ where
             }
         },
     );
+    // fail future. waits for two failures.
+    let fail = async {
+        if recv_err.recv().await.is_ok() {
+            if let Ok(err) = recv_err.recv().await {
+                err
+            } else {
+                smol::future::pending().await
+            }
+        } else {
+            smol::future::pending().await
+        }
+    };
+    // race success and future
+    async { Ok(success.await) }
+        .or(async { Err(fail.await) })
+        .await
 }
 
 /// Reads a bincode-deserializable value with a 16bbe length

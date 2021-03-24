@@ -191,7 +191,7 @@ impl ClientCache {
     }
 
     /// Clears the bridge list. This should be called when a connection error happens, so that bad bridge lists are purged as fast as possible.
-    pub async fn purge_bridges(&self, exit_hostname: &str) -> anyhow::Result<()> {
+    pub fn purge_bridges(&self, exit_hostname: &str) -> anyhow::Result<()> {
         let key = self.to_key(&format!("cache.bridges.{}", exit_hostname));
         let db = self.database();
         db.remove(&key)?;
