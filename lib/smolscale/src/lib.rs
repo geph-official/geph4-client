@@ -98,12 +98,15 @@ fn monitor_loop() {
         start_thread(false, true);
         return;
     } else {
-        for i in 0..num_cpus::get() {
+        for _ in 0..num_cpus::get() {
             start_thread(false, true);
         }
     }
 
     loop {
+        if SINGLE_THREAD.load(Ordering::Relaxed) {
+            return;
+        }
         let before_sleep = POLL_COUNT.load(Ordering::Relaxed);
         std::thread::sleep(Duration::from_millis(MONITOR_MS));
         let after_sleep = POLL_COUNT.load(Ordering::Relaxed);
