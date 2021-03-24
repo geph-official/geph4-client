@@ -115,6 +115,9 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         buff.clear();
         let mut batch = Vec::with_capacity(64);
         batch.push(ctx.mux.recv_urel().await?);
+        while let Ok(v) = ctx.mux.try_recv_urel() {
+            batch.push(v)
+        }
         // buffer
         let bsize = batch.len();
         for bts in batch {
