@@ -8,6 +8,52 @@ use smol::{channel::Receiver, prelude::*};
 mod dns;
 pub use dns::*;
 
+/// Race two different futures, returning the first non-Err, or an Err if both branches error.
+pub async fn try_race<T, E, F1, F2>(future1: F1, future2: F2) -> Result<T, E>
+where
+    F1: Future<Output = Result<T, E>>,
+    F2: Future<Output = Result<T, E>>,
+{
+    let (send_err, recv_err) = smol::channel::bounded(2);
+    // success future, always returns a success.
+    let success = smol::future::race(
+        async {
+            match future1.await {
+                Ok(v) => v,
+                Err(e) => {
+                    drop(send_err.try_send(e));
+                    smol::future::pending().await
+                }
+            }
+        },
+        async {
+            match future2.await {
+                Ok(v) => v,
+                Err(e) => {
+                    drop(send_err.try_send(e));
+                    smol::future::pending().await
+                }
+            }
+        },
+    );
+    // fail future. waits for two failures.
+    let fail = async {
+        if recv_err.recv().await.is_ok() {
+            if let Ok(err) = recv_err.recv().await {
+                err
+            } else {
+                smol::future::pending().await
+            }
+        } else {
+            smol::future::pending().await
+        }
+    };
+    // race success and future
+    async { Ok(success.await) }
+        .or(async { Err(fail.await) })
+        .await
+}
+
 /// Reads a bincode-deserializable value with a 16bbe length
 pub async fn read_pascalish<T: DeserializeOwned>(
     reader: &mut (impl AsyncRead + Unpin),

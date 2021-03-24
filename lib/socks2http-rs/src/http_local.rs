@@ -12,7 +12,7 @@ use hyper::{
     service::{make_service_fn, service_fn},
     Body, Request, Response,
 };
-use log::{debug, error, trace};
+use log::{debug, trace};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 pub async fn run(listen_addr: SocketAddr, proxy_address: SocketAddr) -> std::io::Result<()> {
@@ -45,7 +45,7 @@ async fn server_dispatch(
     let host = match host_addr(req.uri()) {
         None => {
             if req.uri().authority().is_some() {
-                error!(
+                trace!(
                     "HTTP {} URI {} doesn't have a valid host",
                     req.method(),
                     req.uri()
@@ -95,7 +95,7 @@ async fn server_dispatch(
                                         host
                                     }
                                     None => {
-                                        error!(
+                                        debug!(
                                             "HTTP {} URI {} \"Host\" header invalid, value: {}",
                                             req.method(),
                                             req.uri(),
@@ -107,7 +107,7 @@ async fn server_dispatch(
                                 }
                             }
                             Err(..) => {
-                                error!(
+                                debug!(
                                     "HTTP {} URI {} \"Host\" header is not an Authority, value: {:?}",
                                     req.method(),
                                     req.uri(),
@@ -142,7 +142,7 @@ async fn server_dispatch(
                     establish_connect_tunnel(upgraded, stream, &addr, client_addr, host).await
                 }
                 Err(e) => {
-                    error!(
+                    debug!(
                         "Failed to upgrade TCP tunnel {} <-> {} ({}), error: {}",
                         client_addr, addr, host, e
                     );
@@ -160,7 +160,7 @@ async fn server_dispatch(
         let mut res: Response<Body> = match proxy_server.client.request(req).await {
             Ok(res) => res,
             Err(err) => {
-                error!(
+                debug!(
                     "HTTP {} {} <-> {} ({}) relay failed, error: {}",
                     method, client_addr, "127.0.0.1:1080", host, err
                 );
@@ -217,7 +217,7 @@ async fn establish_connect_tunnel(
                     err,
                 );
             } else {
-                error!(
+                debug!(
                     "CONNECT relay {} -> {} ({}) closed with error {}",
                     client_addr, svr_addr, addr, err,
                 );
@@ -239,7 +239,7 @@ async fn establish_connect_tunnel(
                     err,
                 );
             } else {
-                error!(
+                debug!(
                     "CONNECT relay {} <- {} ({}) closed with error {}",
                     client_addr, svr_addr, addr, err,
                 );
