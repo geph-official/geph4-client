@@ -14,6 +14,7 @@ mod backhaul;
 pub mod mux;
 mod tcp;
 pub use backhaul::*;
+mod batchan;
 mod recfilter;
 
 #[cfg(test)]

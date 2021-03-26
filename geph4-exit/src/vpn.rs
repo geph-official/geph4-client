@@ -31,6 +31,7 @@ pub async fn transparent_proxy_helper(ctx: Arc<RootCtx>) -> anyhow::Result<()> {
     // always run on port 10000
     let listen_addr: SocketAddr = "0.0.0.0:10000".parse().unwrap();
     let listener = smol::Async::<std::net::TcpListener>::bind(listen_addr).unwrap();
+    let stat_client = ctx.stat_client.clone();
 
     // we set the backlog to 65536
     unsafe {
@@ -41,6 +42,7 @@ pub async fn transparent_proxy_helper(ctx: Arc<RootCtx>) -> anyhow::Result<()> {
     loop {
         let (client, _) = listener.accept().await.unwrap();
         let root = ctx.clone();
+        let stat_client = stat_client.clone();
         let conn_task = smolscale::spawn(async move {
             root.conn_count
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -77,6 +79,7 @@ pub async fn transparent_proxy_helper(ctx: Arc<RootCtx>) -> anyhow::Result<()> {
             }
 
             let asn = crate::asn::get_asn(addr.ip());
+            let asn_key = format!("exit_asn.{}.{}", root.exit_hostname.replace(".", "-"), asn);
             // log::debug!("helper got destination {} (AS{})", addr, asn);
             let to_conn = if let Some(proxy) = google_proxy {
                 if addr.port() == 443 && asn == crate::asn::GOOGLE_ASN {
@@ -96,7 +99,11 @@ pub async fn transparent_proxy_helper(ctx: Arc<RootCtx>) -> anyhow::Result<()> {
             let client2 = Async::new(client.get_ref().try_clone().unwrap()).unwrap();
             // remote.set_nodelay(true).ok()?;
             smol::future::race(
-                aioutils::copy_socket_to_with_stats(remote2, client2, |_| ()),
+                aioutils::copy_socket_to_with_stats(remote2, client2, |n| {
+                    if fastrand::f32() < 0.05 {
+                        stat_client.count(&asn_key, n as f64 * 20.0)
+                    }
+                }),
                 aioutils::copy_socket_to_with_stats(client, remote, |_| ()),
             )
             .await

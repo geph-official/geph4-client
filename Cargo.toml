@@ -21,14 +21,15 @@ members = [
 
 [profile.dev]
 opt-level=2
-lto="off"
 # panic = "abort" 
 incremental=true
 
 [profile.release]
 panic = "abort"
 opt-level=3
-debug=0
+debug=2
+codegen-units=1
+lto='thin'
 
 [patch.crates-io]
 async-executor={git="https://github.com/geph-official/async-executor.git", branch="local-queues"}

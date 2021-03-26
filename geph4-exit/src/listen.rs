@@ -16,8 +16,8 @@ mod control;
 mod session;
 /// the root context
 pub struct RootCtx {
-    stat_client: Arc<statsd::Client>,
-    exit_hostname: String,
+    pub stat_client: Arc<statsd::Client>,
+    pub exit_hostname: String,
     binder_client: Arc<dyn BinderClient>,
     bridge_secret: String,
     signing_sk: ed25519_dalek::Keypair,

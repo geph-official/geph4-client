@@ -58,18 +58,44 @@ pub struct ConnectOpt {
     #[structopt(long)]
     /// whether or not to force TCP mode.
     pub use_tcp: bool,
+
+    #[structopt(long)]
+    /// SSH-style local-remote port forwarding. For example, "0.0.0.0:8888:::example.com:22" will forward local port 8888 to example.com:22. Must be in form host:port:::host:port! May have multiple ones.
+    forward_ports: Vec<String>,
+}
+
+async fn port_forwarder(keepalive: Keepalive, desc: String) {
+    let exploded = desc.split(":::").collect::<Vec<_>>();
+    let listen_addr: SocketAddr = exploded[0].parse().expect("invalid port forwarding syntax");
+    let listener = smol::net::TcpListener::bind(listen_addr)
+        .await
+        .expect("could not listen for port forwarding");
+    loop {
+        let (conn, _) = listener.accept().await.unwrap();
+        let keepalive = keepalive.clone();
+        let remote_addr = exploded[1].to_owned();
+        smolscale::spawn(async move {
+            let remote = keepalive.connect(&remote_addr).await.ok()?;
+            smol::future::race(
+                smol::io::copy(remote.clone(), conn.clone()),
+                smol::io::copy(conn, remote),
+            )
+            .await
+            .ok()
+        })
+        .detach();
+    }
 }
 
 pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     log::info!("connect mode started");
 
     //start socks 2 http
-    smolscale::spawn(Compat::new(socks2http::run_tokio(opt.http_listen, {
+    let _socks2h = smolscale::spawn(Compat::new(socks2http::run_tokio(opt.http_listen, {
         let mut addr = opt.socks5_listen;
         addr.set_ip("127.0.0.1".parse().unwrap());
         addr
-    })))
-    .detach();
+    })));
 
     let stat_collector = Arc::new(StatCollector::default());
     // create a db directory if doesn't exist
@@ -77,6 +103,13 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         ClientCache::from_opts(&opt.common, &opt.auth).context("cannot create ClientCache")?;
     // create a kalive
     let keepalive = Keepalive::new(stat_collector.clone(), opt.clone(), Arc::new(client_cache));
+    // start port forders
+    let _port_forwarders: Vec<_> = opt
+        .forward_ports
+        .iter()
+        .map(|v| smolscale::spawn(port_forwarder(keepalive.clone(), v.clone())))
+        .collect();
+
     // enter the socks5 loop
     let socks5_listener = smol::net::TcpListener::bind(opt.socks5_listen)
         .await

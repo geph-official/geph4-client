@@ -155,6 +155,7 @@ async fn handle_proxy_stream(
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("dns failed"))?;
     let asn = crate::asn::get_asn(addr.ip());
+    let asn_key = format!("exit_asn.{}.{}", exit_hostname.replace(".", "-"), asn);
     // log::debug!("proxying {} ({}, AS{})", to_prox, addr, asn);
 
     if crate::lists::BLACK_PORTS.contains(&addr.port()) {
@@ -194,12 +195,14 @@ async fn handle_proxy_stream(
     smol::future::race(
         aioutils::copy_with_stats(remote.clone(), client.clone(), |n| {
             if fastrand::f32() < 0.05 {
-                stat_client.count(&key, n as f64 * 20.0)
+                stat_client.count(&key, n as f64 * 20.0);
+                stat_client.count(&asn_key, n as f64 * 20.0)
             }
         }),
         aioutils::copy_with_stats(client, remote, |n| {
             if fastrand::f32() < 0.05 {
-                stat_client.count(&key, n as f64 * 20.0)
+                stat_client.count(&key, n as f64 * 20.0);
+                stat_client.count(&asn_key, n as f64 * 20.0)
             }
         }),
     )
