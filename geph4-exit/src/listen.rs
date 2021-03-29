@@ -29,7 +29,7 @@ pub struct RootCtx {
     pub control_count: AtomicUsize,
 
     free_limit: u32,
-    port_whitelist: bool,
+    pub port_whitelist: bool,
 
     pub google_proxy: Option<SocketAddr>,
     // pub conn_tasks: Mutex<cached::SizedCache<u128, smol::Task<Option<()>>>>,
