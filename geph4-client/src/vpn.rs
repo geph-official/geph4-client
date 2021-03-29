@@ -28,12 +28,12 @@ struct VpnContext<'a> {
     dns_nat: &'a RwLock<HashMap<u16, Ipv4Addr>>,
 }
 
-/// runs a vpn session
+/// Runs a vpn session
 pub async fn run_vpn(
     stats: Arc<StatCollector>,
     mux: Arc<sosistab::mux::Multiplex>,
 ) -> anyhow::Result<()> {
-    // first we negotiate the vpn
+    // First, we negotiate the vpn
     let client_id: u128 = rand::random();
     log::info!("negotiating VPN with client id {}...", client_id);
     let client_ip = loop {
@@ -50,6 +50,8 @@ pub async fn run_vpn(
         }
     };
     log::info!("negotiated IP address {}!", client_ip);
+
+    // Send client ip to the vpn helper
     let msg = StdioMsg {
         verb: 1,
         body: format!("{}/10", client_ip).as_bytes().to_vec().into(),
@@ -60,7 +62,7 @@ pub async fn run_vpn(
         stdout.flush().unwrap();
     }
 
-    // a mini-nat for DNS request
+    // A mini-nat for DNS request
     let dns_nat = RwLock::new(HashMap::new());
     let ctx = VpnContext {
         mux: &mux,
@@ -70,7 +72,7 @@ pub async fn run_vpn(
     vpn_up_loop(ctx).or(vpn_down_loop(ctx)).await
 }
 
-/// up loop for vpn
+/// Up loop for vpn
 async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     let limiter = RateLimiter::direct(
         Quota::per_second(NonZeroU32::new(2000u32).unwrap())
@@ -106,7 +108,7 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     }
 }
 
-/// down loop for vpn
+/// Down loop for vpn
 async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     let mut stdout = std::io::stdout();
     let mut count = 0u64;
@@ -118,7 +120,7 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         while let Ok(v) = ctx.mux.try_recv_urel() {
             batch.push(v)
         }
-        // buffer
+        // Buffer
         let bsize = batch.len();
         for bts in batch {
             count += 1;

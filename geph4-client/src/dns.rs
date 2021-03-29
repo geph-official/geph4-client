@@ -9,10 +9,10 @@ use smol_timeout::TimeoutExt;
 use sosistab::mux::RelConn;
 use std::time::Duration;
 
-use crate::kalive::Keepalive;
+use crate::tunman::TunnelManager;
 
 /// Handle DNS requests from localhost
-pub async fn dns_loop(addr: SocketAddr, keepalive: Keepalive) -> anyhow::Result<()> {
+pub async fn dns_loop(addr: SocketAddr, keepalive: TunnelManager) -> anyhow::Result<()> {
     let socket = smol::net::UdpSocket::bind(addr).await?;
     let mut buf = [0; 2048];
     let pool = Arc::new(DnsPool::new(keepalive));
@@ -44,12 +44,12 @@ pub async fn dns_loop(addr: SocketAddr, keepalive: Keepalive) -> anyhow::Result<
 pub struct DnsPool {
     send_conn: Sender<TlsStream<RelConn>>,
     recv_conn: Receiver<TlsStream<RelConn>>,
-    keepalive: Keepalive,
+    keepalive: TunnelManager,
 }
 
 impl DnsPool {
     /// Create a new pool based on a Keepalive
-    pub fn new(keepalive: Keepalive) -> Self {
+    pub fn new(keepalive: TunnelManager) -> Self {
         let (send_conn, recv_conn) = smol::channel::unbounded();
         Self {
             send_conn,

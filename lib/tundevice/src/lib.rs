@@ -89,21 +89,21 @@ impl TunDevice {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::{thread, time::Duration};
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use std::{thread, time::Duration};
 
-    #[test]
-    fn test_tun() {
-        smol::block_on(async move {
-            let mut device = TunDevice::new_from_os("tun-test").unwrap();
-            device.assign_ip("10.89.64.2".parse().unwrap());
-            device.route_traffic("10.89.64.1".parse().unwrap());
-            loop {
-                println!("{:?}", device.read_raw().await);
-            }
-        });
-    }
-    // commented out because this whole crate requires rootish perms
-}
+//     #[test]
+//     fn test_tun() {
+//         smol::block_on(async move {
+//             let mut device = TunDevice::new_from_os("tun-test").unwrap();
+//             device.assign_ip("10.89.64.2".parse().unwrap());
+//             device.route_traffic("10.89.64.1".parse().unwrap());
+//             loop {
+//                 println!("{:?}", device.read_raw().await);
+//             }
+//         });
+//     }
+//     // commented out because this whole crate requires rootish perms
+// }
