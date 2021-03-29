@@ -52,3 +52,4 @@ cached="0.23"
 rustc-hash= "1.1.0"
 jemallocator="0.3"
 
+futures-util="0.3"

@@ -24,4 +24,5 @@ pub static WHITE_PORTS: Lazy<FxHashSet<u16>> = Lazy::new(|| {
 });
 
 /// List of blacklisted ports
-pub static BLACK_PORTS: Lazy<FxHashSet<u16>> = Lazy::new(|| vec![25u16].into_iter().collect());
+pub static BLACK_PORTS: Lazy<FxHashSet<u16>> =
+    Lazy::new(|| vec![25u16, 10000].into_iter().collect());

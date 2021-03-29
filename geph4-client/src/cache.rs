@@ -58,10 +58,10 @@ impl ClientCache {
                         log::warn!("database busy, retrying...");
                         continue;
                     } else {
-                        panic!(err)
+                        panic!("{}", err)
                     }
                 }
-                Err(e) => panic!(e),
+                Err(e) => panic!("{}", e),
             }
         };
         let client_cache = ClientCache::new(
