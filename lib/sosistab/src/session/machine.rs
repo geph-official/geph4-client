@@ -6,8 +6,7 @@ use crate::{
     protocol::{DataFrameV1, DataFrameV2},
 };
 use bytes::Bytes;
-use cached::Cached;
-use cached::TimedSizedCache;
+use cached::{Cached, SizedCache};
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use super::stats::StatGatherer;
@@ -147,13 +146,15 @@ impl ReplayFilter {
     fn add(&mut self, seqno: u64) -> bool {
         if seqno < self.bottom_seqno {
             // out of range. we can't know, so we just say no
+            eprintln!("out of range");
             return false;
         }
         // check the seen
         if self.seen_seqno.contains(&seqno) {
             return false;
         }
-        self.top_seqno = seqno;
+        self.seen_seqno.insert(seqno);
+        self.top_seqno = seqno.max(self.top_seqno);
         while self.top_seqno - self.bottom_seqno > 10000 {
             self.seen_seqno.remove(&self.bottom_seqno);
             self.bottom_seqno += 1;
@@ -164,11 +165,11 @@ impl ReplayFilter {
 
 /// An out-of-band FEC reconstructor
 struct OobDecoder {
-    data_frames: TimedSizedCache<u64, Bytes>,
-    parity_space: TimedSizedCache<ParitySpaceKey, FxHashMap<u8, Bytes>>,
+    data_frames: SizedCache<u64, Bytes>,
+    parity_space: SizedCache<ParitySpaceKey, FxHashMap<u8, Bytes>>,
 }
 
-#[derive(Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+#[derive(Hash, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Debug)]
 struct ParitySpaceKey {
     first_data: u64,
     data_len: u8,
@@ -179,8 +180,8 @@ struct ParitySpaceKey {
 impl OobDecoder {
     /// Create a new OOB decoder that has at most that many entries
     fn new(max_size: usize) -> Self {
-        let data_frames = TimedSizedCache::with_size_and_lifespan(max_size, 1);
-        let parity_space = TimedSizedCache::with_size_and_lifespan(max_size, 1);
+        let data_frames = SizedCache::with_size(max_size);
+        let parity_space = SizedCache::with_size(max_size);
         Self {
             data_frames,
             parity_space,
@@ -231,16 +232,24 @@ impl OobDecoder {
                 let data = pre_encode(&data, parity_info.pad_size);
                 decoder.decode(&data, (i - parity_info.first_data) as _);
             }
+            // make a list of MISSING data ids
+            let mut missing_data_seqnos: Vec<_> = (parity_info.first_data
+                ..parity_info.first_data + parity_info.data_len as u64)
+                .collect();
+            for (idx, _) in actual_data.iter() {
+                missing_data_seqnos.retain(|v| v != idx);
+            }
             // then the parity shards
             for (par_idx, data) in hash_ref {
                 if let Some(res) = decoder.decode(
                     data,
                     (parity_info.data_len.saturating_add(*par_idx as u8)) as _,
                 ) {
+                    assert_eq!(res.len(), missing_data_seqnos.len());
                     return res
                         .into_iter()
-                        .enumerate()
-                        .map(|(i, res)| (parity_info.first_data + i as u64, res))
+                        .zip(missing_data_seqnos.into_iter())
+                        .map(|(res, seqno)| (seqno, res))
                         .collect();
                 }
             }

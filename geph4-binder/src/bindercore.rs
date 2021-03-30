@@ -107,7 +107,7 @@ impl BinderCore {
     /// Obtain a connection.
     fn get_pg_conn(&self) -> Result<impl DerefMut<Target = postgres::Client>, BinderError> {
         let client = self.conn_pool.get();
-        Ok(client.map_err(|e| BinderError::DatabaseFailed(e.to_string()))?)
+        client.map_err(|e| BinderError::DatabaseFailed(e.to_string()))
     }
 
     /// Obtain the user info given the username.

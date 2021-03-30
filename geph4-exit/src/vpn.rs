@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use cidr::{Cidr, Ipv4Cidr};
 use dashmap::DashMap;
+use futures_util::TryFutureExt;
 use libc::{c_void, SOL_IP, SO_ORIGINAL_DST};
 
 use once_cell::sync::Lazy;
@@ -11,20 +12,17 @@ use pnet_packet::{
 };
 use rand::prelude::*;
 
-use smol::Async;
-use smol_timeout::TimeoutExt;
 use std::os::unix::io::AsRawFd;
 use std::{
     collections::HashSet,
     net::{Ipv4Addr, SocketAddr},
     ops::Deref,
     sync::Arc,
-    time::Duration,
 };
 use tundevice::TunDevice;
 use vpn_structs::Message;
 
-use crate::listen::RootCtx;
+use crate::{connect::proxy_loop, listen::RootCtx};
 
 /// Runs the transparent proxy helper
 pub async fn transparent_proxy_helper(ctx: Arc<RootCtx>) -> anyhow::Result<()> {
@@ -32,79 +30,42 @@ pub async fn transparent_proxy_helper(ctx: Arc<RootCtx>) -> anyhow::Result<()> {
     let listen_addr: SocketAddr = "0.0.0.0:10000".parse().unwrap();
     let listener = smol::Async::<std::net::TcpListener>::bind(listen_addr).unwrap();
 
-    // we set the backlog to 65536
+    // we set the backlog to 65536. this avoids SYN cookies as long as possible.
     unsafe {
         libc::listen(listener.get_ref().as_raw_fd(), 65536);
     }
 
-    let google_proxy = ctx.google_proxy;
     loop {
         let (client, _) = listener.accept().await.unwrap();
-        let root = ctx.clone();
-        let conn_task = smolscale::spawn(async move {
-            root.conn_count
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            let _deferred = scopeguard::guard((), |_| {
-                root.conn_count
-                    .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-            });
-
-            // client.set_nodelay(true).ok()?;
-            let client_fd = client.as_raw_fd();
-            let addr = unsafe {
-                let raw_addr = OsSocketAddr::new();
-                if libc::getsockopt(
-                    client_fd,
-                    SOL_IP,
-                    SO_ORIGINAL_DST,
-                    raw_addr.as_ptr() as *mut c_void,
-                    (&mut std::mem::size_of::<libc::sockaddr>()) as *mut usize as *mut u32,
-                ) != 0
-                {
-                    log::warn!("cannot get SO_ORIGINAL_DST, aborting");
-                    return None;
+        let ctx = ctx.clone();
+        let conn_task = smolscale::spawn(
+            async move {
+                let client_fd = client.as_raw_fd();
+                let addr = unsafe {
+                    let raw_addr = OsSocketAddr::new();
+                    if libc::getsockopt(
+                        client_fd,
+                        SOL_IP,
+                        SO_ORIGINAL_DST,
+                        raw_addr.as_ptr() as *mut c_void,
+                        (&mut std::mem::size_of::<libc::sockaddr>()) as *mut usize as *mut u32,
+                    ) != 0
+                    {
+                        anyhow::bail!("cannot get SO_ORIGINAL_DST, aborting");
+                    };
+                    let lala = raw_addr.into_addr();
+                    if let Some(lala) = lala {
+                        lala
+                    } else {
+                        anyhow::bail!("SO_ORIGINAL_DST is not an IP address, aborting");
+                    }
                 };
-                let lala = raw_addr.into_addr();
-                if let Some(lala) = lala {
-                    lala
-                } else {
-                    log::warn!("SO_ORIGINAL_DST is not an IP address, aborting");
-                    return None;
-                }
-            };
-            if addr.port() == 10000 {
-                return None;
+                let client = async_dup::Arc::new(client);
+                proxy_loop(ctx, client, addr, false).await
             }
-
-            let asn = crate::asn::get_asn(addr.ip());
-            // log::debug!("helper got destination {} (AS{})", addr, asn);
-            let to_conn = if let Some(proxy) = google_proxy {
-                if addr.port() == 443 && asn == crate::asn::GOOGLE_ASN {
-                    proxy
-                } else {
-                    addr
-                }
-            } else {
-                addr
-            };
-
-            let remote = smol::Async::<std::net::TcpStream>::connect(to_conn)
-                .timeout(Duration::from_secs(60))
-                .await?
-                .ok()?;
-            let remote2 = Async::new(remote.get_ref().try_clone().unwrap()).unwrap();
-            let client2 = Async::new(client.get_ref().try_clone().unwrap()).unwrap();
-            // remote.set_nodelay(true).ok()?;
-            smol::future::race(
-                aioutils::copy_socket_to_with_stats(remote2, client2, |_| ()),
-                aioutils::copy_socket_to_with_stats(client, remote, |_| ()),
-            )
-            .await
-            .ok()?;
-            Some(())
-        });
+            .map_err(|e| log::trace!("vpn conn closed: {}", e)),
+        );
         conn_task.detach();
-        // ctx.conn_tasks.lock().cache_set(rand::random(), conn_task);
     }
 }
 
@@ -116,8 +77,8 @@ pub async fn handle_vpn_session(
     port_whitelist: bool,
 ) -> anyhow::Result<()> {
     Lazy::force(&INCOMING_PKT_HANDLER);
-    log::debug!("handle_vpn_session entered");
-    scopeguard::defer!(log::debug!("handle_vpn_session exited"));
+    log::trace!("handle_vpn_session entered");
+    scopeguard::defer!(log::trace!("handle_vpn_session exited"));
 
     // set up IP address allocation
     let assigned_ip: Lazy<AssignedIpv4Addr> = Lazy::new(|| IpAddrAssigner::global().assign());
@@ -133,8 +94,8 @@ pub async fn handle_vpn_session(
         INCOMING_MAP.insert(
             addr,
             Box::new(move |bts| {
-                if fastrand::f32() < 0.05 {
-                    stat_client.count(&key, bts.len() as f64 * 20.0)
+                if fastrand::f32() < 0.01 {
+                    stat_client.count(&key, bts.len() as f64 * 100.0)
                 }
                 let pkt = Ipv4Packet::new(&bts).expect("don't send me invalid IPv4 packets!");
                 assert_eq!(pkt.get_destination(), addr);
@@ -159,8 +120,8 @@ pub async fn handle_vpn_session(
                 )?;
             }
             Message::Payload(bts) => {
-                if fastrand::f32() < 0.05 {
-                    stat_client.count(&key, bts.len() as f64 * 20.0)
+                if fastrand::f32() < 0.01 {
+                    stat_client.count(&key, bts.len() as f64 * 100.0)
                 }
                 let pkt = Ipv4Packet::new(&bts);
                 if let Some(pkt) = pkt {
@@ -269,7 +230,7 @@ impl IpAddrAssigner {
             let mut tab = self.table.lock();
             if !tab.contains(&candidate) {
                 tab.insert(candidate);
-                log::debug!("assigned {}", candidate);
+                log::trace!("assigned {}", candidate);
                 return AssignedIpv4Addr::new(self.table.clone(), candidate);
             }
         }
@@ -329,7 +290,7 @@ struct AssignedIpv4AddrInner {
 
 impl Drop for AssignedIpv4AddrInner {
     fn drop(&mut self) {
-        log::debug!("dropped {}", self.addr);
+        log::trace!("dropped {}", self.addr);
         if !self.table.lock().remove(&self.addr) {
             panic!("AssignedIpv4Addr double free?! {}", self.addr)
         }

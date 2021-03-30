@@ -24,7 +24,7 @@ enum Subcmds {
 }
 
 /// Client
-#[derive(FromArgs, PartialEq, Debug)]
+#[derive(FromArgs, PartialEq, Debug, Clone)]
 #[argh(subcommand, name = "client")]
 struct ClientArgs {
     #[argh(option)]
@@ -59,10 +59,12 @@ fn main() -> anyhow::Result<()> {
             let server_args = ServerArgs {
                 listen: "127.0.0.1:19999".parse().unwrap(),
             };
-            smolscale::block_on(
-                smolscale::spawn(client_main(client_args))
-                    .race(smolscale::spawn(server_main(server_args))),
-            )
+            smolscale::block_on(async move {
+                // for _ in 0..100 {
+                smolscale::spawn(client_main(client_args.clone())).detach();
+                // }
+                server_main(server_args).await
+            })
         }
     }
 }

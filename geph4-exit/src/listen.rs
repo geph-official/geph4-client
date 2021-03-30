@@ -16,8 +16,8 @@ mod control;
 mod session;
 /// the root context
 pub struct RootCtx {
-    stat_client: Arc<statsd::Client>,
-    exit_hostname: String,
+    pub stat_client: Arc<statsd::Client>,
+    pub exit_hostname: String,
     binder_client: Arc<dyn BinderClient>,
     bridge_secret: String,
     signing_sk: ed25519_dalek::Keypair,
@@ -29,7 +29,7 @@ pub struct RootCtx {
     pub control_count: AtomicUsize,
 
     free_limit: u32,
-    port_whitelist: bool,
+    pub port_whitelist: bool,
 
     pub google_proxy: Option<SocketAddr>,
     // pub conn_tasks: Mutex<cached::SizedCache<u128, smol::Task<Option<()>>>>,

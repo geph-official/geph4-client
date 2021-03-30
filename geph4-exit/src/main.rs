@@ -12,6 +12,7 @@ use std::os::unix::fs::PermissionsExt;
 use structopt::StructOpt;
 
 mod asn;
+mod connect;
 mod listen;
 mod lists;
 mod vpn;

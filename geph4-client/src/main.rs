@@ -7,7 +7,7 @@ use flexi_logger::{DeferredNow, Record};
 use stats::GLOBAL_LOGGER;
 use structopt::StructOpt;
 mod cache;
-mod kalive;
+mod tunman;
 
 use once_cell::sync::Lazy;
 use prelude::*;
@@ -16,6 +16,8 @@ mod nettest;
 mod prelude;
 mod stats;
 mod vpn;
+
+mod plots;
 
 mod china;
 mod main_binderproxy;
@@ -88,7 +90,7 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
-    smolscale::permanently_single_threaded();
+    // smolscale::permanently_single_threaded();
     smolscale::block_on(async move {
         match opt {
             Opt::Connect(opt) => loop {

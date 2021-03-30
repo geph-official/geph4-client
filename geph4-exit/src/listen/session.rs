@@ -1,13 +1,13 @@
 use std::{
-    net::SocketAddr,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, SystemTime},
 };
 
 use super::SessCtx;
-use crate::vpn::handle_vpn_session;
+use crate::{connect::proxy_loop, vpn::handle_vpn_session};
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
 
+use futures_util::TryFutureExt;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
 
@@ -29,7 +29,11 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
         .timeout(Duration::from_secs(300))
         .await
         .ok_or_else(|| anyhow::anyhow!("authentication timeout"))??;
-    log::info!("authenticated a new session (is_plus = {})", is_plus);
+    log::info!(
+        "authenticated a new session (is_plus = {}, raw_session_count = {})",
+        is_plus,
+        root.raw_session_count.load(Ordering::Relaxed)
+    );
     if !is_plus {
         if root.free_limit == 0 {
             anyhow::bail!("not accepting free users here")
@@ -41,7 +45,7 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
     let sess_alive_loop = {
         let recv_sess_alive = recv_sess_alive.clone();
         let root = root.clone();
-        smolscale::spawn(async move {
+        async move {
             let alive = AtomicBool::new(false);
             let guard = scopeguard::guard(alive, |v| {
                 if v.load(Ordering::SeqCst) {
@@ -65,47 +69,37 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
                         .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                 }
             }
-        })
+        }
     };
 
     let proxy_loop = {
         let root = root.clone();
         let sess = sess.clone();
-        smolscale::spawn(async move {
+        async move {
             loop {
-                let stream = sess.accept_conn().await?;
-                let ctx = root.clone();
+                let client = sess.accept_conn().await?;
                 let send_sess_alive = send_sess_alive.clone();
-                let conn_task = smolscale::spawn(async move {
-                    ctx.conn_count
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    let _deferred = scopeguard::guard((), |_| {
-                        ctx.conn_count
-                            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                    });
-                    let _ = send_sess_alive.try_send(());
-                    handle_proxy_stream(
-                        ctx.stat_client.clone(),
-                        ctx.exit_hostname.clone(),
-                        ctx.port_whitelist,
-                        stream,
-                        ctx.google_proxy,
-                    )
-                    .await
-                    .ok()
-                });
-                conn_task.detach();
-                // root.conn_tasks.lock().cache_set(rand::random(), conn_task);
+                let root = root.clone();
+                smolscale::spawn(
+                    async move {
+                        let _ = send_sess_alive.try_send(());
+                        let addr = client.additional_info().unwrap_or_default().to_owned();
+                        proxy_loop(root, client, addr, true).await
+                    }
+                    .map_err(|e| log::trace!("proxy conn closed: {}", e)),
+                )
+                .detach();
             }
-        })
+        }
     };
-    let vpn_loop = smolscale::spawn(handle_vpn_session(
+    let vpn_loop = handle_vpn_session(
         sess.clone(),
         root.exit_hostname.clone(),
         root.stat_client.clone(),
         root.port_whitelist,
-    ));
-    smol::future::race(proxy_loop.or(sess_alive_loop), vpn_loop).await
+    );
+
+    (proxy_loop.or(sess_alive_loop)).race(vpn_loop).await
 }
 
 async fn authenticate_sess(
@@ -135,74 +129,4 @@ async fn authenticate_sess(
     // send response
     aioutils::write_pascalish(&mut stream, &1u8).await?;
     Ok(is_plus)
-}
-
-async fn handle_proxy_stream(
-    stat_client: Arc<statsd::Client>,
-    exit_hostname: String,
-    port_whitelist: bool,
-    mut client: sosistab::mux::RelConn,
-    google_proxy: Option<SocketAddr>,
-) -> anyhow::Result<()> {
-    // read proxy request
-    let to_prox: String = match client.additional_info() {
-        Some(s) => s.to_string(),
-        None => aioutils::read_pascalish(&mut client).await?,
-    };
-    let addr = aioutils::resolve(&to_prox)
-        .await?
-        .first()
-        .cloned()
-        .ok_or_else(|| anyhow::anyhow!("dns failed"))?;
-    let asn = crate::asn::get_asn(addr.ip());
-    // log::debug!("proxying {} ({}, AS{})", to_prox, addr, asn);
-
-    if crate::lists::BLACK_PORTS.contains(&addr.port()) {
-        anyhow::bail!("port blacklisted")
-    }
-    if port_whitelist && !crate::lists::WHITE_PORTS.contains(&addr.port()) {
-        anyhow::bail!("port not whitelisted")
-    }
-
-    // what should we connect to depends on whether or not it's google
-    let to_conn = if let Some(proxy) = google_proxy {
-        if addr.port() == 443 && asn == crate::asn::GOOGLE_ASN {
-            proxy
-        } else {
-            addr
-        }
-    } else {
-        addr
-    };
-    let remote = smol::net::TcpStream::connect(&to_conn)
-        .or(async {
-            smol::Timer::after(Duration::from_secs(60)).await;
-            Err(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "timed out remote",
-            ))
-        })
-        .await?;
-    // this is fine because just connecting to a local service is not a security problem
-    if &to_prox != "127.0.0.1:3128" && (addr.ip().is_loopback() || addr.ip().is_multicast()) {
-        anyhow::bail!("attempted a connection to a non-global IP address")
-    }
-
-    remote.set_nodelay(true)?;
-    let key = format!("exit_usage.{}", exit_hostname.replace(".", "-"));
-    // copy the streams
-    smol::future::race(
-        aioutils::copy_with_stats(remote.clone(), client.clone(), |n| {
-            if fastrand::f32() < 0.05 {
-                stat_client.count(&key, n as f64 * 20.0)
-            }
-        }),
-        aioutils::copy_with_stats(client, remote, |n| {
-            if fastrand::f32() < 0.05 {
-                stat_client.count(&key, n as f64 * 20.0)
-            }
-        }),
-    )
-    .await?;
-    Ok(())
 }

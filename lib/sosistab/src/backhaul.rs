@@ -2,10 +2,14 @@ use std::{
     io,
     marker::PhantomData,
     net::{SocketAddr, UdpSocket},
+    sync::Arc,
 };
 
 use bytes::{Bytes, BytesMut};
-use smol::Async;
+use smol::{channel::Sender, Async};
+use socket2::Socket;
+
+use crate::runtime;
 
 /// A trait that represents a datagram backhaul. This presents an interface similar to that of "PacketConn" in Go, and it is used to abstract over different kinds of datagram transports.
 #[async_trait::async_trait]
@@ -28,22 +32,37 @@ pub trait Backhaul: Send + Sync {
 }
 
 /// A structure that wraps a Backhaul with statistics.
-pub struct StatsBackhaul<B: Backhaul> {
-    haul: B,
+pub struct StatsBackhaul<B: Backhaul + 'static> {
+    haul: Arc<B>,
+    send_batcher: Sender<(Bytes, SocketAddr)>,
     on_recv: Box<dyn Fn(usize, SocketAddr) + Send + Sync>,
-    on_send: Box<dyn Fn(usize, SocketAddr) + Send + Sync>,
 }
 
-impl<B: Backhaul> StatsBackhaul<B> {
+impl<B: Backhaul + 'static> StatsBackhaul<B> {
     pub fn new(
         haul: B,
         on_recv: impl Fn(usize, SocketAddr) + 'static + Send + Sync,
         on_send: impl Fn(usize, SocketAddr) + 'static + Send + Sync,
     ) -> Self {
+        let haul = Arc::new(haul);
+        let (send_batcher, recv_batcher) = smol::channel::unbounded::<(Bytes, SocketAddr)>();
+        {
+            let haul = haul.clone();
+            runtime::spawn(async move {
+                while let Ok(to_send) = crate::batchan::batch_recv(&recv_batcher).await {
+                    for (frag, addr) in to_send.iter() {
+                        (on_send)(frag.len(), *addr);
+                    }
+                    haul.send_to_many(&to_send).await.ok()?;
+                }
+                Some(())
+            })
+            .detach();
+        }
         Self {
             haul,
+            send_batcher,
             on_recv: Box::new(on_recv),
-            on_send: Box::new(on_send),
         }
     }
 }
@@ -51,16 +70,10 @@ impl<B: Backhaul> StatsBackhaul<B> {
 #[async_trait::async_trait]
 impl<B: Backhaul> Backhaul for StatsBackhaul<B> {
     async fn send_to(&self, to_send: Bytes, dest: SocketAddr) -> io::Result<()> {
-        (self.on_send)(to_send.len(), dest);
-        self.haul.send_to(to_send, dest).await
-    }
-
-    async fn send_to_many(&self, to_send: &[(Bytes, SocketAddr)]) -> io::Result<()> {
-        for (frag, addr) in to_send.iter() {
-            (self.on_recv)(frag.len(), *addr);
-        }
-        self.haul.send_to_many(to_send).await?;
-        Ok(())
+        self.send_batcher
+            .send((to_send, dest))
+            .await
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "send_batcher closed"))
     }
 
     async fn recv_from(&self) -> io::Result<(Bytes, SocketAddr)> {

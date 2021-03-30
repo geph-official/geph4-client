@@ -1,11 +1,18 @@
-use crate::{cache::ClientCache, kalive::Keepalive, stats::StatCollector, AuthOpt, CommonOpt};
+use crate::{
+    cache::ClientCache, plots::stat_derive, stats::StatCollector, tunman::TunnelManager, AuthOpt,
+    CommonOpt,
+};
 use crate::{china, stats::GLOBAL_LOGGER};
 use anyhow::Context;
 use async_compat::Compat;
 use chrono::prelude::*;
 use smol_timeout::TimeoutExt;
 use std::{
-    net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, path::PathBuf, sync::Arc, time::Duration,
+    net::Ipv4Addr,
+    net::SocketAddr,
+    net::SocketAddrV4,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 use structopt::StructOpt;
 
@@ -18,77 +25,80 @@ pub struct ConnectOpt {
     auth: AuthOpt,
 
     #[structopt(long)]
-    /// whether or not to use bridges
+    /// Whether or not to use bridges
     pub use_bridges: bool,
 
     #[structopt(long, default_value = "127.0.0.1:9910")]
-    /// where to listen for HTTP proxy connections
+    /// Where to listen for HTTP proxy connections
     http_listen: SocketAddr,
     #[structopt(long, default_value = "127.0.0.1:9909")]
-    /// where to listen for SOCKS5 connections
+    /// Where to listen for SOCKS5 connections
     socks5_listen: SocketAddr,
     #[structopt(long, default_value = "127.0.0.1:9809")]
-    /// where to listen for REST-based local connections
+    /// Where to listen for REST-based local connections
     stats_listen: SocketAddr,
 
     #[structopt(long)]
-    /// where to listen for proxied DNS requests. Optional.
+    /// Where to listen for proxied DNS requests. Optional.
     dns_listen: Option<SocketAddr>,
 
     #[structopt(long, default_value = "us-hio-01.exits.geph.io")]
-    /// which exit server to connect to. If there isn't an exact match, the exit server with the most similar hostname is picked.
+    /// Which exit server to connect to. If there isn't an exact match, the exit server with the most similar hostname is picked.
     pub exit_server: String,
 
     #[structopt(long)]
-    /// whether or not to exclude PRC domains
+    /// Whether or not to exclude PRC domains
     exclude_prc: bool,
 
     #[structopt(long)]
-    /// whether or not to wait for VPN commands on stdio
+    /// Whether or not to wait for VPN commands on stdio
     pub stdio_vpn: bool,
 
     #[structopt(long)]
-    /// an endpoint to send test results. If set, will periodically do network testing.
+    /// An endpoint to send test results. If set, will periodically do network testing.
     nettest_server: Option<SocketAddr>,
 
     #[structopt(long)]
-    /// a name for this test instance.
+    /// A name for this test instance.
     nettest_name: Option<String>,
 
     #[structopt(long)]
-    /// whether or not to force TCP mode.
+    /// Whether or not to force TCP mode.
     pub use_tcp: bool,
+
+    #[structopt(long)]
+    /// SSH-style local-remote port forwarding. For example, "0.0.0.0:8888:::example.com:22" will forward local port 8888 to example.com:22. Must be in form host:port:::host:port! May have multiple ones.
+    forward_ports: Vec<String>,
 }
 
+/// Main function for `connect` subcommand
 pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     log::info!("connect mode started");
 
-    //start socks 2 http
-    smolscale::spawn(Compat::new(socks2http::run_tokio(opt.http_listen, {
+    // Start socks to http
+    let _socks2h = smolscale::spawn(Compat::new(socks2http::run_tokio(opt.http_listen, {
         let mut addr = opt.socks5_listen;
         addr.set_ip("127.0.0.1".parse().unwrap());
         addr
-    })))
-    .detach();
+    })));
 
     let stat_collector = Arc::new(StatCollector::default());
-    // create a db directory if doesn't exist
+    // Create a database directory if doesn't exist
     let client_cache =
         ClientCache::from_opts(&opt.common, &opt.auth).context("cannot create ClientCache")?;
-    // create a kalive
-    let keepalive = Keepalive::new(stat_collector.clone(), opt.clone(), Arc::new(client_cache));
-    // enter the socks5 loop
-    let socks5_listener = smol::net::TcpListener::bind(opt.socks5_listen)
-        .await
-        .context("cannot bind socks5")?;
-    let stat_listener = smol::net::TcpListener::bind(opt.stats_listen)
-        .await
-        .context("cannot bind stats")?;
-    let scollect = stat_collector.clone();
-    // scope
+    // Create a tunnel_manager
+    let tunnel_manager =
+        TunnelManager::new(stat_collector.clone(), opt.clone(), Arc::new(client_cache));
+    // Start port forwarders
+    let _port_forwarders: Vec<_> = opt
+        .forward_ports
+        .iter()
+        .map(|v| smolscale::spawn(port_forwarder(tunnel_manager.clone(), v.clone())))
+        .collect();
+
     if let Some(dns_listen) = opt.dns_listen {
         log::debug!("starting dns...");
-        smolscale::spawn(crate::dns::dns_loop(dns_listen, keepalive.clone())).detach();
+        smolscale::spawn(crate::dns::dns_loop(dns_listen, tunnel_manager.clone())).detach();
     }
     if let Some(nettest_server) = opt.nettest_server {
         log::info!("Network testing enabled at {}!", nettest_server);
@@ -98,17 +108,24 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         ))
         .detach();
     }
+
+    // Enter the stats loop
+    let stat_listener = smol::net::TcpListener::bind(opt.stats_listen)
+        .await
+        .context("cannot bind stats")?;
+    let scollect = stat_collector.clone();
+
     let _stat: smol::Task<anyhow::Result<()>> = {
-        let keepalive = keepalive.clone();
+        let tunnel_manager = tunnel_manager.clone();
         smolscale::spawn(async move {
             loop {
                 let (stat_client, _) = stat_listener.accept().await?;
                 let scollect = scollect.clone();
-                let keepalive = keepalive.clone();
+                let tunnel_manager = tunnel_manager.clone();
                 smolscale::spawn(async move {
                     drop(
                         async_h1::accept(stat_client, |req| {
-                            handle_stats(scollect.clone(), &keepalive, req)
+                            handle_stats(scollect.clone(), &tunnel_manager, req)
                         })
                         .await,
                     );
@@ -117,6 +134,12 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
             }
         })
     };
+
+    // Enter the socks5 loop
+    let socks5_listener = smol::net::TcpListener::bind(opt.socks5_listen)
+        .await
+        .context("cannot bind socks5")?;
+
     let exclude_prc = opt.exclude_prc;
 
     loop {
@@ -124,42 +147,69 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
             .accept()
             .await
             .context("cannot accept socks5")?;
-        let keepalive = keepalive.clone();
+        let tunnel_manager = tunnel_manager.clone();
         let stat_collector = stat_collector.clone();
         smolscale::spawn(async move {
-            handle_socks5(stat_collector, s5client, &keepalive, exclude_prc).await
+            handle_socks5(stat_collector, s5client, &tunnel_manager, exclude_prc).await
         })
         .detach()
     }
 }
+
+async fn port_forwarder(tunnel_manager: TunnelManager, desc: String) {
+    let exploded = desc.split(":::").collect::<Vec<_>>();
+    let listen_addr: SocketAddr = exploded[0].parse().expect("invalid port forwarding syntax");
+    let listener = smol::net::TcpListener::bind(listen_addr)
+        .await
+        .expect("could not listen for port forwarding");
+    loop {
+        let (conn, _) = listener.accept().await.unwrap();
+        let tunnel_manager = tunnel_manager.clone();
+        let remote_addr = exploded[1].to_owned();
+        smolscale::spawn(async move {
+            let remote = tunnel_manager.connect(&remote_addr).await.ok()?;
+            smol::future::race(
+                smol::io::copy(remote.clone(), conn.clone()),
+                smol::io::copy(conn, remote),
+            )
+            .await
+            .ok()
+        })
+        .detach();
+    }
+}
+
 use std::io::prelude::*;
 
-/// Handle a request for stats
+/// Handles requests for the debug pack, proxy information, program termination, and general statistics
 async fn handle_stats(
     stats: Arc<StatCollector>,
-    kalive: &Keepalive,
+    tunnel_manager: &TunnelManager,
     _req: http_types::Request,
 ) -> http_types::Result<http_types::Response> {
     let mut res = http_types::Response::new(http_types::StatusCode::Ok);
     match _req.url().path() {
         "/debugpack" => {
-            // create logs and sosistab buffers
-            // form a tar
+            // Form a tar from the logs and sosistab trace
             let tar_buffer = Vec::new();
             let mut tar_build = tar::Builder::new(tar_buffer);
             let mut logs_buffer = Vec::new();
             {
-                let noo = GLOBAL_LOGGER.read();
-                for line in noo.iter() {
+                let logs = GLOBAL_LOGGER.read();
+                for line in logs.iter() {
                     writeln!(logs_buffer, "{}", line)?;
                 }
             }
-            let detail = kalive.get_stats().timeout(Duration::from_secs(1)).await;
+            // Obtain sosistab trace
+            let detail = tunnel_manager
+                .get_stats()
+                .timeout(Duration::from_secs(1))
+                .await;
             if let Some(detail) = detail {
                 let detail = detail?;
                 let mut sosistab_buf = Vec::new();
                 writeln!(sosistab_buf, "time,last_recv,total_recv,total_loss,ping")?;
-                if let Some(first) = detail.first() {
+                if let Some(first) = detail.get(0) {
                     let first_time = first.time;
                     for item in detail.iter() {
                         writeln!(
@@ -172,7 +222,7 @@ async fn handle_stats(
                             item.high_recv,
                             item.total_recv,
                             item.total_loss,
-                            item.ping.as_secs_f64() * 1000.0,
+                            item.smooth_ping,
                         )?;
                     }
                 }
@@ -202,16 +252,40 @@ async fn handle_stats(
             Ok(res)
         }
         "/proxy.pac" => {
+            // Serves a Proxy Auto-Configuration file
             res.set_body("function FindProxyForURL(url, host){return 'PROXY 127.0.0.1:9910';}");
+            Ok(res)
+        }
+        "/rawstats" => {
+            // Serves all the stats as json
+            let detail = tunnel_manager.get_stats().await?;
+            res.set_body(serde_json::to_string(&detail)?);
+            res.set_content_type(http_types::mime::JSON);
+            Ok(res)
+        }
+        "/deltastats" => {
+            // Serves all the delta stats as json
+            let detail = tunnel_manager.get_stats().await?;
+            let body_str = smol::unblock(move || {
+                let detail = stat_derive(&detail);
+                serde_json::to_string(&detail)
+            })
+            .await?;
+            res.set_body(body_str);
+            res.set_content_type(http_types::mime::JSON);
             Ok(res)
         }
         "/kill" => std::process::exit(0),
         _ => {
-            let detail = kalive.get_stats().timeout(Duration::from_millis(100)).await;
+            // Serves general statistics
+            let detail = tunnel_manager
+                .get_stats()
+                .timeout(Duration::from_millis(100))
+                .await;
             if let Some(Ok(details)) = detail {
                 if let Some(detail) = details.last() {
-                    stats.set_latency(detail.ping.as_secs_f64() * 1000.0);
-                    // compute loss
+                    stats.set_latency(detail.smooth_ping);
+                    // Compute loss
                     let midpoint_stat = details[details.len() / 2];
                     let delta_high = detail
                         .high_recv
@@ -221,25 +295,23 @@ async fn handle_stats(
                         .total_recv
                         .saturating_sub(midpoint_stat.total_recv)
                         .max(1) as f64;
-                    // dbg!(delta_total);
-                    // dbg!(delta_high);
                     let loss = 1.0 - (delta_total / delta_high).min(1.0).max(0.0);
                     stats.set_loss(loss * 100.0)
                 }
             }
             let jstats = serde_json::to_string(&stats)?;
             res.set_body(jstats);
-            res.insert_header("Content-Type", "application/json");
+            res.set_content_type(http_types::mime::JSON);
             Ok(res)
         }
     }
 }
 
-/// Handle a socks5 client from localhost.
+/// Handles a socks5 client from localhost
 async fn handle_socks5(
     stats: Arc<StatCollector>,
     s5client: smol::net::TcpStream,
-    keepalive: &Keepalive,
+    tunnel_manager: &TunnelManager,
     exclude_prc: bool,
 ) -> anyhow::Result<()> {
     s5client.set_nodelay(true)?;
@@ -283,7 +355,7 @@ async fn handle_socks5(
         )
         .await?;
     } else {
-        let conn = keepalive.connect(&addr).await?;
+        let conn = tunnel_manager.connect(&addr).await?;
         smol::future::race(
             aioutils::copy_with_stats(conn.clone(), s5client.clone(), |n| {
                 stats.incr_total_rx(n as u64)
@@ -294,14 +366,3 @@ async fn handle_socks5(
     }
     Ok(())
 }
-
-// /// Smallify the buffers for a TCP connection
-// fn debuffer(conn: async_net::TcpStream) -> async_net::TcpStream {
-//     let conn: Arc<smol::Async<std::net::TcpStream>> = conn.into();
-//     let conn: std::net::TcpStream = conn.get_ref().try_clone().unwrap();
-//     let conn: socket2::Socket = conn.into();
-//     conn.set_nodelay(true).unwrap();
-//     conn.set_recv_buffer_size(163840).unwrap();
-//     conn.set_send_buffer_size(163840).unwrap();
-//     smol::Async::new(conn.into_tcp_stream()).unwrap().into()
-// }

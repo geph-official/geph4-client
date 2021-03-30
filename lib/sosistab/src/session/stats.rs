@@ -1,10 +1,9 @@
+use parking_lot::RwLock;
 use std::{
     collections::VecDeque,
     sync::atomic::AtomicU64,
     time::{Duration, Instant},
 };
-
-use parking_lot::RwLock;
 /// Stat gatherer
 #[derive(Default)]
 pub struct StatGatherer {
@@ -52,6 +51,11 @@ impl StatGatherer {
         self.ping_calc.read().ping()
     }
 
+    /// Get rawping
+    pub fn raw_ping(&self) -> Duration {
+        self.ping_calc.read().raw_ping()
+    }
+
     /// "Send" a ping
     pub fn ping_send(&self, frame_no: u64) {
         self.ping_calc.write().send(frame_no)
@@ -96,6 +100,13 @@ impl PingCalc {
             .iter()
             .cloned()
             .min()
+            .unwrap_or_else(|| Duration::from_secs(1000))
+    }
+    pub fn raw_ping(&self) -> Duration {
+        self.pings
+            .iter()
+            .cloned()
+            .last()
             .unwrap_or_else(|| Duration::from_secs(1000))
     }
 }
@@ -163,7 +174,7 @@ impl SendLossCalc {
 #[derive(Debug)]
 pub struct TimeSeries<T: Clone> {
     max_length: usize,
-    items: VecDeque<T>,
+    items: im::Vector<T>,
 }
 
 impl<T: Clone> TimeSeries<T> {
@@ -172,7 +183,7 @@ impl<T: Clone> TimeSeries<T> {
         self.items.push_back(item);
         if self.items.len() >= self.max_length {
             // decimate the whole vector
-            let half_vector: VecDeque<T> = self
+            let half_vector: im::Vector<T> = self
                 .items
                 .iter()
                 .cloned()
@@ -187,12 +198,12 @@ impl<T: Clone> TimeSeries<T> {
     pub fn new(max_length: usize) -> Self {
         Self {
             max_length,
-            items: VecDeque::new(),
+            items: im::Vector::new(),
         }
     }
 
     /// Get items
-    pub fn items(&self) -> &VecDeque<T> {
+    pub fn items(&self) -> &im::Vector<T> {
         &self.items
     }
 }
