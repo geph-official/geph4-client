@@ -16,7 +16,7 @@ mod getsess;
 #[derive(Clone)]
 pub struct TunnelManager {
     open_socks5_conn: Sender<(String, Sender<sosistab::mux::RelConn>)>,
-    get_stats: Sender<Sender<Vec<sosistab::SessionStat>>>,
+    get_stats: Sender<Sender<im::Vector<sosistab::SessionStat>>>,
     _task: Arc<smol::Task<anyhow::Result<()>>>,
 }
 
@@ -45,7 +45,7 @@ impl TunnelManager {
     }
 
     /// Gets session statistics
-    pub async fn get_stats(&self) -> anyhow::Result<Vec<sosistab::SessionStat>> {
+    pub async fn get_stats(&self) -> anyhow::Result<im::Vector<sosistab::SessionStat>> {
         let (send, recv) = smol::channel::bounded(1);
         self.get_stats.send(send).await?;
         Ok(recv.recv().await?)
@@ -58,7 +58,7 @@ async fn tunnel_actor(
     cfg: ConnectOpt,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::mux::RelConn>)>,
-    recv_get_stats: Receiver<Sender<Vec<sosistab::SessionStat>>>,
+    recv_get_stats: Receiver<Sender<im::Vector<sosistab::SessionStat>>>,
 ) -> anyhow::Result<()> {
     loop {
         let cfg = cfg.clone();
@@ -83,7 +83,7 @@ async fn tunnel_actor_once(
     cfg: ConnectOpt,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::mux::RelConn>)>,
-    recv_get_stats: Receiver<Sender<Vec<sosistab::SessionStat>>>,
+    recv_get_stats: Receiver<Sender<im::Vector<sosistab::SessionStat>>>,
 ) -> anyhow::Result<()> {
     stats.set_exit_descriptor(None);
     let exit_info = get_closest_exit(cfg.exit_server.clone(), &ccache).await?;

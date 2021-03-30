@@ -52,6 +52,7 @@ statsd = "0.14.0"
 smolscale={path="../lib/smolscale"}
 socks2http={path="../lib/socks2http-rs"}
 async-compat="0.2"
+im="15"
 
 [dependencies.async-tls]
 version = "0.11.0"

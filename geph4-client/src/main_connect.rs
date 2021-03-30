@@ -1,5 +1,6 @@
 use crate::{
-    cache::ClientCache, stats::StatCollector, tunman::TunnelManager, AuthOpt, CommonOpt,
+    cache::ClientCache, plots::stat_derive, stats::StatCollector, tunman::TunnelManager, AuthOpt,
+    CommonOpt,
 };
 use crate::{china, stats::GLOBAL_LOGGER};
 use anyhow::Context;
@@ -7,7 +8,11 @@ use async_compat::Compat;
 use chrono::prelude::*;
 use smol_timeout::TimeoutExt;
 use std::{
-    net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, path::PathBuf, sync::Arc, time::Duration,
+    net::Ipv4Addr,
+    net::SocketAddr,
+    net::SocketAddrV4,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 use structopt::StructOpt;
 
@@ -204,7 +209,7 @@ async fn handle_stats(
                 let detail = detail?;
                 let mut sosistab_buf = Vec::new();
                 writeln!(sosistab_buf, "time,last_recv,total_recv,total_loss,ping")?;
-                if let Some(first) = detail.first() {
+                if let Some(first) = detail.get(0) {
                     let first_time = first.time;
                     for item in detail.iter() {
                         writeln!(
@@ -217,7 +222,7 @@ async fn handle_stats(
                             item.high_recv,
                             item.total_recv,
                             item.total_loss,
-                            item.ping.as_secs_f64() * 1000.0,
+                            item.smooth_ping,
                         )?;
                     }
                 }
@@ -251,6 +256,25 @@ async fn handle_stats(
             res.set_body("function FindProxyForURL(url, host){return 'PROXY 127.0.0.1:9910';}");
             Ok(res)
         }
+        "/rawstats" => {
+            // Serves all the stats as json
+            let detail = tunnel_manager.get_stats().await?;
+            res.set_body(serde_json::to_string(&detail)?);
+            res.set_content_type(http_types::mime::JSON);
+            Ok(res)
+        }
+        "/deltastats" => {
+            // Serves all the delta stats as json
+            let detail = tunnel_manager.get_stats().await?;
+            let body_str = smol::unblock(move || {
+                let detail = stat_derive(&detail);
+                serde_json::to_string(&detail)
+            })
+            .await?;
+            res.set_body(body_str);
+            res.set_content_type(http_types::mime::JSON);
+            Ok(res)
+        }
         "/kill" => std::process::exit(0),
         _ => {
             // Serves general statistics
@@ -260,7 +284,7 @@ async fn handle_stats(
                 .await;
             if let Some(Ok(details)) = detail {
                 if let Some(detail) = details.last() {
-                    stats.set_latency(detail.ping.as_secs_f64() * 1000.0);
+                    stats.set_latency(detail.smooth_ping);
                     // Compute loss
                     let midpoint_stat = details[details.len() / 2];
                     let delta_high = detail
@@ -277,7 +301,7 @@ async fn handle_stats(
             }
             let jstats = serde_json::to_string(&stats)?;
             res.set_body(jstats);
-            res.insert_header("Content-Type", "application/json");
+            res.set_content_type(http_types::mime::JSON);
             Ok(res)
         }
     }

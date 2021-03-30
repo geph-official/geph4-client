@@ -223,14 +223,12 @@ pub struct EncryptedBinderResponse(Vec<u8>);
 impl EncryptedBinderResponse {
     /// Decrypts it
     pub fn decrypt(&self, reply_key: [u8; 32]) -> Option<BinderResult<BinderResponse>> {
-        Some(
-            bincode::deserialize(
-                &ChaCha20Poly1305::new(Key::from_slice(&reply_key))
-                    .decrypt(Nonce::from_slice(&[0u8; 12]), self.0.as_slice())
-                    .ok()?,
-            )
-            .ok()?,
+        bincode::deserialize(
+            &ChaCha20Poly1305::new(Key::from_slice(&reply_key))
+                .decrypt(Nonce::from_slice(&[0u8; 12]), self.0.as_slice())
+                .ok()?,
         )
+        .ok()
     }
 }
 

@@ -17,6 +17,8 @@ mod prelude;
 mod stats;
 mod vpn;
 
+mod plots;
+
 mod china;
 mod main_binderproxy;
 mod main_connect;

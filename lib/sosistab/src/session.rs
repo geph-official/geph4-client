@@ -1,3 +1,4 @@
+use self::stats::TimeSeries;
 use crate::runtime;
 use crate::{crypt::LegacyAEAD, fec::FrameEncoder};
 use crate::{
@@ -10,18 +11,17 @@ use governor::{NegativeMultiDecision, Quota, RateLimiter};
 use machine::RecvMachine;
 use parking_lot::Mutex;
 use rand::prelude::*;
+use serde::Serialize;
 use smol::channel::{Receiver, Sender, TrySendError};
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
 use stats::StatGatherer;
 use std::{
     num::NonZeroU32,
-    sync::atomic::{AtomicU32, Ordering},
-    time::{Instant, SystemTime},
+    sync::atomic::{AtomicU32, AtomicU64, Ordering},
+    time::SystemTime,
 };
 use std::{sync::Arc, time::Duration};
-
-use self::stats::TimeSeries;
 
 mod machine;
 mod stats;
@@ -49,6 +49,8 @@ pub struct Session {
     rate_limit: Arc<AtomicU32>,
     last_recv: Arc<Mutex<SystemTime>>,
     recv_timeout: Duration,
+    sent_count: AtomicU64,
+    stat_ratelimit: Box<dyn Fn() -> bool + Send + Sync + 'static>,
     _dropper: Vec<Box<dyn FnOnce() + Send + Sync + 'static>>,
     _task: smol::Task<()>,
 }
@@ -68,6 +70,8 @@ impl Session {
         let last_recv = Arc::new(Mutex::new(SystemTime::now()));
         let recv_packet = cfg.recv_packet.clone();
 
+        let ratelimit = RateLimiter::direct(Quota::per_second(NonZeroU32::new(10).unwrap()));
+
         let ctx = SessionSendCtx {
             cfg,
             statg: machine.lock().get_gather(),
@@ -84,7 +88,9 @@ impl Session {
             recv_packet,
             machine,
             machine_output: ConcurrentQueue::unbounded(),
+            stat_ratelimit: Box::new(move || ratelimit.check().is_ok()),
             last_recv,
+            sent_count: AtomicU64::new(0),
             statistics,
             recv_timeout,
             _dropper: Vec::new(),
@@ -115,6 +121,8 @@ impl Session {
             } else {
                 tracing::warn!("overflowing send_tosend");
             }
+        } else {
+            self.sent_count.fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -123,8 +131,8 @@ impl Session {
         loop {
             // try dequeuing from Q
             if let Ok(b) = self.machine_output.pop() {
-                let raw_stat = self.machine.lock().get_gather();
-                if rand::random::<f32>() < 0.1 {
+                if (self.stat_ratelimit)() {
+                    let raw_stat = self.machine.lock().get_gather();
                     let stat = SessionStat {
                         time: SystemTime::now(),
                         high_recv: raw_stat.high_recv_frame_no(),
@@ -133,10 +141,13 @@ impl Session {
                             - (raw_stat.total_recv_frames() as f64
                                 / raw_stat.high_recv_frame_no() as f64)
                                 .min(1.0),
-                        ping: raw_stat.ping(),
+                        total_sent: self.sent_count.load(Ordering::Relaxed),
+                        smooth_ping: raw_stat.ping().as_secs_f64() * 1000.0,
+                        raw_ping: raw_stat.raw_ping().as_secs_f64() * 1000.0,
                     };
                     self.statistics.lock().push(stat);
                 }
+
                 break Some(b);
             }
             // receive more stuff
@@ -164,8 +175,8 @@ impl Session {
     }
 
     /// Gets the statistics.
-    pub fn all_stats(&self) -> Vec<SessionStat> {
-        self.statistics.lock().items().iter().cloned().collect()
+    pub fn all_stats(&self) -> im::Vector<SessionStat> {
+        self.statistics.lock().items().clone()
     }
 
     /// Get the latest stats.
@@ -429,12 +440,14 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
 }
 
 /// Session stat
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, Serialize)]
 pub struct SessionStat {
     pub time: SystemTime,
     pub high_recv: u64,
     pub total_recv: u64,
+    pub total_sent: u64,
     // pub total_parity: u64,
     pub total_loss: f64,
-    pub ping: Duration,
+    pub smooth_ping: f64,
+    pub raw_ping: f64,
 }
