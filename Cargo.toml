@@ -30,7 +30,7 @@ panic = "abort"
 opt-level=3
 debug=0
 codegen-units=1
-lto='thin'
+lto=true
 
 [patch.crates-io]
 async-executor={git="https://github.com/geph-official/async-executor.git", branch="local-queues"}
