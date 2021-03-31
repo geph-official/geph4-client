@@ -214,14 +214,6 @@ async fn watchdog_loop(tunnel_mux: Arc<Multiplex>) {
     }
 }
 
-async fn infal<T, E>(v: Result<T, E>) -> T {
-    if let Ok(v) = v {
-        v
-    } else {
-        smol::future::pending().await
-    }
-}
-
 /// authenticates a muxed session
 async fn authenticate_session(
     session: &sosistab::mux::Multiplex,

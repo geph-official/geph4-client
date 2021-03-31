@@ -7,13 +7,7 @@ use anyhow::Context;
 use async_compat::Compat;
 use chrono::prelude::*;
 use smol_timeout::TimeoutExt;
-use std::{
-    net::Ipv4Addr,
-    net::SocketAddr,
-    net::SocketAddrV4,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, sync::Arc, time::Duration};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt, Clone)]

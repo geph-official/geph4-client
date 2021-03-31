@@ -3,7 +3,7 @@ mod crypt;
 mod fec;
 mod listener;
 pub use client::*;
-use crypt::{LegacyAEAD, NgAEAD};
+use crypt::{LegacyAead, NgAead};
 pub use listener::*;
 use std::time::{Duration, Instant};
 mod protocol;
@@ -59,8 +59,8 @@ impl VarRateLimit {
 pub fn debug_aead() {
     tracing::warn!("** CRYPTOGRAPHY SELF-TEST **");
     const ITERS: u64 = 10000;
-    let old = LegacyAEAD::new(&[0; 32]);
-    let new = NgAEAD::new(&[0; 32]);
+    let old = LegacyAead::new(&[0; 32]);
+    let new = NgAead::new(&[0; 32]);
     let old_start = Instant::now();
     for _ in 0..ITERS {
         old.decrypt(&old.encrypt(&[0; 1024], 0));

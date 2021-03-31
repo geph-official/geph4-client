@@ -11,19 +11,19 @@ use std::{
 };
 
 use crate::{
-    crypt::{triple_ecdh, Cookie, NgAEAD},
+    crypt::{triple_ecdh, Cookie, NgAead},
     protocol::HandshakeFrame,
     runtime, Backhaul,
 };
 use anyhow::Context;
 use smol_timeout::TimeoutExt;
 
-use super::{read_encrypted, write_encrypted, ObfsTCP, CONN_LIFETIME, TCP_DN_KEY, TCP_UP_KEY};
+use super::{read_encrypted, write_encrypted, ObfsTcp, CONN_LIFETIME, TCP_DN_KEY, TCP_UP_KEY};
 
 /// A TCP-based backhaul, client-side.
 pub struct TcpClientBackhaul {
     dest_to_key: FxHashMap<SocketAddr, x25519_dalek::PublicKey>,
-    conn_pool: DashMap<SocketAddr, VecDeque<(ObfsTCP, SystemTime)>>,
+    conn_pool: DashMap<SocketAddr, VecDeque<(ObfsTcp, SystemTime)>>,
     fake_addr: u128,
     incoming: Receiver<(Bytes, SocketAddr)>,
     send_incoming: Sender<(Bytes, SocketAddr)>,
@@ -51,7 +51,7 @@ impl TcpClientBackhaul {
     }
 
     /// Gets a connection out of the pool of an address.
-    fn get_conn_pooled(&self, addr: SocketAddr) -> Option<(ObfsTCP, SystemTime)> {
+    fn get_conn_pooled(&self, addr: SocketAddr) -> Option<(ObfsTcp, SystemTime)> {
         let mut pool = self.conn_pool.entry(addr).or_default();
         while let Some((conn, time)) = pool.pop_front() {
             if let Ok(age) = time.elapsed() {
@@ -65,13 +65,13 @@ impl TcpClientBackhaul {
     }
 
     /// Puts a connection back into the pool of an address.
-    fn put_conn(&self, addr: SocketAddr, stream: ObfsTCP, time: SystemTime) {
+    fn put_conn(&self, addr: SocketAddr, stream: ObfsTcp, time: SystemTime) {
         let mut pool = self.conn_pool.entry(addr).or_default();
         pool.push_back((stream, time));
     }
 
     /// Opens a connection or gets a connection from the pool.
-    async fn get_conn(&self, addr: SocketAddr) -> anyhow::Result<(ObfsTCP, SystemTime)> {
+    async fn get_conn(&self, addr: SocketAddr) -> anyhow::Result<(ObfsTcp, SystemTime)> {
         if let Some(pooled) = self.get_conn_pooled(addr) {
             Ok(pooled)
         } else {
@@ -90,7 +90,7 @@ impl TcpClientBackhaul {
             let init_c2s = cookie.generate_c2s().next().unwrap();
             let init_s2c = cookie.generate_s2c().next().unwrap();
             let init_up_key = blake3::keyed_hash(&TCP_UP_KEY, &init_c2s);
-            let init_enc = NgAEAD::new(init_up_key.as_bytes());
+            let init_enc = NgAead::new(init_up_key.as_bytes());
             let to_send = HandshakeFrame::ClientHello {
                 long_pk: (&my_long_sk).into(),
                 eph_pk: (&my_eph_sk).into(),
@@ -102,7 +102,7 @@ impl TcpClientBackhaul {
             write_encrypted(init_enc, &to_send, &mut remote).await?;
             // now we wait for a response
             let init_dn_key = blake3::keyed_hash(&TCP_DN_KEY, &init_s2c);
-            let init_dec = NgAEAD::new(init_dn_key.as_bytes());
+            let init_dec = NgAead::new(init_dn_key.as_bytes());
             let raw_response = read_encrypted(init_dec, &mut remote)
                 .await
                 .context("can't read response from server")?;
@@ -114,7 +114,7 @@ impl TcpClientBackhaul {
             } = actual_response
             {
                 let shared_sec = triple_ecdh(&my_long_sk, &my_eph_sk, &long_pk, &eph_pk);
-                let connection = ObfsTCP::new(shared_sec, false, remote);
+                let connection = ObfsTcp::new(shared_sec, false, remote);
                 connection.write(&self.fake_addr.to_be_bytes()).await?;
                 let down_conn = connection.clone();
                 let send_incoming = self.send_incoming.clone();

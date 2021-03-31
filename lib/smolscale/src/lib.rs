@@ -15,10 +15,7 @@ use once_cell::sync::OnceCell;
 use std::{
     pin::Pin,
     sync::atomic::AtomicUsize,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicBool, Ordering},
     task::{Context, Poll},
     time::{Duration, Instant},
 };

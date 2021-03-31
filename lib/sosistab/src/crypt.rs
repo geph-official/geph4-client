@@ -12,17 +12,17 @@ pub const UP_KEY: &[u8; 32] = b"upload--------------------------";
 pub const DN_KEY: &[u8; 32] = b"download------------------------";
 /// A structure for encrypting or decrypting Chacha12/Blake3-64.
 #[derive(Debug, Copy, Clone)]
-pub struct LegacyAEAD {
+pub struct LegacyAead {
     chacha_key: [u8; 32],
     blake3_key: [u8; 32],
 }
 
-impl LegacyAEAD {
+impl LegacyAead {
     /// New std aead given a key.
     pub fn new(key: &[u8]) -> Self {
         let blake3_key = blake3::keyed_hash(b"mac-----------------------------", key);
         let chacha_key = blake3::keyed_hash(b"enc-----------------------------", key);
-        LegacyAEAD {
+        LegacyAead {
             chacha_key: chacha_key.as_bytes().to_owned(),
             blake3_key: blake3_key.as_bytes().to_owned(),
         }
@@ -121,11 +121,11 @@ impl LegacyAEAD {
 
 /// Next generation AEAD, based on `ring`'s ChaCha20/Poly1305, used in versions 3 and above
 #[derive(Debug, Clone)]
-pub struct NgAEAD {
+pub struct NgAead {
     key: Arc<LessSafeKey>,
 }
 
-impl NgAEAD {
+impl NgAead {
     pub fn new(key: &[u8]) -> Self {
         let ubk = UnboundKey::new(&CHACHA20_POLY1305, &key).unwrap();
         Self {

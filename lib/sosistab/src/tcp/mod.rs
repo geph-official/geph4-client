@@ -15,7 +15,7 @@ pub use client::*;
 mod server;
 pub use server::*;
 
-use crate::crypt::NgAEAD;
+use crate::crypt::NgAead;
 
 const CONN_LIFETIME: Duration = Duration::from_secs(600);
 
@@ -24,14 +24,14 @@ const TCP_DN_KEY: &[u8; 32] = b"downloadtcp---------------------";
 
 /// Wrapped TCP connection, with a send and receive obfuscation key.
 #[derive(Clone)]
-struct ObfsTCP {
+struct ObfsTcp {
     inner: TcpStream,
     buf_read: async_dup::Arc<async_dup::Mutex<BufReader<TcpStream>>>,
     send_chacha: Arc<Mutex<ChaCha8>>,
     recv_chacha: Arc<Mutex<ChaCha8>>,
 }
 
-impl ObfsTCP {
+impl ObfsTcp {
     /// creates an ObfsTCP given a shared secret and direction
     fn new(ss: blake3::Hash, is_server: bool, inner: TcpStream) -> Self {
         let up_chacha = Arc::new(Mutex::new(
@@ -89,11 +89,11 @@ impl ObfsTCP {
 }
 
 async fn read_encrypted<R: AsyncRead + Unpin>(
-    decrypt: NgAEAD,
+    decrypt: NgAead,
     rdr: &mut R,
 ) -> anyhow::Result<Bytes> {
     // read the length first
-    let mut length_buf = vec![0u8; NgAEAD::overhead() + 2];
+    let mut length_buf = vec![0u8; NgAead::overhead() + 2];
     rdr.read_exact(&mut length_buf).await?;
     // decrypt the length
     let length_buf = decrypt
@@ -112,7 +112,7 @@ async fn read_encrypted<R: AsyncRead + Unpin>(
 }
 
 async fn write_encrypted<W: AsyncWrite + Unpin>(
-    encrypt: NgAEAD,
+    encrypt: NgAead,
     to_send: &[u8],
     writer: &mut W,
 ) -> anyhow::Result<()> {

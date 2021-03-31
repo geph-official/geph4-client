@@ -161,7 +161,7 @@ impl ListenerActor {
                         let s2c_key = self.cookie.generate_s2c().next().unwrap();
                         for possible_key in self.cookie.generate_c2s() {
                             smol::future::yield_now().await;
-                            let crypter = crypt::LegacyAEAD::new(&possible_key);
+                            let crypter = crypt::LegacyAead::new(&possible_key);
                             if let Some(handshake) =
                                 crypter.pad_decrypt_v1::<protocol::HandshakeFrame>(&buffer)
                             {
@@ -217,7 +217,7 @@ impl ListenerActor {
                                             eph_pk: (&my_eph_sk).into(),
                                             resume_token: token,
                                         };
-                                        let reply = crypt::LegacyAEAD::new(&s2c_key)
+                                        let reply = crypt::LegacyAead::new(&s2c_key)
                                             .pad_encrypt_v1(&[reply], 1000);
                                         tracing::debug!(
                                             "[{}] GONNA reply to ClientHello from {}",
@@ -305,17 +305,17 @@ impl ListenerActor {
                                                     recv_timeout: Duration::from_secs(3600),
                                                     statistics: 128,
 
-                                                    send_crypt_legacy: crypt::LegacyAEAD::new(
+                                                    send_crypt_legacy: crypt::LegacyAead::new(
                                                         dn_key.as_bytes(),
                                                     ),
-                                                    recv_crypt_legacy: crypt::LegacyAEAD::new(
+                                                    recv_crypt_legacy: crypt::LegacyAead::new(
                                                         up_key.as_bytes(),
                                                     ),
 
-                                                    send_crypt_ng: crypt::NgAEAD::new(
+                                                    send_crypt_ng: crypt::NgAead::new(
                                                         dn_key.as_bytes(),
                                                     ),
-                                                    recv_crypt_ng: crypt::NgAEAD::new(
+                                                    recv_crypt_ng: crypt::NgAead::new(
                                                         up_key.as_bytes(),
                                                     ),
                                                     version: tokinfo.version,
@@ -366,13 +366,13 @@ struct TokenInfo {
 impl TokenInfo {
     fn decrypt(key: &[u8], encrypted: &[u8]) -> Option<Self> {
         // first we decrypt
-        let crypter = crypt::LegacyAEAD::new(key);
+        let crypter = crypt::LegacyAead::new(key);
         let plain = crypter.decrypt(encrypted)?;
         bincode::deserialize(&plain).ok()
     }
 
     fn encrypt(&self, key: &[u8]) -> Bytes {
-        let crypter = crypt::LegacyAEAD::new(key);
+        let crypter = crypt::LegacyAead::new(key);
         let mut rng = rand::thread_rng();
         crypter.encrypt(
             &bincode::serialize(self).expect("must serialize"),

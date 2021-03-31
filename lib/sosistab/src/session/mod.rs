@@ -1,8 +1,8 @@
 use self::stats::TimeSeries;
 use crate::runtime;
-use crate::{crypt::LegacyAEAD, fec::FrameEncoder};
+use crate::{crypt::LegacyAead, fec::FrameEncoder};
 use crate::{
-    crypt::NgAEAD,
+    crypt::NgAead,
     protocol::{DataFrameV1, DataFrameV2},
 };
 use bytes::Bytes;
@@ -33,10 +33,10 @@ pub(crate) struct SessionConfig {
     pub recv_timeout: Duration,
     pub statistics: usize,
     pub version: u64,
-    pub send_crypt_legacy: LegacyAEAD,
-    pub recv_crypt_legacy: LegacyAEAD,
-    pub send_crypt_ng: NgAEAD,
-    pub recv_crypt_ng: NgAEAD,
+    pub send_crypt_legacy: LegacyAead,
+    pub recv_crypt_legacy: LegacyAead,
+    pub send_crypt_ng: NgAead,
+    pub recv_crypt_ng: NgAead,
 }
 
 /// Representation of an isolated session that deals only in DataFrames and abstracts away all I/O concerns. It's the user's responsibility to poll the session. Otherwise, it might not make progress and will drop packets.

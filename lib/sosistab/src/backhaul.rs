@@ -7,7 +7,6 @@ use std::{
 
 use bytes::{Bytes, BytesMut};
 use smol::{channel::Sender, Async};
-use socket2::Socket;
 
 use crate::runtime;
 

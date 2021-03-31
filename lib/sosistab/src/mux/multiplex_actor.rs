@@ -26,7 +26,7 @@ pub async fn multiplex(
         SendMsg(Message),
         ConnOpen(Option<String>, Sender<RelConn>),
         Dead(u16),
-    };
+    }
 
     loop {
         smol::future::yield_now().await;
