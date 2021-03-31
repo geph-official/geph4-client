@@ -286,7 +286,7 @@ async fn handle_stats(
                 if let Some(detail) = details.last() {
                     stats.set_latency(detail.smooth_ping);
                     // Compute loss
-                    let midpoint_stat = details[details.len() / 2];
+                    let midpoint_stat = &details[details.len() / 2];
                     let delta_high = detail
                         .high_recv
                         .saturating_sub(midpoint_stat.high_recv)

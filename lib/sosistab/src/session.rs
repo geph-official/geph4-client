@@ -133,7 +133,7 @@ impl Session {
             if let Ok(b) = self.machine_output.pop() {
                 if (self.stat_ratelimit)() {
                     let raw_stat = self.machine.lock().get_gather();
-                    let stat = SessionStat {
+                    let stat = Box::new(SessionStatInner {
                         time: SystemTime::now(),
                         high_recv: raw_stat.high_recv_frame_no(),
                         total_recv: raw_stat.total_recv_frames(),
@@ -144,7 +144,7 @@ impl Session {
                         total_sent: self.sent_count.load(Ordering::Relaxed),
                         smooth_ping: raw_stat.ping().as_secs_f64() * 1000.0,
                         raw_ping: raw_stat.raw_ping().as_secs_f64() * 1000.0,
-                    };
+                    });
                     self.statistics.lock().push(stat);
                 }
 
@@ -439,9 +439,11 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
     }
 }
 
+pub type SessionStat = Box<SessionStatInner>;
+
 /// Session stat
 #[derive(Copy, Clone, Debug, Serialize)]
-pub struct SessionStat {
+pub struct SessionStatInner {
     pub time: SystemTime,
     pub high_recv: u64,
     pub total_recv: u64,

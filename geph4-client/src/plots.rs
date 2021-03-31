@@ -12,7 +12,7 @@ pub fn stat_derive(stats: &im::Vector<SessionStat>) -> Vec<DeltaStat> {
     let mut bins: BTreeMap<u64, Vec<SessionStat>> = BTreeMap::new();
     for stat in stats.iter() {
         let bin = bins.entry(stat.time.duration_since(UNIX_EPOCH).unwrap().as_secs() / 3);
-        bin.or_default().push(*stat);
+        bin.or_default().push(stat.clone());
     }
 
     let mut toret = bins
