@@ -194,7 +194,7 @@ pub async fn main_loop<'a>(
                 .accept_session()
                 .race(tcp_listen.accept_session())
                 .await
-                .ok_or_else(|| anyhow::anyhow!("can't accept from sosistab"))?;
+                .expect("can't accept from sosistab");
             let ctx1 = ctx1.clone();
             smolscale::spawn(session::handle_session(ctx1.new_sess(sess))).detach();
         }
@@ -210,7 +210,7 @@ pub async fn main_loop<'a>(
         let taskkey = format!("task_count.{}", exit_hostname.replace(".", "-"));
         let e = epoch::mib().unwrap();
         // let allocated = jemalloc_ctl::stats::allocated::mib().unwrap();
-        let resident = jemalloc_ctl::stats::resident::mib().unwrap();
+        let resident = jemalloc_ctl::stats::allocated::mib().unwrap();
         loop {
             e.advance().unwrap();
 
