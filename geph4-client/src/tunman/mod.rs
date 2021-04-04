@@ -6,7 +6,7 @@ use getsess::get_session;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
-use sosistab::mux::Multiplex;
+use sosistab::Multiplex;
 use std::time::Duration;
 use std::{sync::Arc, time::Instant};
 
@@ -15,7 +15,7 @@ mod getsess;
 /// An "actor" that manages a Geph tunnel
 #[derive(Clone)]
 pub struct TunnelManager {
-    open_socks5_conn: Sender<(String, Sender<sosistab::mux::RelConn>)>,
+    open_socks5_conn: Sender<(String, Sender<sosistab::RelConn>)>,
     get_stats: Sender<Sender<im::Vector<sosistab::SessionStat>>>,
     _task: Arc<smol::Task<anyhow::Result<()>>>,
 }
@@ -36,7 +36,7 @@ impl TunnelManager {
     }
 
     /// Opens a connection
-    pub async fn connect(&self, remote: &str) -> anyhow::Result<sosistab::mux::RelConn> {
+    pub async fn connect(&self, remote: &str) -> anyhow::Result<sosistab::RelConn> {
         let (send, recv) = smol::channel::bounded(1);
         self.open_socks5_conn
             .send((remote.to_string(), send))
@@ -57,7 +57,7 @@ async fn tunnel_actor(
     stats: Arc<StatCollector>,
     cfg: ConnectOpt,
     ccache: Arc<ClientCache>,
-    recv_socks5_conn: Receiver<(String, Sender<sosistab::mux::RelConn>)>,
+    recv_socks5_conn: Receiver<(String, Sender<sosistab::RelConn>)>,
     recv_get_stats: Receiver<Sender<im::Vector<sosistab::SessionStat>>>,
 ) -> anyhow::Result<()> {
     loop {
@@ -82,7 +82,7 @@ async fn tunnel_actor_once(
     stats: Arc<StatCollector>,
     cfg: ConnectOpt,
     ccache: Arc<ClientCache>,
-    recv_socks5_conn: Receiver<(String, Sender<sosistab::mux::RelConn>)>,
+    recv_socks5_conn: Receiver<(String, Sender<sosistab::RelConn>)>,
     recv_get_stats: Receiver<Sender<im::Vector<sosistab::SessionStat>>>,
 ) -> anyhow::Result<()> {
     stats.set_exit_descriptor(None);
@@ -94,7 +94,7 @@ async fn tunnel_actor_once(
         get_session(exit_info.clone(), &ccache, cfg.use_bridges, false).await?
     };
 
-    let tunnel_mux = Arc::new(sosistab::mux::Multiplex::new(session));
+    let tunnel_mux = Arc::new(sosistab::Multiplex::new(session));
 
     // Now let's authenticate
     let token = ccache.get_auth_token().await?;
@@ -216,7 +216,7 @@ async fn watchdog_loop(tunnel_mux: Arc<Multiplex>) {
 
 /// authenticates a muxed session
 async fn authenticate_session(
-    session: &sosistab::mux::Multiplex,
+    session: &sosistab::Multiplex,
     token: &crate::cache::Token,
 ) -> anyhow::Result<()> {
     let mut auth_conn = session.open_conn(None).await?;

@@ -71,7 +71,7 @@ pub async fn transparent_proxy_helper(ctx: Arc<RootCtx>) -> anyhow::Result<()> {
 
 /// Handles a VPN session
 pub async fn handle_vpn_session(
-    mux: Arc<sosistab::mux::Multiplex>,
+    mux: Arc<sosistab::Multiplex>,
     exit_hostname: String,
     stat_client: Arc<statsd::Client>,
     port_whitelist: bool,

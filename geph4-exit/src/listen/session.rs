@@ -24,7 +24,7 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
             .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     });
 
-    let sess = Arc::new(sosistab::mux::Multiplex::new(sess));
+    let sess = Arc::new(sosistab::Multiplex::new(sess));
     let is_plus = authenticate_sess(root.binder_client.clone(), &sess)
         .timeout(Duration::from_secs(300))
         .await
@@ -104,7 +104,7 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
 
 async fn authenticate_sess(
     binder_client: Arc<dyn BinderClient>,
-    sess: &sosistab::mux::Multiplex,
+    sess: &sosistab::Multiplex,
 ) -> anyhow::Result<bool> {
     let mut stream = sess.accept_conn().await?;
     log::debug!("authenticating session...");

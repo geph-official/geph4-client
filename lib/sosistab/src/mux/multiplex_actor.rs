@@ -1,12 +1,16 @@
-use crate::*;
 use bytes::Bytes;
 use dashmap::DashMap;
-use mux::relconn::{RelConn, RelConnBack, RelConnState};
-use mux::structs::*;
 use rand::prelude::*;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use std::sync::Arc;
+
+use crate::{runtime, RelConn, Session};
+
+use super::{
+    relconn::{RelConnBack, RelConnState},
+    structs::{Message, RelKind},
+};
 
 pub async fn multiplex(
     recv_session: Receiver<Arc<Session>>,

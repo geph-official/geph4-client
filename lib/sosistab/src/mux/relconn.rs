@@ -17,6 +17,7 @@ pub const MSS: usize = 1100;
 const MAX_WAIT_SECS: u64 = 60;
 
 #[derive(Clone)]
+/// [RelConn] represents a reliable stream, multiplexed over a [Multiplex]. It implements [AsyncRead], [AsyncWrite], and [Clone], making using it very similar to using a TcpStream.
 pub struct RelConn {
     send_write: DArc<DMutex<BipeWriter>>,
     recv_read: DArc<DMutex<BipeReader>>,

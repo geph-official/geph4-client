@@ -14,7 +14,7 @@ use pnet_packet::{
 };
 use smol::{channel::Receiver, prelude::*};
 use smol_timeout::TimeoutExt;
-use sosistab::mux::Multiplex;
+use sosistab::Multiplex;
 use std::{collections::HashMap, io::Stdin, num::NonZeroU32, sync::Arc, time::Duration};
 use vpn_structs::StdioMsg;
 
@@ -31,7 +31,7 @@ struct VpnContext<'a> {
 /// Runs a vpn session
 pub async fn run_vpn(
     stats: Arc<StatCollector>,
-    mux: Arc<sosistab::mux::Multiplex>,
+    mux: Arc<sosistab::Multiplex>,
 ) -> anyhow::Result<()> {
     // First, we negotiate the vpn
     let client_id: u128 = rand::random();
