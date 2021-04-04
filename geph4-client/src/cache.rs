@@ -219,7 +219,7 @@ impl ClientCache {
                     anyhow::bail!("invalid response")
                 }
             },
-            Duration::from_secs(60),
+            Duration::from_secs(300),
         )
         .await
     }

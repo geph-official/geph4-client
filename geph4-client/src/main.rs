@@ -17,6 +17,8 @@ mod prelude;
 mod stats;
 mod vpn;
 
+mod activity;
+
 mod plots;
 
 mod china;
@@ -90,7 +92,7 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
-    // smolscale::permanently_single_threaded();
+    smolscale::permanently_single_threaded();
     smolscale::block_on(async move {
         match opt {
             Opt::Connect(opt) => loop {

@@ -18,7 +18,7 @@ use sosistab::Multiplex;
 use std::{collections::HashMap, io::Stdin, num::NonZeroU32, sync::Arc, time::Duration};
 use vpn_structs::StdioMsg;
 
-use crate::stats::StatCollector;
+use crate::{activity::notify_activity, stats::StatCollector};
 use std::io::Write;
 
 #[derive(Clone, Copy)]
@@ -96,6 +96,7 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         };
         let body = stdin_fut.await?;
         if let Some(body) = body {
+            notify_activity();
             ctx.stats.incr_total_tx(body.len() as u64);
             drop(
                 ctx.mux.send_urel(

@@ -45,8 +45,14 @@ pub async fn multiplex(
                 .recv_bytes()
                 .await
                 .ok_or_else(|| anyhow::anyhow!("underlying session is dead"))?;
-            let msg = bincode::deserialize::<Message>(&msg)?;
-            Ok::<_, anyhow::Error>(Event::RecvMsg(msg))
+            let msg = bincode::deserialize::<Message>(&msg);
+            if let Ok(msg) = msg {
+                Ok::<_, anyhow::Error>(Event::RecvMsg(msg))
+            } else {
+                tracing::warn!("error receiving message from sess");
+                // In this case, we echo back an empty packet.
+                Ok(Event::SendMsg(Message::Empty))
+            }
         };
         // fires on sending messages
         let send_msg = async {
@@ -192,6 +198,7 @@ pub async fn multiplex(
                             }
                         }
                     }
+                    Message::Empty => {}
                 }
             }
         }

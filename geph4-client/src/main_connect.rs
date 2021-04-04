@@ -1,6 +1,6 @@
 use crate::{
-    cache::ClientCache, plots::stat_derive, stats::StatCollector, tunman::TunnelManager, AuthOpt,
-    CommonOpt,
+    activity::notify_activity, cache::ClientCache, plots::stat_derive, stats::StatCollector,
+    tunman::TunnelManager, AuthOpt, CommonOpt,
 };
 use crate::{china, stats::GLOBAL_LOGGER};
 use anyhow::Context;
@@ -354,7 +354,10 @@ async fn handle_socks5(
             aioutils::copy_with_stats(conn.clone(), s5client.clone(), |n| {
                 stats.incr_total_rx(n as u64)
             }),
-            aioutils::copy_with_stats(s5client, conn, |n| stats.incr_total_tx(n as u64)),
+            aioutils::copy_with_stats(s5client, conn, |n| {
+                notify_activity();
+                stats.incr_total_tx(n as u64)
+            }),
         )
         .await?;
     }

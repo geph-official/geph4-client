@@ -1,4 +1,8 @@
-use crate::{cache::ClientCache, main_connect::ConnectOpt};
+use crate::{
+    activity::{notify_activity, timeout_multiplier},
+    cache::ClientCache,
+    main_connect::ConnectOpt,
+};
 use crate::{stats::StatCollector, vpn::run_vpn};
 use anyhow::Context;
 use binder_transport::ExitDescriptor;
@@ -10,7 +14,10 @@ use sosistab::Multiplex;
 use std::time::Duration;
 use std::{sync::Arc, time::Instant};
 
+use self::reroute::rerouter_loop;
+
 mod getsess;
+mod reroute;
 
 /// An "actor" that manages a Geph tunnel
 #[derive(Clone)]
@@ -85,21 +92,22 @@ async fn tunnel_actor_once(
     recv_socks5_conn: Receiver<(String, Sender<sosistab::RelConn>)>,
     recv_get_stats: Receiver<Sender<im::Vector<sosistab::SessionStat>>>,
 ) -> anyhow::Result<()> {
+    notify_activity();
     stats.set_exit_descriptor(None);
     let exit_info = get_closest_exit(cfg.exit_server.clone(), &ccache).await?;
 
-    let session = if cfg.use_tcp {
-        get_session(exit_info.clone(), &ccache, cfg.use_bridges, true).await?
+    let protosess = if cfg.use_tcp {
+        get_session(&exit_info, &ccache, cfg.use_bridges, true).await?
     } else {
-        get_session(exit_info.clone(), &ccache, cfg.use_bridges, false).await?
+        get_session(&exit_info, &ccache, cfg.use_bridges, false).await?
     };
 
-    let tunnel_mux = Arc::new(sosistab::Multiplex::new(session));
+    let tunnel_mux = Arc::new(protosess.multiplex());
 
     // Now let's authenticate
     let token = ccache.get_auth_token().await?;
     authenticate_session(&tunnel_mux, &token)
-        .timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(15))
         .await
         .ok_or_else(|| anyhow::anyhow!("authentication timed out"))??;
     log::info!(
@@ -109,10 +117,19 @@ async fn tunnel_actor_once(
         cfg.use_tcp
     );
 
-    stats.set_exit_descriptor(Some(exit_info));
+    stats.set_exit_descriptor(Some(exit_info.clone()));
 
     // Set up a watchdog to keep the connection alive
     let _watchdog = smolscale::spawn(watchdog_loop(tunnel_mux.clone()));
+
+    // Set up a session rerouter
+    let rerouter_fut = rerouter_loop(
+        &tunnel_mux,
+        &exit_info,
+        &ccache,
+        cfg.use_bridges,
+        cfg.use_tcp,
+    );
 
     let (send_death, recv_death) = smol::channel::unbounded::<anyhow::Error>();
 
@@ -130,13 +147,14 @@ async fn tunnel_actor_once(
     }
 
     let mux1 = tunnel_mux.clone();
+    let mux2 = tunnel_mux.clone();
     async move {
         loop {
             let (conn_host, conn_reply) = recv_socks5_conn
                 .recv()
                 .await
                 .context("cannot get socks5 connect request")?;
-            let mux = tunnel_mux.clone();
+            let mux = mux1.clone();
             let send_death = send_death.clone();
             smolscale::spawn(async move {
                 let start = Instant::now();
@@ -176,10 +194,11 @@ async fn tunnel_actor_once(
     .or(async {
         loop {
             let stat_send = recv_get_stats.recv().await?;
-            let stats = mux1.get_session().all_stats();
+            let stats = mux2.get_session().all_stats();
             drop(stat_send.send(stats).await);
         }
     })
+    .or(rerouter_fut)
     .await
 }
 
@@ -202,7 +221,7 @@ async fn get_closest_exit(
 
 async fn watchdog_loop(tunnel_mux: Arc<Multiplex>) {
     loop {
-        smol::Timer::after(Duration::from_secs(200)).await;
+        smol::Timer::after(Duration::from_secs(10).mul_f64(timeout_multiplier())).await;
         if tunnel_mux
             .open_conn(None)
             .timeout(Duration::from_secs(60))
@@ -230,6 +249,7 @@ async fn authenticate_session(
         ),
     )
     .await?;
+    log::debug!("sent auth info!");
     let _: u8 = aioutils::read_pascalish(&mut auth_conn).await?;
     Ok(())
 }

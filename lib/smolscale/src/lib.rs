@@ -117,7 +117,7 @@ fn monitor_loop() {
 
 /// Spawns a future onto the global executor and immediately blocks on it.
 pub fn block_on<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static) -> T {
-    futures_lite::future::block_on(EXEC.run(future))
+    futures_lite::future::block_on(spawn(future))
 }
 
 /// Spawns a task onto the lazily-initialized global executor.
