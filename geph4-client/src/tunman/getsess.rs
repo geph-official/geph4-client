@@ -122,20 +122,13 @@ impl ProtoSession {
 
     /// Creates a multiplexed session directly.
     pub fn multiplex(self) -> Multiplex {
-        // We send a packet consisting of 32 zeros. This is the standard signal for a fresh session that doesn't hijack an existing multiplex.
-        self.inner.send_bytes(vec![0; 32].into());
+        // // We send a packet consisting of 32 zeros. This is the standard signal for a fresh session that doesn't hijack an existing multiplex.
+        // self.inner.send_bytes(vec![0; 32].into());
         self.inner.multiplex()
     }
 
     /// Hijacks an existing multiplex with this session.
-    pub async fn hijack(self, other_mplex: &Multiplex) -> anyhow::Result<()> {
-        // We first request the ID of the other multiplex.
-        let other_id = {
-            let mut conn = other_mplex.open_conn(Some("!id".into())).await?;
-            let mut buf = [0u8; 32];
-            conn.read_exact(&mut buf).await?;
-            buf
-        };
+    pub async fn hijack(self, other_mplex: &Multiplex, other_id: [u8; 32]) -> anyhow::Result<()> {
         log::debug!(
             "starting hijack of other_id = {}...",
             hex::encode(&other_id[..5])

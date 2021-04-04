@@ -1,9 +1,9 @@
 use std::time::{Duration, SystemTime};
 
-use binder_transport::ExitDescriptor;
-use sosistab::Multiplex;
-
 use crate::{activity::timeout_multiplier, cache::ClientCache};
+use binder_transport::ExitDescriptor;
+use smol::prelude::*;
+use sosistab::Multiplex;
 
 use super::getsess::get_session;
 
@@ -17,6 +17,13 @@ pub async fn rerouter_loop(
     use_tcp: bool,
 ) -> anyhow::Result<()> {
     let mut old_addr = None;
+    // We first request the ID of the other multiplex.
+    let other_id = {
+        let mut conn = tunnel_mux.open_conn(Some("!id".into())).await?;
+        let mut buf = [0u8; 32];
+        conn.read_exact(&mut buf).await?;
+        buf
+    };
     loop {
         let start = SystemTime::now();
         smol::Timer::after(REROUTE_TIMEOUT.mul_f64(timeout_multiplier())).await;
@@ -28,7 +35,7 @@ pub async fn rerouter_loop(
                     log::debug!("skipping hijack because the best connection was identical")
                 } else {
                     old_addr = Some(new_sess.remote_addr());
-                    new_sess.hijack(tunnel_mux).await?;
+                    new_sess.hijack(tunnel_mux, other_id).await?;
                 }
             }
             Err(err) => {
