@@ -13,7 +13,7 @@ pub use session::*;
 mod backhaul;
 pub mod mux;
 mod tcp;
-pub use backhaul::*;
+use backhaul::*;
 mod batchan;
 mod recfilter;
 

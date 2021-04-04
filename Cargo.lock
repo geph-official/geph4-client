@@ -2167,9 +2167,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.91"
+version = "0.2.92"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8916b1f6ca17130ec6568feccee27c156ad12037880833a3b842a823236502e7"
+checksum = "56d855069fafbb9b344c0f962150cd2c1187975cb1c22c1522c240d8c4986714"
 
 [[package]]
 name = "libm"
@@ -3599,7 +3599,7 @@ dependencies = [
 
 [[package]]
 name = "smolscale"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -3769,9 +3769,9 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "statsd"
-version = "0.14.0"
+version = "0.14.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50eb6debd496efb9752bae7b5bf73ef37b7ce6da0edffcef892302c6658add04"
+checksum = "5181f817969f3b9f76f70866611c0555b5537f8fdbf14cbdadebb9b54155bd5a"
 dependencies = [
  "rand 0.3.23",
 ]

@@ -16,7 +16,7 @@ use std::{
 
 /// Configures the client.
 #[derive(Clone)]
-pub struct ClientConfig {
+pub(crate) struct ClientConfig {
     pub server_addr: SocketAddr,
     pub server_pubkey: x25519_dalek::PublicKey,
     pub backhaul_gen: Arc<dyn Fn() -> Arc<dyn Backhaul> + 'static + Send + Sync>,
@@ -25,7 +25,7 @@ pub struct ClientConfig {
 }
 
 /// Connects to a remote server, given a closure that generates socket addresses.
-pub async fn connect_custom(cfg: ClientConfig) -> std::io::Result<Session> {
+pub(crate) async fn connect_custom(cfg: ClientConfig) -> std::io::Result<Session> {
     let backhaul = (cfg.backhaul_gen)();
     let my_long_sk = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
     let my_eph_sk = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());

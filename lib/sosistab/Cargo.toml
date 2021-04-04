@@ -38,7 +38,7 @@ indexmap= "1.6.1"
 bloomfilter = "1.0.3"
 concurrent-queue= "1.2.2"
 rand_chacha="0.2"
-smolscale={path="../smolscale"}
+smolscale={version="0.2.1", path="../smolscale"}
 async-trait= "0.1.42"
 dashmap= "4.0.1"
 smol-timeout= "0.6.0"
