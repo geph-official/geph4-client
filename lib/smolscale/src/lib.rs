@@ -134,7 +134,7 @@ pub fn spawn<T: Send + 'static>(
 // /// Spawns a task onto the lazily-initialized thread-local executor.
 // ///
 // /// The task should **NOT** block or run CPU-intensive code
-// pub fn spawn_local<T: 'static>(
+// pub fn spawn<T: 'static>(
 //     future: impl Future<Output = T> + 'static,
 // ) -> async_executor::Task<T> {
 //     start_monitor();

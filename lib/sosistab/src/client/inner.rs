@@ -110,7 +110,7 @@ async fn init_session(
     let (send_frame_in, recv_frame_in) = smol::channel::bounded(5000);
     let backhaul_tasks: Vec<_> = (0..cfg.num_shards)
         .map(|i| {
-            runtime::spawn_local(client_backhaul_once(
+            runtime::spawn(client_backhaul_once(
                 remind_ratelimit.clone(),
                 cookie.clone(),
                 resume_token.clone(),
@@ -207,7 +207,7 @@ async fn client_backhaul_once(
                             let old_socket = socket.clone();
                             let send_packet_in = send_packet_in.clone();
                             // spawn a task to clean up the UDP socket
-                            let tata: smol::Task<Option<()>> = runtime::spawn_local(
+                            let tata: smol::Task<Option<()>> = runtime::spawn(
                                 async move {
                                     loop {
                                         let bufs = old_socket.recv_from_many().await.ok()?;

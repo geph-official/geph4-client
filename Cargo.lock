@@ -1693,6 +1693,7 @@ dependencies = [
  "statsd",
  "strsim 0.10.0",
  "structopt",
+ "surf",
  "tar",
  "treebitmap",
  "vpn_structs",

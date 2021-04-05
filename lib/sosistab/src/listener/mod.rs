@@ -38,17 +38,16 @@ impl Listener {
     }
     /// Creates a new listener given the parameters.
     pub async fn listen_udp(
-        addr: impl AsyncToSocketAddrs,
+        addr: SocketAddr,
         long_sk: x25519_dalek::StaticSecret,
         on_recv: impl Fn(usize, SocketAddr) + 'static + Send + Sync,
         on_send: impl Fn(usize, SocketAddr) + 'static + Send + Sync,
     ) -> Self {
-        // let addr = async_net::resolve(addr).await;
-        let socket = runtime::new_udp_socket_bind(addr).await.unwrap();
+        let socket = runtime::new_udp_socket_bind(addr).unwrap();
         let local_addr = socket.get_ref().local_addr().unwrap();
         let cookie = crypt::Cookie::new((&long_sk).into());
         let (send, recv) = smol::channel::unbounded();
-        let task = runtime::spawn_local(
+        let task = runtime::spawn(
             ListenerActor {
                 socket: Arc::new(StatsBackhaul::new(socket, on_recv, on_send)),
                 cookie,
@@ -76,7 +75,7 @@ impl Listener {
         let cookie = crypt::Cookie::new((&long_sk).into());
         let socket = TcpServerBackhaul::new(listener, long_sk.clone());
         let (send, recv) = smol::channel::unbounded();
-        let task = runtime::spawn_local(
+        let task = runtime::spawn(
             ListenerActor {
                 socket: Arc::new(StatsBackhaul::new(socket, on_recv, on_send)),
                 cookie,
