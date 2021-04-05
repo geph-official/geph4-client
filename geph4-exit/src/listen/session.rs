@@ -141,6 +141,9 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
     let sess_replace_loop = async {
         loop {
             let new_sess = recv_sess_replace.recv().await?;
+            if !is_plus {
+                new_sess.set_ratelimit(root.free_limit);
+            }
             sess.replace_session(new_sess);
         }
     };
