@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    crypt::{LegacyAEAD, NgAEAD},
+    crypt::{LegacyAead, NgAead},
     fec::{pre_encode, FrameDecoder},
     protocol::{DataFrameV1, DataFrameV2},
 };
@@ -16,15 +16,15 @@ pub struct RecvMachine {
     version: u64,
     decoder: RunDecoder,
     oob_decoder: OobDecoder,
-    recv_crypt_legacy: LegacyAEAD,
-    recv_crypt_ng: NgAEAD,
+    recv_crypt_legacy: LegacyAead,
+    recv_crypt_ng: NgAead,
     replay_filter: ReplayFilter,
     ping_calc: Arc<StatGatherer>,
 }
 
 impl RecvMachine {
     /// Creates a new machine based on a version and a down decrypter.
-    pub fn new(version: u64, recv_crypt_legacy: LegacyAEAD, recv_crypt_ng: NgAEAD) -> Self {
+    pub fn new(version: u64, recv_crypt_legacy: LegacyAead, recv_crypt_ng: NgAead) -> Self {
         Self {
             version,
             decoder: RunDecoder::default(),

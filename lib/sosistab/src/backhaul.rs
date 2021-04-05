@@ -7,13 +7,12 @@ use std::{
 
 use bytes::{Bytes, BytesMut};
 use smol::{channel::Sender, Async};
-use socket2::Socket;
 
 use crate::runtime;
 
 /// A trait that represents a datagram backhaul. This presents an interface similar to that of "PacketConn" in Go, and it is used to abstract over different kinds of datagram transports.
 #[async_trait::async_trait]
-pub trait Backhaul: Send + Sync {
+pub(crate) trait Backhaul: Send + Sync {
     /// Sends a datagram
     async fn send_to(&self, to_send: Bytes, dest: SocketAddr) -> io::Result<()>;
     /// Sends many datagrams
@@ -32,7 +31,7 @@ pub trait Backhaul: Send + Sync {
 }
 
 /// A structure that wraps a Backhaul with statistics.
-pub struct StatsBackhaul<B: Backhaul + 'static> {
+pub(crate) struct StatsBackhaul<B: Backhaul + 'static> {
     haul: Arc<B>,
     send_batcher: Sender<(Bytes, SocketAddr)>,
     on_recv: Box<dyn Fn(usize, SocketAddr) + Send + Sync>,

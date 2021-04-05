@@ -79,7 +79,7 @@ impl Multiplex {
         self.sess_ref.read().clone()
     }
 
-    /// Replaces the internal Session
+    /// Replaces the internal Session. This drops the previous Session, but this is not guaranteed to happen immediately.
     pub fn replace_session(&self, sess: Session) {
         let sess = Arc::new(sess);
         let mut sess_ref = self.sess_ref.write();

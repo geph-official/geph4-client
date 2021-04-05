@@ -1,19 +1,15 @@
 use crate::{
-    cache::ClientCache, plots::stat_derive, stats::StatCollector, tunman::TunnelManager, AuthOpt,
-    CommonOpt,
+    activity::notify_activity, cache::ClientCache, plots::stat_derive, stats::StatCollector,
+    tunman::TunnelManager, AuthOpt, CommonOpt,
 };
 use crate::{china, stats::GLOBAL_LOGGER};
 use anyhow::Context;
 use async_compat::Compat;
+use async_net::IpAddr;
+use china::is_chinese_ip;
 use chrono::prelude::*;
 use smol_timeout::TimeoutExt;
-use std::{
-    net::Ipv4Addr,
-    net::SocketAddr,
-    net::SocketAddrV4,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, sync::Arc, time::Duration};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt, Clone)]
@@ -72,8 +68,27 @@ pub struct ConnectOpt {
 }
 
 /// Main function for `connect` subcommand
-pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
+pub async fn main_connect(mut opt: ConnectOpt) -> anyhow::Result<()> {
     log::info!("connect mode started");
+
+    // Test china
+    let is_china = test_china().await;
+    match is_china {
+        Err(e) => {
+            log::warn!(
+                "could not tell whether or not we're in China ({}), so assuming that we are!",
+                e
+            );
+            opt.use_bridges = true;
+        }
+        Ok(true) => {
+            log::info!("we are in CHINA :O");
+            opt.use_bridges = true;
+        }
+        _ => {
+            log::info!("not in China :)")
+        }
+    }
 
     // Start socks to http
     let _socks2h = smolscale::spawn(Compat::new(socks2http::run_tokio(opt.http_listen, {
@@ -153,6 +168,21 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
             handle_socks5(stat_collector, s5client, &tunnel_manager, exclude_prc).await
         })
         .detach()
+    }
+}
+
+/// Returns whether or not we're in China.
+async fn test_china() -> surf::Result<bool> {
+    let response = surf::get("http://checkip.amazonaws.com")
+        .recv_string()
+        .timeout(Duration::from_secs(10))
+        .await
+        .ok_or_else(|| anyhow::anyhow!("checkip timeout"))??;
+    let response = response.trim();
+    let parsed: IpAddr = response.parse()?;
+    match parsed {
+        IpAddr::V4(inner) => Ok(is_chinese_ip(inner)),
+        IpAddr::V6(_) => Err(anyhow::anyhow!("cannot tell for ipv6").into()),
     }
 }
 
@@ -360,7 +390,10 @@ async fn handle_socks5(
             aioutils::copy_with_stats(conn.clone(), s5client.clone(), |n| {
                 stats.incr_total_rx(n as u64)
             }),
-            aioutils::copy_with_stats(s5client, conn, |n| stats.incr_total_tx(n as u64)),
+            aioutils::copy_with_stats(s5client, conn, |n| {
+                notify_activity();
+                stats.incr_total_tx(n as u64)
+            }),
         )
         .await?;
     }

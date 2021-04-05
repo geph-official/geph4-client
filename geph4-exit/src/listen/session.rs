@@ -1,4 +1,5 @@
 use std::{
+    convert::TryInto,
     sync::atomic::{AtomicBool, Ordering},
     time::{Duration, SystemTime},
 };
@@ -24,7 +25,29 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
             .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     });
 
-    let sess = Arc::new(sosistab::mux::Multiplex::new(sess));
+    // attempt to switch sess
+    let first_pkt = sess
+        .recv_bytes()
+        .timeout(Duration::from_secs(300))
+        .await
+        .ok_or_else(|| anyhow::anyhow!("first packet timeout"))?
+        .ok_or_else(|| anyhow::anyhow!("first packet failed"))?;
+    if first_pkt.len() != 32 {
+        log::warn!("first packet not 32 bytes long, falling back to legacy");
+    } else {
+        let first_pkt: [u8; 32] = first_pkt.to_vec().try_into().unwrap();
+        if first_pkt != [0; 32] {
+            // This means we are supposed to hijack!
+            let to_hijack = root
+                .sess_replacers
+                .get(&first_pkt)
+                .ok_or_else(|| anyhow::anyhow!("could not hijack"))?;
+            to_hijack.try_send(sess)?;
+            return Ok(());
+        }
+    }
+
+    let sess = Arc::new(sosistab::Multiplex::new(sess));
     let is_plus = authenticate_sess(root.binder_client.clone(), &sess)
         .timeout(Duration::from_secs(300))
         .await
@@ -40,6 +63,15 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
         }
         sess.get_session().set_ratelimit(root.free_limit);
     }
+
+    // we register an entry into the session replace table
+    let sess_replace_key: [u8; 32] = rand::random();
+    let (send_sess_replace, recv_sess_replace) = smol::channel::unbounded();
+    root.sess_replacers
+        .insert(sess_replace_key, send_sess_replace);
+    scopeguard::defer!({
+        root.sess_replacers.remove(&sess_replace_key);
+    });
 
     let (send_sess_alive, recv_sess_alive) = smol::channel::bounded(1);
     let sess_alive_loop = {
@@ -77,16 +109,23 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
         let sess = sess.clone();
         async move {
             loop {
-                let client = sess.accept_conn().await?;
+                let mut client = sess.accept_conn().await?;
                 let send_sess_alive = send_sess_alive.clone();
                 let root = root.clone();
                 smolscale::spawn(
                     async move {
                         let _ = send_sess_alive.try_send(());
                         let addr = client.additional_info().unwrap_or_default().to_owned();
-                        proxy_loop(root, client, addr, true).await
+                        match addr.as_str() {
+                            "!id" => {
+                                // return the ID of this mux
+                                client.write_all(&sess_replace_key).await?;
+                            }
+                            _ => proxy_loop(root, client, addr, true).await?,
+                        }
+                        Ok(())
                     }
-                    .map_err(|e| log::trace!("proxy conn closed: {}", e)),
+                    .map_err(|e: anyhow::Error| log::trace!("proxy conn closed: {}", e)),
                 )
                 .detach();
             }
@@ -99,12 +138,25 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
         root.port_whitelist,
     );
 
-    (proxy_loop.or(sess_alive_loop)).race(vpn_loop).await
+    let sess_replace_loop = async {
+        loop {
+            let new_sess = recv_sess_replace.recv().await?;
+            if !is_plus {
+                new_sess.set_ratelimit(root.free_limit);
+            }
+            sess.replace_session(new_sess);
+        }
+    };
+
+    ((proxy_loop.or(sess_alive_loop)).race(vpn_loop))
+        .or(sess_replace_loop)
+        .await
 }
 
+/// Authenticates a session.
 async fn authenticate_sess(
     binder_client: Arc<dyn BinderClient>,
-    sess: &sosistab::mux::Multiplex,
+    sess: &sosistab::Multiplex,
 ) -> anyhow::Result<bool> {
     let mut stream = sess.accept_conn().await?;
     log::debug!("authenticating session...");

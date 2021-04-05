@@ -35,7 +35,6 @@ pub async fn proxy_loop(
         ctx.conn_count.load(std::sync::atomic::Ordering::Relaxed)
     );
     let key = format!("exit_usage.{}", ctx.exit_hostname.replace(".", "-"));
-    let asn_key = format!("exit_asn.{}.{}", ctx.exit_hostname.replace(".", "-"), asn);
     // log::debug!("helper got destination {} (AS{})", addr, asn);
 
     if crate::lists::BLACK_PORTS.contains(&addr.port()) {
@@ -64,19 +63,13 @@ pub async fn proxy_loop(
     let client2 = client.clone();
     smol::future::race(
         aioutils::copy_with_stats(remote2, client2, |n| {
-            if fastrand::f32() < 0.01 {
-                ctx.stat_client.count(&asn_key, n as f64 * 100.0);
-                if count_stats {
-                    ctx.stat_client.count(&key, n as f64 * 100.0);
-                }
+            if fastrand::f32() < 0.01 && count_stats {
+                ctx.stat_client.count(&key, n as f64 * 100.0);
             }
         }),
         aioutils::copy_with_stats(client, remote, |n| {
-            if fastrand::f32() < 0.01 {
-                ctx.stat_client.count(&asn_key, n as f64 * 100.0);
-                if count_stats {
-                    ctx.stat_client.count(&key, n as f64 * 100.0);
-                }
+            if fastrand::f32() < 0.01 && count_stats {
+                ctx.stat_client.count(&key, n as f64 * 100.0);
             }
         }),
     )

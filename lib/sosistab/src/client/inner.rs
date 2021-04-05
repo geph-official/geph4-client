@@ -1,5 +1,5 @@
 use crate::{
-    crypt::{self, LegacyAEAD, NgAEAD},
+    crypt::{self, LegacyAead, NgAead},
     protocol, runtime, Backhaul, Session, SessionConfig,
 };
 use bytes::Bytes;
@@ -16,7 +16,7 @@ use std::{
 
 /// Configures the client.
 #[derive(Clone)]
-pub struct ClientConfig {
+pub(crate) struct ClientConfig {
     pub server_addr: SocketAddr,
     pub server_pubkey: x25519_dalek::PublicKey,
     pub backhaul_gen: Arc<dyn Fn() -> Arc<dyn Backhaul> + 'static + Send + Sync>,
@@ -25,7 +25,7 @@ pub struct ClientConfig {
 }
 
 /// Connects to a remote server, given a closure that generates socket addresses.
-pub async fn connect_custom(cfg: ClientConfig) -> std::io::Result<Session> {
+pub(crate) async fn connect_custom(cfg: ClientConfig) -> std::io::Result<Session> {
     let backhaul = (cfg.backhaul_gen)();
     let my_long_sk = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
     let my_eph_sk = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
@@ -38,7 +38,7 @@ pub async fn connect_custom(cfg: ClientConfig) -> std::io::Result<Session> {
     };
     for timeout_factor in (0u32..).map(|x| 2u64.pow(x)) {
         // send hello
-        let init_hello = crypt::LegacyAEAD::new(&cookie.generate_c2s().next().unwrap())
+        let init_hello = crypt::LegacyAead::new(&cookie.generate_c2s().next().unwrap())
             .pad_encrypt_v1(&std::slice::from_ref(&init_hello), 1000);
         backhaul.send_to(init_hello, cfg.server_addr).await?;
         tracing::trace!("sent client hello");
@@ -56,7 +56,7 @@ pub async fn connect_custom(cfg: ClientConfig) -> std::io::Result<Session> {
         match res {
             Ok((buf, _)) => {
                 for possible_key in cookie.generate_s2c() {
-                    let decrypter = crypt::LegacyAEAD::new(&possible_key);
+                    let decrypter = crypt::LegacyAead::new(&possible_key);
                     let response = decrypter.pad_decrypt_v1(&buf);
                     for response in response.unwrap_or_default() {
                         if let protocol::HandshakeFrame::ServerHello {
@@ -110,7 +110,7 @@ async fn init_session(
     let (send_frame_in, recv_frame_in) = smol::channel::bounded(5000);
     let backhaul_tasks: Vec<_> = (0..cfg.num_shards)
         .map(|i| {
-            runtime::spawn_local(client_backhaul_once(
+            runtime::spawn(client_backhaul_once(
                 remind_ratelimit.clone(),
                 cookie.clone(),
                 resume_token.clone(),
@@ -126,10 +126,10 @@ async fn init_session(
     let mut session = Session::new(SessionConfig {
         send_packet: send_frame_out,
         recv_packet: recv_frame_in,
-        send_crypt_legacy: LegacyAEAD::new(up_key.as_bytes()),
-        recv_crypt_legacy: LegacyAEAD::new(dn_key.as_bytes()),
-        send_crypt_ng: NgAEAD::new(up_key.as_bytes()),
-        recv_crypt_ng: NgAEAD::new(dn_key.as_bytes()),
+        send_crypt_legacy: LegacyAead::new(up_key.as_bytes()),
+        recv_crypt_legacy: LegacyAead::new(dn_key.as_bytes()),
+        send_crypt_ng: NgAead::new(up_key.as_bytes()),
+        recv_crypt_ng: NgAead::new(dn_key.as_bytes()),
         recv_timeout: Duration::from_secs(300),
         statistics: 8000,
         version: VERSION,
@@ -165,7 +165,7 @@ async fn client_backhaul_once(
     enum Evt {
         Incoming(Vec<Bytes>),
         Outgoing(Bytes),
-    };
+    }
 
     let mut my_reset_millis = cfg.reset_interval.map(|interval| {
         rand::thread_rng().gen_range(interval.as_millis() / 2, interval.as_millis())
@@ -195,7 +195,7 @@ async fn client_backhaul_once(
                 let now = Instant::now();
                 if remind_ratelimit.check().is_ok() || !updated {
                     updated = true;
-                    let g_encrypt = crypt::LegacyAEAD::new(&cookie.generate_c2s().next().unwrap());
+                    let g_encrypt = crypt::LegacyAead::new(&cookie.generate_c2s().next().unwrap());
                     if let Some(reset_millis) = my_reset_millis {
                         if now.saturating_duration_since(last_reset).as_millis() > reset_millis {
                             my_reset_millis = cfg.reset_interval.map(|interval| {
@@ -207,7 +207,7 @@ async fn client_backhaul_once(
                             let old_socket = socket.clone();
                             let send_packet_in = send_packet_in.clone();
                             // spawn a task to clean up the UDP socket
-                            let tata: smol::Task<Option<()>> = runtime::spawn_local(
+                            let tata: smol::Task<Option<()>> = runtime::spawn(
                                 async move {
                                     loop {
                                         let bufs = old_socket.recv_from_many().await.ok()?;

@@ -1,16 +1,19 @@
 use crate::cache::ClientCache;
 use anyhow::Context;
+use async_net::SocketAddr;
 use binder_transport::ExitDescriptor;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
+use sosistab::{Multiplex, Session};
 use std::time::{Duration, Instant};
 
+/// Obtains a session.
 pub async fn get_session(
-    exit_info: ExitDescriptor,
+    exit_info: &ExitDescriptor,
     ccache: &ClientCache,
     use_bridges: bool,
     use_tcp: bool,
-) -> anyhow::Result<sosistab::Session> {
+) -> anyhow::Result<ProtoSession> {
     let bridge_sess_async = async {
         let bridges = ccache
             .get_bridges(&exit_info.hostname)
@@ -57,7 +60,7 @@ pub async fn get_session(
                     saddr,
                     start.elapsed().as_millis()
                 );
-                break Ok(res);
+                break Ok((res, saddr));
             }
         }
     };
@@ -74,11 +77,14 @@ pub async fn get_session(
                         .find(|v| v.is_ipv4())
                         .context("can't find ipv4 address for exit")?;
 
-                    Ok(if use_tcp {
-                        sosistab::connect_tcp(server_addr, exit_info.sosistab_key).await?
-                    } else {
-                        sosistab::connect_udp(server_addr, exit_info.sosistab_key).await?
-                    })
+                    Ok((
+                        if use_tcp {
+                            sosistab::connect_tcp(server_addr, exit_info.sosistab_key).await?
+                        } else {
+                            sosistab::connect_udp(server_addr, exit_info.sosistab_key).await?
+                        },
+                        server_addr,
+                    ))
                 },
                 async {
                     smol::Timer::after(Duration::from_secs(1)).await;
@@ -89,11 +95,67 @@ pub async fn get_session(
             .await
         }
     };
-    connected_sess_async
+    let (sess, remote_addr) = connected_sess_async
         .or(async {
             smol::Timer::after(Duration::from_secs(40)).await;
             ccache.purge_bridges(&exit_info.hostname)?;
             anyhow::bail!("initial connection timeout after 40");
         })
-        .await
+        .await?;
+    Ok(ProtoSession {
+        inner: sess,
+        remote_addr,
+    })
+}
+
+/// A session before it can really be used. It directly wraps a sosistab Session.
+pub struct ProtoSession {
+    inner: Session,
+    remote_addr: SocketAddr,
+}
+
+impl ProtoSession {
+    /// Remote addr of session.
+    pub fn remote_addr(&self) -> SocketAddr {
+        self.remote_addr
+    }
+
+    /// Creates a multiplexed session directly.
+    pub fn multiplex(self) -> Multiplex {
+        // // We send a packet consisting of 32 zeros. This is the standard signal for a fresh session that doesn't hijack an existing multiplex.
+        // self.inner.send_bytes(vec![0; 32].into());
+        self.inner.multiplex()
+    }
+
+    /// Hijacks an existing multiplex with this session.
+    pub async fn hijack(self, other_mplex: &Multiplex, other_id: [u8; 32]) -> anyhow::Result<()> {
+        log::debug!(
+            "starting hijack of other_id = {}...",
+            hex::encode(&other_id[..5])
+        );
+        // Then we repeatedly spam the ID on the inner session until we receive one packet (which we assume to be a data packet from the successfully hijacked multiplex)
+        let spam_loop = async {
+            loop {
+                self.inner.send_bytes(other_id.to_vec().into());
+                smol::Timer::after(Duration::from_secs(1)).await;
+            }
+        };
+        spam_loop
+            .race(async {
+                let down = self
+                    .inner
+                    .recv_bytes()
+                    .await
+                    .ok_or_else(|| anyhow::anyhow!("inner session failed in hijack"))?;
+                log::debug!(
+                    "finished hijack of other_id = {} with downstream data of {}!",
+                    hex::encode(&other_id[..5]),
+                    down.len()
+                );
+                Ok::<_, anyhow::Error>(())
+            })
+            .await?;
+        other_mplex.replace_session(self.inner);
+        Ok(())
+    }
 }

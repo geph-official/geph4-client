@@ -1,12 +1,16 @@
-use crate::*;
 use bytes::Bytes;
 use dashmap::DashMap;
-use mux::relconn::{RelConn, RelConnBack, RelConnState};
-use mux::structs::*;
 use rand::prelude::*;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use std::sync::Arc;
+
+use crate::{runtime, RelConn, Session};
+
+use super::{
+    relconn::{RelConnBack, RelConnState},
+    structs::{Message, RelKind},
+};
 
 pub async fn multiplex(
     recv_session: Receiver<Arc<Session>>,
@@ -26,7 +30,7 @@ pub async fn multiplex(
         SendMsg(Message),
         ConnOpen(Option<String>, Sender<RelConn>),
         Dead(u16),
-    };
+    }
 
     loop {
         smol::future::yield_now().await;
@@ -41,8 +45,14 @@ pub async fn multiplex(
                 .recv_bytes()
                 .await
                 .ok_or_else(|| anyhow::anyhow!("underlying session is dead"))?;
-            let msg = bincode::deserialize::<Message>(&msg)?;
-            Ok::<_, anyhow::Error>(Event::RecvMsg(msg))
+            let msg = bincode::deserialize::<Message>(&msg);
+            if let Ok(msg) = msg {
+                Ok::<_, anyhow::Error>(Event::RecvMsg(msg))
+            } else {
+                tracing::warn!("error receiving message from sess");
+                // In this case, we echo back an empty packet.
+                Ok(Event::SendMsg(Message::Empty))
+            }
         };
         // fires on sending messages
         let send_msg = async {
@@ -70,7 +80,7 @@ pub async fn multiplex(
                 let conn_tab = conn_tab.clone();
                 let glob_send = glob_send.clone();
                 let dead_send = dead_send.clone();
-                runtime::spawn_local(async move {
+                runtime::spawn(async move {
                     let stream_id = {
                         let stream_id = conn_tab.find_id();
                         if let Some(stream_id) = stream_id {
@@ -87,7 +97,7 @@ pub async fn multiplex(
                                 },
                                 additional_data.clone(),
                             );
-                            runtime::spawn_local(async move {
+                            runtime::spawn(async move {
                                 recv_sig.recv().await.ok()?;
                                 result_chan.send(conn).await.ok()?;
                                 Some(())
@@ -188,6 +198,7 @@ pub async fn multiplex(
                             }
                         }
                     }
+                    Message::Empty => {}
                 }
             }
         }

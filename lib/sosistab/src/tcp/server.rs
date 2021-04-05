@@ -14,13 +14,13 @@ use std::{
 };
 
 use crate::{
-    crypt::{triple_ecdh, Cookie, NgAEAD},
+    crypt::{triple_ecdh, Cookie, NgAead},
     protocol::HandshakeFrame,
     recfilter::RECENT_FILTER,
     runtime, Backhaul,
 };
 
-use super::{write_encrypted, ObfsTCP, CONN_LIFETIME, TCP_DN_KEY, TCP_UP_KEY};
+use super::{write_encrypted, ObfsTcp, CONN_LIFETIME, TCP_DN_KEY, TCP_UP_KEY};
 
 /// A TCP-based backhaul, server-side.
 pub struct TcpServerBackhaul {
@@ -96,13 +96,13 @@ async fn backhaul_one(
 ) -> anyhow::Result<()> {
     let cookie = Cookie::new((&seckey).into());
     // read the initial length
-    let mut encrypted_hello_length = vec![0u8; NgAEAD::overhead() + 2];
+    let mut encrypted_hello_length = vec![0u8; NgAead::overhead() + 2];
     client.read_exact(&mut encrypted_hello_length).await?;
     for (possible_c2s, possible_s2c) in cookie.generate_c2s().zip(cookie.generate_s2c()) {
         let c2s_key = blake3::keyed_hash(&TCP_UP_KEY, &possible_c2s);
-        let c2s_dec = NgAEAD::new(c2s_key.as_bytes());
+        let c2s_dec = NgAead::new(c2s_key.as_bytes());
         let s2c_key = blake3::keyed_hash(&TCP_DN_KEY, &possible_s2c);
-        let s2c_enc = NgAEAD::new(s2c_key.as_bytes());
+        let s2c_enc = NgAead::new(s2c_key.as_bytes());
         // if we can succesfully decrypt the hello length, that's awesome! it means that we got the right up/down key
         if let Some(hello_length) = c2s_dec.decrypt(&encrypted_hello_length) {
             let hello_length = u16::from_be_bytes(
@@ -137,7 +137,7 @@ async fn backhaul_one(
                 };
                 write_encrypted(s2c_enc, &response.to_bytes(), &mut client).await?;
                 let ss = triple_ecdh(&seckey, &my_eph_sk, &long_pk, &eph_pk);
-                let obfs_tcp = ObfsTCP::new(ss, true, client);
+                let obfs_tcp = ObfsTcp::new(ss, true, client);
                 let mut fake_addr = [0u8; 16];
                 obfs_tcp
                     .read_exact(&mut fake_addr)
@@ -154,7 +154,7 @@ async fn backhaul_one(
 
 /// handle an already initialized TCP stream
 async fn backhaul_one_inner(
-    obfs_tcp: ObfsTCP,
+    obfs_tcp: ObfsTcp,
     addr: SocketAddr,
     down_table: &DownTable,
     send_upcoming: &Sender<(Bytes, SocketAddr)>,

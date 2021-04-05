@@ -1,9 +1,4 @@
-use std::{
-    net::SocketAddr,
-    path::PathBuf,
-    sync::Arc,
-    time::{Duration, Instant},
-};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
 use env_logger::Env;
@@ -15,6 +10,7 @@ mod asn;
 mod connect;
 mod listen;
 mod lists;
+
 mod vpn;
 
 #[derive(Debug, StructOpt, Clone)]

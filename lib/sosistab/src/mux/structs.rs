@@ -15,6 +15,7 @@ pub enum Message {
         seqno: Seqno,
         payload: Bytes,
     },
+    Empty,
 }
 
 #[derive(Copy, Clone, Debug, Serialize, Deserialize, Eq, PartialEq)]

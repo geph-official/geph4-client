@@ -15,10 +15,7 @@ use once_cell::sync::OnceCell;
 use std::{
     pin::Pin,
     sync::atomic::AtomicUsize,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
+    sync::atomic::{AtomicBool, Ordering},
     task::{Context, Poll},
     time::{Duration, Instant},
 };
@@ -120,7 +117,7 @@ fn monitor_loop() {
 
 /// Spawns a future onto the global executor and immediately blocks on it.
 pub fn block_on<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static) -> T {
-    futures_lite::future::block_on(EXEC.run(future))
+    futures_lite::future::block_on(spawn(future))
 }
 
 /// Spawns a task onto the lazily-initialized global executor.
@@ -137,7 +134,7 @@ pub fn spawn<T: Send + 'static>(
 // /// Spawns a task onto the lazily-initialized thread-local executor.
 // ///
 // /// The task should **NOT** block or run CPU-intensive code
-// pub fn spawn_local<T: 'static>(
+// pub fn spawn<T: 'static>(
 //     future: impl Future<Output = T> + 'static,
 // ) -> async_executor::Task<T> {
 //     start_monitor();

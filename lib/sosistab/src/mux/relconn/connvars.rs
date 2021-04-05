@@ -7,7 +7,7 @@ use bytes::{Bytes, BytesMut};
 use rustc_hash::FxHashSet;
 use smol::channel::Receiver;
 
-use crate::{mux::structs::*, VarRateLimit};
+use crate::mux::structs::*;
 
 use super::{
     bipe::{BipeReader, BipeWriter},
@@ -41,8 +41,7 @@ pub(crate) struct ConnVars {
     pub closing: bool,
 
     write_fragments: VecDeque<Bytes>,
-
-    limiter: VarRateLimit,
+    // limiter: VarRateLimit,
 }
 
 impl Default for ConnVars {
@@ -72,8 +71,7 @@ impl Default for ConnVars {
             closing: false,
 
             write_fragments: VecDeque::new(),
-
-            limiter: VarRateLimit::new(),
+            // limiter: VarRateLimit::new(),
         }
     }
 }
@@ -166,7 +164,7 @@ impl ConnVars {
                 .or(new_pkt.or(rto_timeout.or(new_write.or(final_timeout))))
                 .await
         };
-        let implied_rate = self.pacing_rate() as u32;
+        let _implied_rate = self.pacing_rate() as u32;
         // let cwnd_choked =
         //     self.inflight.inflight() <= self.cwnd as usize && self.inflight.len() < 10000;
         match event {
@@ -238,7 +236,7 @@ impl ConnVars {
             }
             Ok(Evt::NewWrite(bts)) => {
                 assert!(bts.len() <= MSS);
-                self.limiter.wait(implied_rate).await;
+                // self.limiter.wait(implied_rate).await;
                 let seqno = self.next_free_seqno;
                 self.next_free_seqno += 1;
                 let msg = Message::Rel {

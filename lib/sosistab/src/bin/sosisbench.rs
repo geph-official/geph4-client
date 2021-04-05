@@ -84,7 +84,7 @@ async fn client_main(args: ClientArgs) -> anyhow::Result<()> {
     .await
     .context("cannot conenct to sosistab")?;
     eprintln!("Session established in {:?}", start.elapsed());
-    let mux = sosistab::mux::Multiplex::new(session);
+    let mux = sosistab::Multiplex::new(session);
     let start = Instant::now();
     let mut conn = mux.open_conn(None).await?;
     eprintln!("RelConn established in {:?}", start.elapsed());
@@ -120,7 +120,7 @@ async fn server_main(args: ServerArgs) -> anyhow::Result<()> {
             .ok_or_else(|| anyhow::anyhow!("failed to accept"))?;
         eprintln!("accepted session {}", count);
         let forked: smol::Task<anyhow::Result<()>> = smolscale::spawn(async move {
-            let mux = sosistab::mux::Multiplex::new(session);
+            let mux = sosistab::Multiplex::new(session);
             loop {
                 let mut conn = mux.accept_conn().await?;
                 eprintln!("accepted connection for session {}", count);

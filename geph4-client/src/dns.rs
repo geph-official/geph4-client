@@ -6,7 +6,7 @@ use smol::{
     prelude::*,
 };
 use smol_timeout::TimeoutExt;
-use sosistab::mux::RelConn;
+use sosistab::RelConn;
 use std::time::Duration;
 
 use crate::tunman::TunnelManager;

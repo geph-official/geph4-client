@@ -1,4 +1,4 @@
-use std::{net::SocketAddr, time::Duration};
+use std::net::SocketAddr;
 
 /// Resolves a string into a vector of SocketAddrs.
 #[cfg(target_os = "windows")]
@@ -18,7 +18,7 @@ pub async fn resolve(host_port: &str) -> std::io::Result<Vec<SocketAddr>> {
         UpstreamServer::new("74.82.42.42:53".parse::<SocketAddr>().unwrap()),
         UpstreamServer::new("114.114.114.114:53".parse::<SocketAddr>().unwrap()),
     ]);
-    resolver.set_timeout(Duration::from_secs(1));
+    resolver.set_timeout(std::time::Duration::from_secs(1));
     let result = resolver
         .query_a(exploded[0])
         .await

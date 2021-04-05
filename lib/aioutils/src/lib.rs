@@ -1,7 +1,5 @@
-use std::{io::Read, pin::Pin, time::Duration};
+use std::{pin::Pin, time::Duration};
 
-use concurrent_queue::ConcurrentQueue;
-use once_cell::sync::Lazy;
 use serde::{de::DeserializeOwned, Serialize};
 use smol::{channel::Receiver, prelude::*};
 
@@ -86,51 +84,6 @@ pub async fn write_pascalish<T: Serialize>(
 
 const IDLE_TIMEOUT: Duration = Duration::from_secs(86400);
 
-/// Copies a *TCP socket* to an AsyncWrite, while being as memory-efficient as posib
-pub async fn copy_socket_to_with_stats(
-    mut reader: smol::Async<std::net::TcpStream>,
-    mut writer: impl AsyncWrite + Unpin,
-    mut on_write: impl FnMut(usize),
-) -> std::io::Result<()> {
-    static POOL: Lazy<ConcurrentQueue<Vec<u8>>> = Lazy::new(|| ConcurrentQueue::bounded(1048576));
-
-    let mut timeout = smol::Timer::after(IDLE_TIMEOUT);
-    loop {
-        let to_write = reader
-            .read_with_mut(|sock| {
-                let mut buffer = POOL.pop().unwrap_or_else(|_| Vec::with_capacity(16384));
-                unsafe { buffer.set_len(16384) }
-                let n = sock.read(&mut buffer)?;
-                buffer.truncate(n);
-                Ok(buffer)
-            })
-            .or(async {
-                (&mut timeout).await;
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "copy_with_stats timeout",
-                ))
-            })
-            .await?;
-        if to_write.is_empty() {
-            return Ok(());
-        }
-        timeout.set_after(IDLE_TIMEOUT);
-        on_write(to_write.len());
-        writer
-            .write_all(&to_write)
-            .or(async {
-                (&mut timeout).await;
-                Err(std::io::Error::new(
-                    std::io::ErrorKind::TimedOut,
-                    "copy_with_stats timeout",
-                ))
-            })
-            .await?;
-        let _ = POOL.push(to_write);
-    }
-}
-
 /// Copies an AsyncRead to an AsyncWrite, with a callback for every write.
 #[inline]
 pub async fn copy_with_stats(
@@ -188,11 +141,11 @@ pub fn copy_with_stats_sync(
     }
 }
 
-pub trait AsyncRW: AsyncRead + AsyncWrite {}
+pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
 
-impl<T: AsyncRead + AsyncWrite> AsyncRW for T {}
+impl<T: AsyncRead + AsyncWrite> AsyncReadWrite for T {}
 
-pub type ConnLike = async_dup::Arc<async_dup::Mutex<Pin<Box<dyn AsyncRW + 'static + Send>>>>;
+pub type ConnLike = async_dup::Arc<async_dup::Mutex<Pin<Box<dyn AsyncReadWrite + 'static + Send>>>>;
 
 pub fn connify<T: AsyncRead + AsyncWrite + 'static + Send>(conn: T) -> ConnLike {
     async_dup::Arc::new(async_dup::Mutex::new(Box::pin(conn)))
@@ -204,8 +157,7 @@ pub fn to_ioerror<T: Into<Box<dyn std::error::Error + Send + Sync>>>(e: T) -> st
 
 /// Reads from an async_channel::Receiver, but returns a vector of all available items instead of just one to save on context-switching.
 pub async fn recv_chan_many<T>(ch: Receiver<T>) -> Result<Vec<T>, smol::channel::RecvError> {
-    let mut toret = Vec::with_capacity(1);
-    toret.push(ch.recv().await?);
+    let mut toret = vec![ch.recv().await?];
     // push as many as possible
     while let Ok(val) = ch.try_recv() {
         toret.push(val);

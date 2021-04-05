@@ -7,9 +7,11 @@ use std::{
 use crate::vpn;
 use binder_transport::BinderClient;
 
+use dashmap::DashMap;
 use jemalloc_ctl::epoch;
-use smol::prelude::*;
+use smol::{channel::Sender, prelude::*};
 
+use sosistab::Session;
 use x25519_dalek::StaticSecret;
 
 mod control;
@@ -33,6 +35,7 @@ pub struct RootCtx {
 
     pub google_proxy: Option<SocketAddr>,
     // pub conn_tasks: Mutex<cached::SizedCache<u128, smol::Task<Option<()>>>>,
+    pub sess_replacers: DashMap<[u8; 32], Sender<Session>>,
 }
 
 impl RootCtx {
@@ -154,6 +157,7 @@ pub async fn main_loop<'a>(
         port_whitelist,
         google_proxy,
         control_count: AtomicUsize::new(0),
+        sess_replacers: Default::default(),
     });
 
     let _idlejitter = smolscale::spawn(idlejitter(ctx.clone()));
@@ -194,7 +198,7 @@ pub async fn main_loop<'a>(
                 .accept_session()
                 .race(tcp_listen.accept_session())
                 .await
-                .ok_or_else(|| anyhow::anyhow!("can't accept from sosistab"))?;
+                .expect("can't accept from sosistab");
             let ctx1 = ctx1.clone();
             smolscale::spawn(session::handle_session(ctx1.new_sess(sess))).detach();
         }
@@ -210,7 +214,7 @@ pub async fn main_loop<'a>(
         let taskkey = format!("task_count.{}", exit_hostname.replace(".", "-"));
         let e = epoch::mib().unwrap();
         // let allocated = jemalloc_ctl::stats::allocated::mib().unwrap();
-        let resident = jemalloc_ctl::stats::resident::mib().unwrap();
+        let resident = jemalloc_ctl::stats::allocated::mib().unwrap();
         loop {
             e.advance().unwrap();
 

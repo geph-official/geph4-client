@@ -1,8 +1,8 @@
 use self::stats::TimeSeries;
-use crate::runtime;
-use crate::{crypt::LegacyAEAD, fec::FrameEncoder};
+use crate::{batchan::batch_recv, mux::Multiplex, runtime};
+use crate::{crypt::LegacyAead, fec::FrameEncoder};
 use crate::{
-    crypt::NgAEAD,
+    crypt::NgAead,
     protocol::{DataFrameV1, DataFrameV2},
 };
 use bytes::Bytes;
@@ -33,13 +33,15 @@ pub(crate) struct SessionConfig {
     pub recv_timeout: Duration,
     pub statistics: usize,
     pub version: u64,
-    pub send_crypt_legacy: LegacyAEAD,
-    pub recv_crypt_legacy: LegacyAEAD,
-    pub send_crypt_ng: NgAEAD,
-    pub recv_crypt_ng: NgAEAD,
+    pub send_crypt_legacy: LegacyAead,
+    pub recv_crypt_legacy: LegacyAead,
+    pub send_crypt_ng: NgAead,
+    pub recv_crypt_ng: NgAead,
 }
 
-/// Representation of an isolated session that deals only in DataFrames and abstracts away all I/O concerns. It's the user's responsibility to poll the session. Otherwise, it might not make progress and will drop packets.
+/// This struct represents a **session**: a single end-to-end connection between a client and a server. This can be thought of as analogous to `TcpStream`, except all reads and writes are datagram-based and unreliable. [Session] is thread-safe and can be wrapped in an [Arc](std::sync::Arc) to be shared between threads.
+///
+/// [Session] should be used directly only if an unreliable connection is all you need. For most applications, use [Multiplex](crate::mux::Multiplex), which wraps a [Session] and provides QUIC-like reliable streams as well as unreliable messages, all multiplexed over a single [Session].
 pub struct Session {
     send_tosend: Sender<Bytes>,
     recv_packet: Receiver<Bytes>,
@@ -98,23 +100,20 @@ impl Session {
         }
     }
 
-    /// Adds a closure to be run when the Session is dropped. Use this to manage associated "worker" resources.
+    /// Adds a closure to be run when the Session is dropped. This can be used to manage associated "worker" resources.
     pub fn on_drop<T: FnOnce() + Send + Sync + 'static>(&mut self, thing: T) {
         self._dropper.push(Box::new(thing))
     }
 
-    /// Takes a Bytes to be sent and stuffs it into the session.
+    /// Takes a [Bytes] to be sent and stuffs it into the session.
     pub fn send_bytes(&self, to_send: Bytes) {
         let rate = self.rate_limit.load(Ordering::Relaxed);
-        // if rate < 1000 {
         // RED with max 250ms latency
         let max_queue_length = rate / 2;
         let fill_ratio = self.send_tosend.len() as f64 / max_queue_length as f64;
         if rand::random::<f64>() < fill_ratio.powi(2) {
-            // tracing::warn!("RED dropping packet (fill ratio {:.3})", fill_ratio);
             return;
         }
-        // }
         if let Err(err) = self.send_tosend.try_send(to_send) {
             if let TrySendError::Closed(_) = err {
                 self.recv_packet.close();
@@ -151,15 +150,20 @@ impl Session {
                 break Some(b);
             }
             // receive more stuff
-            let frame = self.recv_packet.recv().timeout(self.recv_timeout).await;
-            if let Some(frame) = frame {
-                let frame = frame.ok()?;
-                let out = self.machine.lock().process(&frame);
-                if let Some(out) = out {
-                    for o in out {
-                        self.machine_output.push(o).unwrap();
+            let frames = batch_recv(&self.recv_packet)
+                .timeout(self.recv_timeout)
+                .await;
+            if let Some(frames) = frames {
+                let frames = frames.ok()?;
+                let mut machine = self.machine.lock();
+                for frame in frames {
+                    let out = machine.process(&frame);
+                    if let Some(out) = out {
+                        for o in out {
+                            self.machine_output.push(o).unwrap();
+                        }
+                        *self.last_recv.lock() = SystemTime::now();
                     }
-                    *self.last_recv.lock() = SystemTime::now();
                 }
             } else {
                 tracing::warn!("OH NO TIME TO DIEEE!");
@@ -182,6 +186,11 @@ impl Session {
     /// Get the latest stats.
     pub fn latest_stat(&self) -> Option<SessionStat> {
         self.statistics.lock().items().iter().last().cloned()
+    }
+
+    /// "Upgrades" this session into a [Multiplex]
+    pub fn multiplex(self) -> Multiplex {
+        Multiplex::new(self)
     }
 }
 
