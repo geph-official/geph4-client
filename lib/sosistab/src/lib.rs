@@ -1,6 +1,6 @@
 //! # What is Sosistab?
 //!
-//! Sosistab is an unreliable, obfuscated datagram transport over UDP and TCP, designed to achieve high performance even in extremely bad networks. It is originally designed for [Geph](https://geph.io), a resliient anti-censorship VPN, but it can be used for reliable communication over radios, game networking, etc. It also comes with a QUIC-like multiplex protocol that implements multiple TCP-like reliable streams over the base sosistab layer. This multiplex protocol is ideal for applications requiring a mix of reliable and unreliable traffic. For example, VPNs might do signaling and authentication over reliable streams, while passing packets through unreliable datagrams.
+//! Sosistab is an unreliable, obfuscated datagram transport over UDP and TCP, designed to achieve high performance even in extremely bad networks. It is originally designed for [Geph](https://geph.io), a resilient anti-censorship VPN, but it can be used for reliable communication over radios, game networking, etc. It also comes with a QUIC-like multiplex protocol that implements multiple TCP-like reliable streams over the base sosistab layer. This multiplex protocol is ideal for applications requiring a mix of reliable and unreliable traffic. For example, VPNs might do signaling and authentication over reliable streams, while passing packets through unreliable datagrams.
 //!
 //! **NOTE**: Sosistab is still in *heavy* development. Expect significant breaking API changes before version 1.0 is released.
 //!
