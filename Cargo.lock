@@ -2832,16 +2832,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac74c624d6b2d21f425f752262f42188365d7b8ff1aff74c82e45136510a4857"
 
 [[package]]
-name = "priority-queue"
-version = "1.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e1340009a04e81f656a4e45e295f0b1191c81de424bf940c865e33577a8e223"
-dependencies = [
- "autocfg 1.0.1",
- "indexmap",
-]
-
-[[package]]
 name = "probability"
 version = "0.17.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3671,7 +3661,7 @@ dependencies = [
 
 [[package]]
 name = "sosistab"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3699,7 +3689,6 @@ dependencies = [
  "num_cpus",
  "once_cell",
  "parking_lot",
- "priority-queue",
  "probability",
  "rand 0.7.3",
  "rand_chacha 0.2.2",
@@ -3714,7 +3703,6 @@ dependencies = [
  "socket2 0.3.19",
  "socksv5",
  "tracing",
- "tracing-futures",
  "x25519-dalek",
 ]
 
@@ -4224,16 +4212,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f50de3927f93d202783f4513cda820ab47ef17f624b03c096e86ef00c67e6b5f"
 dependencies = [
  "lazy_static",
-]
-
-[[package]]
-name = "tracing-futures"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97d095ae15e245a057c8e8451bab9b3ee1e1f68e9ba2b4fbc18d0ac5237835f2"
-dependencies = [
- "pin-project",
- "tracing",
 ]
 
 [[package]]

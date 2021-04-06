@@ -1,3 +1,24 @@
+//! # What is Sosistab?
+//!
+//! Sosistab is an unreliable, obfuscated datagram transport over UDP and TCP, designed to achieve high performance even in extremely bad networks. It is originally designed for [Geph](https://geph.io), a resliient anti-censorship VPN, but it can be used for reliable communication over radios, game networking, etc. It also comes with a QUIC-like multiplex protocol that implements multiple TCP-like reliable streams over the base sosistab layer. This multiplex protocol is ideal for applications requiring a mix of reliable and unreliable traffic. For example, VPNs might do signaling and authentication over reliable streams, while passing packets through unreliable datagrams.
+//!
+//! **NOTE**: Sosistab is still in *heavy* development. Expect significant breaking API changes before version 1.0 is released.
+//!
+//! # Features
+//!
+//! - State-of-the-art reliable streaming protocol with selective ACKs and BIC-based congestion control. Notably, it has better fairness *and* performance in modern networks than protocols like KCP that ape 1980s TCP specifications.
+//! - Strong, state-of-the-art (obfs4-like) obfuscation. Sosistab servers cannot be detected by active probing, and Sosistab traffic is reasonably indistinguishable from random. We also make a best-effort attempt at hiding side-channels through random padding.
+//! - Strong yet lightweight authenticated encryption with chacha20-poly1305
+//! - Deniable public-key encryption with triple-x25519, with servers having long-term public keys that must be provided out-of-band. Similar to decent encrypted transports like TLS and DTLS --- but not to the whole Shadowsocks/Vmess family of protocols --- different clients have different session keys and cannot spy on each other.
+//! - Reed-Solomon error correction that targets a certain application packet loss level. Intelligent autotuning and dynamic batch sizes make performance much better than other FEC-based tools like udpspeeder. This lets Sosistab turns high-bandwidth, high-loss links to medium-bandwidth, low-loss links, which is generally much more useful.
+//! - Avoids last-mile congestive collapse but works around lossy links. Shamelessly unfair in permanently congested WANs --- but that's really their problem, not yours. In any case, permanently congested WANs are observationally identical to lossy links, and any solution for the latter will cause unfairness in the former.
+//!
+//! # Use of async
+//!
+//! Sosistab uses the "futures" traits and the [smolscale] executor. In practice, this means that Sosistab is compatible with any executor, but unless your program uses [smolscale], Sosistab will run on a separate thread pool from the rest of your program. This comes with less overhead than you imagine, and generally it's fine to use Sosistab with e.g. async-std or Tokio.
+//!
+//! In the future, we will consider adding hyper-like traits to enable integration of Sosistab with other executors.
+
 mod client;
 mod crypt;
 mod fec;
@@ -24,53 +45,3 @@ mod tests {
         assert_eq!(2 + 2, 4);
     }
 }
-
-// pub(crate) struct VarRateLimit {
-//     next_time: Instant,
-//     timer: smol::Timer,
-// }
-
-// impl VarRateLimit {
-//     pub fn new() -> Self {
-//         Self {
-//             next_time: Instant::now(),
-//             timer: smol::Timer::at(Instant::now()),
-//         }
-//     }
-//     pub async fn wait(&mut self, speed: u32) {
-//         if speed > 50000 {
-//             return;
-//         }
-//         self.timer.set_at(self.next_time);
-//         (&mut self.timer).await;
-//         self.next_time = Instant::now()
-//             .checked_add(Duration::from_micros(1_000_000 / (speed.max(100)) as u64))
-//             .expect("time OOB")
-//     }
-
-//     // pub async fn wait(&self, speed: u32) {
-//     //     while !self.check(speed.max(DIVIDER_FRAC * 2)) {
-//     //         smol::Timer::after(Duration::from_millis(1)).await;
-//     //     }
-//     // }
-// }
-
-// /// Debug AEAD speeds
-// pub fn debug_aead() {
-//     tracing::warn!("** CRYPTOGRAPHY SELF-TEST **");
-//     const ITERS: u64 = 10000;
-//     let old = LegacyAead::new(&[0; 32]);
-//     let new = NgAead::new(&[0; 32]);
-//     let old_start = Instant::now();
-//     for _ in 0..ITERS {
-//         old.decrypt(&old.encrypt(&[0; 1024], 0));
-//     }
-//     let old_kps = ITERS as f64 / old_start.elapsed().as_secs_f64();
-//     tracing::warn!("LegacyAEAD: {} MB/s", old_kps / 1024.0);
-//     let new_start = Instant::now();
-//     for _ in 0..ITERS {
-//         new.decrypt(&new.encrypt(&[0; 1024]));
-//     }
-//     let new_kps = ITERS as f64 / new_start.elapsed().as_secs_f64();
-//     tracing::warn!("NewAEAD: {} MB/s", new_kps / 1024.0);
-// }
