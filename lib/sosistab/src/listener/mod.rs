@@ -121,7 +121,7 @@ impl ListenerActor {
 
         // "fallthrough" rate limit. the idea is that new sessions on the same addr are infrequent, so we don't need to check constantly.
         let fallthrough_limiter = RateLimiter::dashmap_with_clock(
-            Quota::per_minute(NonZeroU32::new(5u32).unwrap()),
+            Quota::per_minute(NonZeroU32::new(20u32).unwrap()),
             &governor::clock::MonotonicClock,
         );
 

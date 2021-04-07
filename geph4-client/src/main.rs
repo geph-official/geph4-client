@@ -23,11 +23,13 @@ mod plots;
 
 mod china;
 mod main_binderproxy;
+mod main_bridgetest;
 mod main_connect;
 mod main_sync;
 #[derive(Debug, StructOpt)]
 enum Opt {
     Connect(main_connect::ConnectOpt),
+    BridgeTest(main_bridgetest::BridgeTestOpt),
     Sync(main_sync::SyncOpt),
     BinderProxy(main_binderproxy::BinderProxyOpt),
 }
@@ -92,7 +94,7 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
-    smolscale::permanently_single_threaded();
+    // smolscale::permanently_single_threaded();
     smolscale::block_on(async move {
         match opt {
             Opt::Connect(opt) => loop {
@@ -103,6 +105,7 @@ fn main() -> anyhow::Result<()> {
             },
             Opt::Sync(opt) => main_sync::main_sync(opt).await,
             Opt::BinderProxy(opt) => main_binderproxy::main_binderproxy(opt).await,
+            Opt::BridgeTest(opt) => main_bridgetest::main_bridgetest(opt).await,
         }
     })
 }

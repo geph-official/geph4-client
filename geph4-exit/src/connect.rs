@@ -29,7 +29,7 @@ pub async fn proxy_loop(
         .find(|v| v.is_ipv4())
         .ok_or_else(|| anyhow::anyhow!("no IPv4 address"))?;
     let asn = crate::asn::get_asn(addr.ip());
-    log::debug!(
+    log::trace!(
         "got connection request to AS{} (conn_count = {})",
         asn,
         ctx.conn_count.load(std::sync::atomic::Ordering::Relaxed)

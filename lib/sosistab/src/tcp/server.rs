@@ -144,7 +144,6 @@ async fn backhaul_one(
                     .await
                     .context("cannot read fakeaddr")?;
                 let addr = SocketAddr::new(IpAddr::V6(Ipv6Addr::from(fake_addr)), 0);
-                tracing::warn!("starting TCP with fake addr {}", addr);
                 return backhaul_one_inner(obfs_tcp, addr, &down_table, &send_upcoming).await;
             }
         }
