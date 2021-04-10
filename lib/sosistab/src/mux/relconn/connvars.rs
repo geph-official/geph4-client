@@ -41,6 +41,8 @@ pub(crate) struct ConnVars {
     pub closing: bool,
 
     write_fragments: VecDeque<Bytes>,
+
+    in_recovery: bool,
     // limiter: VarRateLimit,
 }
 
@@ -71,6 +73,8 @@ impl Default for ConnVars {
             closing: false,
 
             write_fragments: VecDeque::new(),
+
+            in_recovery: false,
             // limiter: VarRateLimit::new(),
         }
     }
@@ -96,10 +100,11 @@ impl ConnVars {
             NewWrite(Bytes),
             NewPkt(Message),
             Closing,
+            Retry,
         }
         let event = {
             let writeable = self.inflight.inflight() <= self.cwnd as usize
-                && self.inflight.len() < 10000
+                // && self.inflight.len() < 10000
                 && !self.closing;
             let force_ack = self.ack_seqnos.len() >= ACK_BATCH;
             assert!(self.ack_seqnos.len() <= ACK_BATCH);
@@ -116,7 +121,9 @@ impl ConnVars {
                     smol::future::pending().await
                 }
             };
-            let rto_timeout = if let Some((rto_seqno, rto_time)) = self.inflight.first_rto() {
+            let rto_timeout = if !writeable {
+                async { smol::future::pending().await }.boxed()
+            } else if let Some((rto_seqno, rto_time)) = self.inflight.first_rto() {
                 async move {
                     smol::Timer::at(rto_time).await;
                     Ok::<Evt, anyhow::Error>(Evt::Rto(rto_seqno))
@@ -160,17 +167,27 @@ impl ConnVars {
                 smol::Timer::after(Duration::from_secs(600)).await;
                 anyhow::bail!("final timeout within relconn actor")
             };
+            let retry_timeout = if writeable {
+                async { Ok(smol::future::pending().await) }.boxed()
+            } else {
+                async {
+                    smol::Timer::after(Duration::from_millis(10)).await;
+                    Ok(Evt::Retry)
+                }
+                .boxed()
+            };
             ack_timer
-                .or(new_pkt.or(rto_timeout.or(new_write.or(final_timeout))))
+                .or(new_pkt.or(rto_timeout.or(new_write.or(final_timeout.or(retry_timeout)))))
                 .await
         };
         let _implied_rate = self.pacing_rate() as u32;
         // let cwnd_choked =
         //     self.inflight.inflight() <= self.cwnd as usize && self.inflight.len() < 10000;
         match event {
+            Ok(Evt::Retry) => Ok(()),
             Ok(Evt::Closing) => {
                 self.closing = true;
-                if self.inflight.len() > 0 {
+                if self.inflight.unacked() > 0 {
                     Ok(())
                 } else {
                     anyhow::bail!("closing when inflight is zero")
@@ -178,6 +195,12 @@ impl ConnVars {
             }
             Ok(Evt::Rto(seqno)) => {
                 if let Some(payload) = self.inflight.retransmit(seqno) {
+                    tracing::debug!(
+                        "** RETRANSMIT {} (inflight = {}, cwnd = {}) **",
+                        seqno,
+                        self.inflight.inflight(),
+                        self.cwnd as u64
+                    );
                     self.congestion_loss();
                     self.retrans_count += 1;
                     // self.limiter.wait(implied_rate).await;
@@ -202,8 +225,12 @@ impl ConnVars {
                     }
                 }
                 self.inflight.mark_acked_lt(seqno);
+                let outstanding = self.inflight.unacked() - self.inflight.inflight();
+                if outstanding == 0 {
+                    self.in_recovery = false;
+                }
                 // implied_rate.store(conn_vars.pacing_rate() as u32, Ordering::Relaxed);
-                if self.inflight.len() == 0 && self.closing {
+                if self.inflight.unacked() == 0 && self.closing {
                     anyhow::bail!("inflight is zero, and we are now closing")
                 } else {
                     Ok(())
@@ -269,6 +296,7 @@ impl ConnVars {
                 });
                 self.ack_seqnos.clear();
                 self.delayed_ack_timer = None;
+
                 Ok(())
             }
             Err(err) => {
@@ -300,8 +328,9 @@ impl ConnVars {
         } else {
             self.cwnd - self.ssthresh
         }
-        .max(3.0)
-        .min(self.cwnd);
+        .max(2.0)
+        .min(self.cwnd)
+        .min(256.0);
         self.cwnd += bic_inc / self.cwnd;
     }
 
@@ -309,8 +338,9 @@ impl ConnVars {
         self.slow_start = false;
         self.loss_rate = self.loss_rate * 0.99 + 0.01;
         let now = Instant::now();
-        if now.saturating_duration_since(self.last_loss) > self.inflight.rto() {
-            let beta = 0.25;
+        if !self.in_recovery {
+            self.in_recovery = true;
+            let beta = 0.125;
             if self.cwnd < self.ssthresh {
                 self.ssthresh = self.cwnd * (2.0 - beta) / 2.0;
             } else {

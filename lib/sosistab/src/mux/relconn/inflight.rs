@@ -1,6 +1,6 @@
 use crate::mux::structs::*;
 use std::{
-    collections::BTreeMap,
+    collections::{btree_map::Entry, BTreeMap},
     time::{Duration, Instant},
 };
 
@@ -12,7 +12,6 @@ mod calc;
 /// An element of Inflight.
 pub struct InflightEntry {
     seqno: Seqno,
-    acked: bool,
     send_time: Instant,
     pub retrans: u64,
     pub payload: Message,
@@ -29,7 +28,7 @@ impl InflightEntry {
 /// A data structure that tracks in-flight packets.
 pub struct Inflight {
     segments: BTreeMap<Seqno, InflightEntry>,
-    first_rto: Option<(Seqno, Instant)>,
+    rtos: BTreeMap<Instant, Vec<Seqno>>,
     rtt: RttCalculator,
 }
 
@@ -38,26 +37,27 @@ impl Inflight {
     pub fn new() -> Self {
         Inflight {
             segments: Default::default(),
-            first_rto: None,
+            rtos: Default::default(),
             rtt: Default::default(),
         }
     }
 
-    pub fn len(&self) -> usize {
+    pub fn unacked(&self) -> usize {
         self.segments.len()
     }
 
     pub fn inflight(&self) -> usize {
-        self.len()
+        // all segments that are still in flight
+        self.rtos.len() - self.rtos.range(..Instant::now()).count()
     }
 
     pub fn srtt(&self) -> Duration {
         self.rtt.srtt()
     }
 
-    pub fn rto(&self) -> Duration {
-        self.rtt.rto()
-    }
+    // pub fn rto(&self) -> Duration {
+    //     self.rtt.rto()
+    // }
 
     pub fn rtt_var(&self) -> Duration {
         self.rtt.rtt_var()
@@ -92,6 +92,16 @@ impl Inflight {
                 self.rtt
                     .record_sample(now.saturating_duration_since(seg.send_time))
             }
+            // remove from rtos
+            let rto_entry = self.rtos.entry(seg.retrans_time());
+            if let Entry::Occupied(mut o) = rto_entry {
+                o.get_mut().retain(|v| *v != seqno);
+                if o.get().is_empty() {
+                    o.remove();
+                }
+            } else {
+                panic!("shouldn't happen")
+            }
             true
         } else {
             false
@@ -107,49 +117,45 @@ impl Inflight {
             seqno,
             InflightEntry {
                 seqno,
-                acked: false,
                 send_time: now,
                 payload: msg,
                 retrans: 0,
                 rto_duration,
             },
         );
-        if let Some((_, old_rto)) = self.first_rto {
-            if rto < old_rto {
-                self.first_rto = Some((seqno, rto))
-            }
-        } else {
-            self.first_rto = Some((seqno, rto))
-        }
+        // we insert into RTOs.
+        self.rtos.entry(rto).or_default().push(seqno);
     }
 
     /// Returns the retransmission time of the first possibly retransmitted packet, as well as its seqno.
     pub fn first_rto(&self) -> Option<(Seqno, Instant)> {
-        self.first_rto
-    }
-
-    /// Recalculates the first rto
-    fn recalc_first_rto(&mut self) {
-        // hopefully this is not way too slow
-        self.first_rto = self
-            .segments
+        self.rtos
             .iter()
-            .min_by_key(|v| v.1.retrans_time())
-            .map(|v| (*v.0, v.1.retrans_time()))
+            .next()
+            .map(|(instant, seqno)| (seqno[0], *instant))
     }
-
     /// Retransmits a particular seqno.
     pub fn retransmit(&mut self, seqno: Seqno) -> Option<Message> {
-        let payload = {
+        let (payload, old_retrans, new_retrans) = {
             let entry = self.segments.get_mut(&seqno);
             entry.map(|entry| {
+                let old_retrans = entry.retrans_time();
                 entry.rto_duration += entry.rto_duration;
                 entry.retrans += 1;
-                entry.payload.clone()
-            })
+                (entry.payload.clone(), old_retrans, entry.retrans_time())
+            })?
         };
-        self.recalc_first_rto();
-        payload
+        let rto_entry = self.rtos.entry(old_retrans);
+        if let Entry::Occupied(mut o) = rto_entry {
+            o.get_mut().retain(|v| *v != seqno);
+            if o.get().is_empty() {
+                o.remove();
+            }
+        } else {
+            panic!("shouldn't happen")
+        }
+        self.rtos.entry(new_retrans).or_default().push(seqno);
+        Some(payload)
     }
 }
 
