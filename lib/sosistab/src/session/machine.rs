@@ -4,12 +4,13 @@ use crate::{
     crypt::{LegacyAead, NgAead},
     fec::{pre_encode, FrameDecoder},
     protocol::{DataFrameV1, DataFrameV2},
+    StatsGatherer,
 };
 use bytes::Bytes;
 use cached::{Cached, SizedCache};
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::stats::StatGatherer;
+use super::stats::StatsCalculator;
 
 /// I/O-free receiving machine.
 pub struct RecvMachine {
@@ -19,12 +20,17 @@ pub struct RecvMachine {
     recv_crypt_legacy: LegacyAead,
     recv_crypt_ng: NgAead,
     replay_filter: ReplayFilter,
-    ping_calc: Arc<StatGatherer>,
+    ping_calc: Arc<StatsCalculator>,
 }
 
 impl RecvMachine {
     /// Creates a new machine based on a version and a down decrypter.
-    pub fn new(version: u64, recv_crypt_legacy: LegacyAead, recv_crypt_ng: NgAead) -> Self {
+    pub fn new(
+        calculator: Arc<StatsCalculator>,
+        version: u64,
+        recv_crypt_legacy: LegacyAead,
+        recv_crypt_ng: NgAead,
+    ) -> Self {
         Self {
             version,
             decoder: RunDecoder::default(),
@@ -32,7 +38,7 @@ impl RecvMachine {
             recv_crypt_legacy,
             recv_crypt_ng,
             replay_filter: ReplayFilter::default(),
-            ping_calc: Default::default(),
+            ping_calc: calculator,
         }
     }
 
@@ -126,11 +132,6 @@ impl RecvMachine {
                 }
             }
         }
-    }
-
-    /// Retrieves the inner stat gatherer.
-    pub fn get_gather(&self) -> Arc<StatGatherer> {
-        self.ping_calc.clone()
     }
 }
 

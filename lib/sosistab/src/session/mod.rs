@@ -1,5 +1,4 @@
-use self::stats::TimeSeries;
-use crate::{batchan::batch_recv, mux::Multiplex, runtime};
+use crate::{batchan::batch_recv, mux::Multiplex, runtime, StatsGatherer};
 use crate::{crypt::LegacyAead, fec::FrameEncoder};
 use crate::{
     crypt::NgAead,
@@ -15,7 +14,7 @@ use serde::Serialize;
 use smol::channel::{Receiver, Sender, TrySendError};
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
-use stats::StatGatherer;
+use stats::StatsCalculator;
 use std::{
     num::NonZeroU32,
     sync::atomic::{AtomicU32, AtomicU64, Ordering},
@@ -31,12 +30,12 @@ pub(crate) struct SessionConfig {
     pub send_packet: Sender<Bytes>,
     pub recv_packet: Receiver<Bytes>,
     pub recv_timeout: Duration,
-    pub statistics: usize,
     pub version: u64,
     pub send_crypt_legacy: LegacyAead,
     pub recv_crypt_legacy: LegacyAead,
     pub send_crypt_ng: NgAead,
     pub recv_crypt_ng: NgAead,
+    pub gather: Arc<StatsGatherer>,
 }
 
 /// This struct represents a **session**: a single end-to-end connection between a client and a server. This can be thought of as analogous to `TcpStream`, except all reads and writes are datagram-based and unreliable. [Session] is thread-safe and can be wrapped in an [Arc](std::sync::Arc) to be shared between threads.
@@ -45,7 +44,7 @@ pub(crate) struct SessionConfig {
 pub struct Session {
     send_tosend: Sender<Bytes>,
     recv_packet: Receiver<Bytes>,
-    statistics: Arc<Mutex<TimeSeries<SessionStat>>>,
+    statistics: Arc<StatsGatherer>,
     machine: Mutex<RecvMachine>,
     machine_output: ConcurrentQueue<Bytes>,
     rate_limit: Arc<AtomicU32>,
@@ -63,8 +62,10 @@ impl Session {
         let (send_tosend, recv_tosend) = smol::channel::unbounded();
         let rate_limit = Arc::new(AtomicU32::new(25600));
         let recv_timeout = cfg.recv_timeout;
-        let statistics = Arc::new(Mutex::new(TimeSeries::new(cfg.statistics)));
+        let gather = cfg.gather.clone();
+        let calculator = Arc::new(StatsCalculator::new(gather.clone()));
         let machine = Mutex::new(RecvMachine::new(
+            calculator.clone(),
             cfg.version,
             cfg.recv_crypt_legacy,
             cfg.recv_crypt_ng.clone(),
@@ -76,7 +77,7 @@ impl Session {
 
         let ctx = SessionSendCtx {
             cfg,
-            statg: machine.lock().get_gather(),
+            statg: calculator,
             recv_tosend,
             rate_limit: rate_limit.clone(),
             recv_timeout,
@@ -93,7 +94,7 @@ impl Session {
             stat_ratelimit: Box::new(move || ratelimit.check().is_ok()),
             last_recv,
             sent_count: AtomicU64::new(0),
-            statistics,
+            statistics: gather,
             recv_timeout,
             _dropper: Vec::new(),
             _task: task,
@@ -130,23 +131,6 @@ impl Session {
         loop {
             // try dequeuing from Q
             if let Ok(b) = self.machine_output.pop() {
-                if (self.stat_ratelimit)() {
-                    let raw_stat = self.machine.lock().get_gather();
-                    let stat = Box::new(SessionStatInner {
-                        time: SystemTime::now(),
-                        high_recv: raw_stat.high_recv_frame_no(),
-                        total_recv: raw_stat.total_recv_frames(),
-                        total_loss: 1.0
-                            - (raw_stat.total_recv_frames() as f64
-                                / raw_stat.high_recv_frame_no() as f64)
-                                .min(1.0),
-                        total_sent: self.sent_count.load(Ordering::Relaxed),
-                        smooth_ping: raw_stat.ping().as_secs_f64() * 1000.0,
-                        raw_ping: raw_stat.raw_ping().as_secs_f64() * 1000.0,
-                    });
-                    self.statistics.lock().push(stat);
-                }
-
                 break Some(b);
             }
             // receive more stuff
@@ -166,7 +150,6 @@ impl Session {
                     }
                 }
             } else {
-                tracing::warn!("OH NO TIME TO DIEEE!");
                 self.recv_packet.close();
                 return None;
             }
@@ -178,16 +161,6 @@ impl Session {
         self.rate_limit.store(pps, Ordering::Relaxed);
     }
 
-    /// Gets the statistics.
-    pub fn all_stats(&self) -> im::Vector<SessionStat> {
-        self.statistics.lock().items().clone()
-    }
-
-    /// Get the latest stats.
-    pub fn latest_stat(&self) -> Option<SessionStat> {
-        self.statistics.lock().items().iter().last().cloned()
-    }
-
     /// "Upgrades" this session into a [Multiplex]
     pub fn multiplex(self) -> Multiplex {
         Multiplex::new(self)
@@ -196,7 +169,7 @@ impl Session {
 
 struct SessionSendCtx {
     cfg: SessionConfig,
-    statg: Arc<StatGatherer>,
+    statg: Arc<StatsCalculator>,
     recv_tosend: Receiver<Bytes>,
     rate_limit: Arc<AtomicU32>,
     recv_timeout: Duration,
@@ -214,7 +187,7 @@ async fn session_send_loop(ctx: SessionSendCtx) {
     }
 }
 
-const BURST_SIZE: usize = 32;
+const BURST_SIZE: usize = 16;
 
 #[tracing::instrument(skip(ctx))]
 async fn session_send_loop_v1(ctx: SessionSendCtx) -> Option<()> {
@@ -409,6 +382,7 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
                     unfecked.clear();
                     continue;
                 }
+
                 assert!(unfecked.len() <= BURST_SIZE);
                 // encode
                 let first_frame_no = unfecked[0].0;

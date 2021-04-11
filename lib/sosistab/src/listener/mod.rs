@@ -127,13 +127,13 @@ impl ListenerActor {
 
         // two possible events
         enum Evt {
-            NewRecv(Vec<(Bytes, SocketAddr)>),
+            NewRecv((Bytes, SocketAddr)),
             DeadSess(Bytes),
         }
 
         for trace_id in 0u64.. {
             let event = smol::future::race(
-                async { Some(Evt::NewRecv(read_socket.recv_from_many().await.unwrap())) },
+                async { Some(Evt::NewRecv(read_socket.recv_from().await.unwrap())) },
                 async { Some(Evt::DeadSess(recv_dead.recv().await.ok()?)) },
             );
             if rand::random::<f32>() < 0.001 {
@@ -145,206 +145,190 @@ impl ListenerActor {
                     tracing::trace!("removing existing session!");
                     session_table.delete(resume_token);
                 }
-                Evt::NewRecv(items) => {
-                    let items: Vec<(Bytes, SocketAddr)> = items;
-                    for (buffer, addr) in items {
-                        // first we attempt to map this to an existing session
-                        if let Some(handle) = session_table.lookup(addr) {
-                            let _ = handle.try_send(buffer.clone());
-                            if fallthrough_limiter.check_key(&addr).is_err() {
+                Evt::NewRecv((buffer, addr)) => {
+                    // first we attempt to map this to an existing session
+                    if let Some(handle) = session_table.lookup(addr) {
+                        let _ = handle.try_send(buffer.clone());
+                        if fallthrough_limiter.check_key(&addr).is_err() {
+                            continue;
+                        }
+                        // TODO figure out a way to decide whether to continue
+                    }
+                    // we know it's not part of an existing session then. we decrypt it under the current key
+                    let s2c_key = self.cookie.generate_s2c().next().unwrap();
+                    for possible_key in self.cookie.generate_c2s() {
+                        smol::future::yield_now().await;
+                        let crypter = crypt::LegacyAead::new(&possible_key);
+                        if let Some(handshake) =
+                            crypter.pad_decrypt_v1::<protocol::HandshakeFrame>(&buffer)
+                        {
+                            if !RECENT_FILTER.lock().check(&buffer) {
+                                tracing::debug!(
+                                    "discarding replay attempt with len {}",
+                                    buffer.len()
+                                );
                                 continue;
                             }
-                            // TODO figure out a way to decide whether to continue
-                        }
-                        // we know it's not part of an existing session then. we decrypt it under the current key
-                        let s2c_key = self.cookie.generate_s2c().next().unwrap();
-                        for possible_key in self.cookie.generate_c2s() {
-                            smol::future::yield_now().await;
-                            let crypter = crypt::LegacyAead::new(&possible_key);
-                            if let Some(handshake) =
-                                crypter.pad_decrypt_v1::<protocol::HandshakeFrame>(&buffer)
-                            {
-                                if !RECENT_FILTER.lock().check(&buffer) {
-                                    tracing::debug!(
-                                        "discarding replay attempt with len {}",
-                                        buffer.len()
-                                    );
-                                    continue;
-                                }
-                                tracing::debug!(
-                                    "[{}] decoded some sort of handshake: {:?}",
-                                    trace_id,
-                                    handshake
-                                );
-                                match handshake[0].clone() {
-                                    ClientHello {
-                                        long_pk,
-                                        eph_pk,
-                                        version,
-                                    } => {
-                                        if version != 1 && version != 2 && version != 3 {
-                                            tracing::warn!(
-                                                "got packet with incorrect version {}",
-                                                version
-                                            );
-                                            break;
-                                        }
-                                        // generate session key
-                                        let my_eph_sk = x25519_dalek::StaticSecret::new(
-                                            &mut rand::thread_rng(),
+                            tracing::debug!(
+                                "[{}] decoded some sort of handshake: {:?}",
+                                trace_id,
+                                handshake
+                            );
+                            match handshake[0].clone() {
+                                ClientHello {
+                                    long_pk,
+                                    eph_pk,
+                                    version,
+                                } => {
+                                    if version != 1 && version != 2 && version != 3 {
+                                        tracing::warn!(
+                                            "got packet with incorrect version {}",
+                                            version
                                         );
-                                        let token = TokenInfo {
-                                            sess_key: crypt::triple_ecdh(
-                                                &self.long_sk,
-                                                &my_eph_sk,
-                                                &long_pk,
-                                                &eph_pk,
-                                            )
-                                            .as_bytes()
-                                            .to_vec()
-                                            .into(),
-                                            init_time_ms: std::time::SystemTime::now()
-                                                .duration_since(std::time::UNIX_EPOCH)
-                                                .unwrap()
-                                                .as_millis()
-                                                as u64,
-                                            version,
-                                        }
-                                        .encrypt(&token_key);
-                                        let reply = protocol::HandshakeFrame::ServerHello {
-                                            long_pk: (&self.long_sk).into(),
-                                            eph_pk: (&my_eph_sk).into(),
-                                            resume_token: token,
-                                        };
-                                        let reply = crypt::LegacyAead::new(&s2c_key)
-                                            .pad_encrypt_v1(&[reply], 1000);
-                                        tracing::debug!(
-                                            "[{}] GONNA reply to ClientHello from {}",
-                                            trace_id,
-                                            addr
-                                        );
-                                        let _ = write_socket.send_to(reply, addr).await;
-                                        tracing::debug!(
-                                            "[{}] replied to ClientHello from {}",
-                                            trace_id,
-                                            addr
-                                        );
+                                        break;
                                     }
-                                    ClientResume {
-                                        resume_token,
-                                        shard_id,
-                                    } => {
-                                        tracing::trace!(
-                                            "Got ClientResume-{} from {}!",
+                                    // generate session key
+                                    let my_eph_sk =
+                                        x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
+                                    let token = TokenInfo {
+                                        sess_key: crypt::triple_ecdh(
+                                            &self.long_sk,
+                                            &my_eph_sk,
+                                            &long_pk,
+                                            &eph_pk,
+                                        )
+                                        .as_bytes()
+                                        .to_vec()
+                                        .into(),
+                                        init_time_ms: std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .unwrap()
+                                            .as_millis()
+                                            as u64,
+                                        version,
+                                    }
+                                    .encrypt(&token_key);
+                                    let reply = protocol::HandshakeFrame::ServerHello {
+                                        long_pk: (&self.long_sk).into(),
+                                        eph_pk: (&my_eph_sk).into(),
+                                        resume_token: token,
+                                    };
+                                    let reply = crypt::LegacyAead::new(&s2c_key)
+                                        .pad_encrypt_v1(&[reply], 1000);
+                                    tracing::debug!(
+                                        "[{}] GONNA reply to ClientHello from {}",
+                                        trace_id,
+                                        addr
+                                    );
+                                    let _ = write_socket.send_to(reply, addr).await;
+                                    tracing::debug!(
+                                        "[{}] replied to ClientHello from {}",
+                                        trace_id,
+                                        addr
+                                    );
+                                }
+                                ClientResume {
+                                    resume_token,
+                                    shard_id,
+                                } => {
+                                    tracing::trace!("Got ClientResume-{} from {}!", shard_id, addr);
+                                    let tokinfo = TokenInfo::decrypt(&token_key, &resume_token);
+                                    if let Some(tokinfo) = tokinfo {
+                                        // first check whether we know about the resume token
+                                        if !session_table.rebind(
+                                            addr,
                                             shard_id,
-                                            addr
-                                        );
-                                        let tokinfo = TokenInfo::decrypt(&token_key, &resume_token);
-                                        if let Some(tokinfo) = tokinfo {
-                                            // first check whether we know about the resume token
-                                            if !session_table.rebind(
-                                                addr,
-                                                shard_id,
-                                                resume_token.clone(),
-                                            ) {
-                                                tracing::debug!(
-                                                    "[{}] ClientResume from {} is new!",
-                                                    trace_id,
-                                                    addr
-                                                );
+                                            resume_token.clone(),
+                                        ) {
+                                            tracing::debug!(
+                                                "[{}] ClientResume from {} is new!",
+                                                trace_id,
+                                                addr
+                                            );
 
-                                                let up_key = blake3::keyed_hash(
-                                                    crypt::UP_KEY,
-                                                    &tokinfo.sess_key,
-                                                );
-                                                let dn_key = blake3::keyed_hash(
-                                                    crypt::DN_KEY,
-                                                    &tokinfo.sess_key,
-                                                );
-                                                let write_socket = write_socket.clone();
-                                                let (session_input, session_input_recv) =
-                                                    smol::channel::bounded(1000);
-                                                // create session
-                                                let (session_output_send, session_output_recv) =
-                                                    smol::channel::bounded(1000);
-                                                let locked_addrs =
-                                                    ShardedAddrs::new(shard_id, addr);
-                                                let locked_addrs =
-                                                    Arc::new(RwLock::new(locked_addrs));
-                                                let output_poller = {
-                                                    let locked_addrs = locked_addrs.clone();
-                                                    runtime::spawn(async move {
-                                                        loop {
-                                                            match session_output_recv.recv().await {
-                                                                Ok(data) => {
-                                                                    // let start = Instant::now();
-                                                                    let remote_addr = locked_addrs
-                                                                        .write()
-                                                                        .get_addr();
-                                                                    drop(
-                                                                        write_socket
-                                                                            .send_to(
-                                                                                data,
-                                                                                remote_addr,
-                                                                            )
-                                                                            .await,
-                                                                    );
-                                                                }
-                                                                Err(_) => {
-                                                                    smol::future::pending::<()>()
-                                                                        .await
-                                                                }
+                                            let up_key = blake3::keyed_hash(
+                                                crypt::UP_KEY,
+                                                &tokinfo.sess_key,
+                                            );
+                                            let dn_key = blake3::keyed_hash(
+                                                crypt::DN_KEY,
+                                                &tokinfo.sess_key,
+                                            );
+                                            let write_socket = write_socket.clone();
+                                            let (session_input, session_input_recv) =
+                                                smol::channel::bounded(1000);
+                                            // create session
+                                            let (session_output_send, session_output_recv) =
+                                                smol::channel::bounded(1000);
+                                            let locked_addrs = ShardedAddrs::new(shard_id, addr);
+                                            let locked_addrs = Arc::new(RwLock::new(locked_addrs));
+                                            let output_poller = {
+                                                let locked_addrs = locked_addrs.clone();
+                                                runtime::spawn(async move {
+                                                    loop {
+                                                        match session_output_recv.recv().await {
+                                                            Ok(data) => {
+                                                                // let start = Instant::now();
+                                                                let remote_addr =
+                                                                    locked_addrs.write().get_addr();
+                                                                drop(
+                                                                    write_socket
+                                                                        .send_to(data, remote_addr)
+                                                                        .await,
+                                                                );
+                                                            }
+                                                            Err(_) => {
+                                                                smol::future::pending::<()>().await
                                                             }
                                                         }
-                                                    })
-                                                };
-                                                let mut session = Session::new(SessionConfig {
-                                                    send_packet: session_output_send,
-                                                    recv_packet: session_input_recv,
-                                                    recv_timeout: Duration::from_secs(3600),
-                                                    statistics: 128,
+                                                    }
+                                                })
+                                            };
+                                            let mut session = Session::new(SessionConfig {
+                                                send_packet: session_output_send,
+                                                recv_packet: session_input_recv,
+                                                recv_timeout: Duration::from_secs(3600),
+                                                gather: Default::default(),
+                                                send_crypt_legacy: crypt::LegacyAead::new(
+                                                    dn_key.as_bytes(),
+                                                ),
+                                                recv_crypt_legacy: crypt::LegacyAead::new(
+                                                    up_key.as_bytes(),
+                                                ),
 
-                                                    send_crypt_legacy: crypt::LegacyAead::new(
-                                                        dn_key.as_bytes(),
-                                                    ),
-                                                    recv_crypt_legacy: crypt::LegacyAead::new(
-                                                        up_key.as_bytes(),
-                                                    ),
-
-                                                    send_crypt_ng: crypt::NgAead::new(
-                                                        dn_key.as_bytes(),
-                                                    ),
-                                                    recv_crypt_ng: crypt::NgAead::new(
-                                                        up_key.as_bytes(),
-                                                    ),
-                                                    version: tokinfo.version,
-                                                });
-                                                let send_dead_clo = send_dead.clone();
-                                                let resume_token_clo = resume_token.clone();
-                                                session.on_drop(move || {
-                                                    drop(output_poller);
-                                                    drop(send_dead_clo.try_send(resume_token_clo))
-                                                });
-                                                // spawn a task that writes to the socket.
-                                                session_table.new_sess(
-                                                    resume_token.clone(),
-                                                    session_input,
-                                                    locked_addrs,
-                                                );
-                                                session_table.rebind(addr, shard_id, resume_token);
-                                                tracing::debug!("[{}] accept {}", trace_id, addr);
-                                                accepted.try_send(session).ok()?;
-                                            } else {
-                                                tracing::debug!(
-                                                    "[{}] ClientResume from {} rebound",
-                                                    trace_id,
-                                                    addr
-                                                );
-                                            }
+                                                send_crypt_ng: crypt::NgAead::new(
+                                                    dn_key.as_bytes(),
+                                                ),
+                                                recv_crypt_ng: crypt::NgAead::new(
+                                                    up_key.as_bytes(),
+                                                ),
+                                                version: tokinfo.version,
+                                            });
+                                            let send_dead_clo = send_dead.clone();
+                                            let resume_token_clo = resume_token.clone();
+                                            session.on_drop(move || {
+                                                drop(output_poller);
+                                                drop(send_dead_clo.try_send(resume_token_clo))
+                                            });
+                                            // spawn a task that writes to the socket.
+                                            session_table.new_sess(
+                                                resume_token.clone(),
+                                                session_input,
+                                                locked_addrs,
+                                            );
+                                            session_table.rebind(addr, shard_id, resume_token);
+                                            tracing::debug!("[{}] accept {}", trace_id, addr);
+                                            accepted.try_send(session).ok()?;
+                                        } else {
+                                            tracing::debug!(
+                                                "[{}] ClientResume from {} rebound",
+                                                trace_id,
+                                                addr
+                                            );
                                         }
                                     }
-                                    _ => continue,
                                 }
+                                _ => continue,
                             }
                         }
                     }
@@ -367,7 +351,7 @@ impl TokenInfo {
         // first we decrypt
         let crypter = crypt::LegacyAead::new(key);
         let plain = crypter.decrypt(encrypted)?;
-        bincode::deserialize(&plain).ok()
+        safe_deserialize(&plain).ok()
     }
 
     fn encrypt(&self, key: &[u8]) -> Bytes {

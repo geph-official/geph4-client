@@ -23,8 +23,10 @@ mod client;
 mod crypt;
 mod fec;
 mod listener;
+use bincode::Options;
 pub use client::*;
 pub use listener::*;
+use serde::de::DeserializeOwned;
 use std::time::Duration;
 mod protocol;
 pub mod runtime;
@@ -37,6 +39,16 @@ mod tcp;
 use backhaul::*;
 mod batchan;
 mod recfilter;
+mod stats;
+pub use stats::*;
+
+pub(crate) fn safe_deserialize<T: DeserializeOwned>(bts: &[u8]) -> bincode::Result<T> {
+    let my_options = bincode::DefaultOptions::new()
+        .with_fixint_encoding()
+        .allow_trailing_bytes()
+        .with_limit(bts.len() as u64);
+    my_options.deserialize(bts)
+}
 
 #[cfg(test)]
 mod tests {

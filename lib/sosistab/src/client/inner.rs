@@ -1,6 +1,6 @@
 use crate::{
     crypt::{self, LegacyAead, NgAead},
-    protocol, runtime, Backhaul, Session, SessionConfig,
+    protocol, runtime, Backhaul, Session, SessionConfig, StatsGatherer,
 };
 use bytes::Bytes;
 use governor::{Quota, RateLimiter};
@@ -22,6 +22,7 @@ pub(crate) struct ClientConfig {
     pub backhaul_gen: Arc<dyn Fn() -> Arc<dyn Backhaul> + 'static + Send + Sync>,
     pub num_shards: usize,
     pub reset_interval: Option<Duration>,
+    pub gather: Arc<StatsGatherer>,
 }
 
 /// Connects to a remote server, given a closure that generates socket addresses.
@@ -131,8 +132,8 @@ async fn init_session(
         send_crypt_ng: NgAead::new(up_key.as_bytes()),
         recv_crypt_ng: NgAead::new(dn_key.as_bytes()),
         recv_timeout: Duration::from_secs(300),
-        statistics: 8000,
         version: VERSION,
+        gather: cfg.gather,
     });
     session.on_drop(move || {
         drop(backhaul_tasks);

@@ -10,6 +10,7 @@ mod inner;
 pub async fn connect_udp(
     server_addr: SocketAddr,
     pubkey: x25519_dalek::PublicKey,
+    gather: Arc<StatsGatherer>,
 ) -> std::io::Result<Session> {
     inner::connect_custom(inner::ClientConfig {
         server_addr,
@@ -21,6 +22,7 @@ pub async fn connect_udp(
         }),
         num_shards: 8,
         reset_interval: Some(Duration::from_secs(20)),
+        gather,
     })
     .await
 }
@@ -29,6 +31,7 @@ pub async fn connect_udp(
 pub async fn connect_tcp(
     server_addr: SocketAddr,
     pubkey: x25519_dalek::PublicKey,
+    gather: Arc<StatsGatherer>,
 ) -> std::io::Result<Session> {
     inner::connect_custom(inner::ClientConfig {
         server_addr,
@@ -38,6 +41,7 @@ pub async fn connect_tcp(
         }),
         num_shards: 16,
         reset_interval: None,
+        gather,
     })
     .await
 }

@@ -1,6 +1,10 @@
 use crate::{
-    activity::notify_activity, cache::ClientCache, plots::stat_derive, stats::StatCollector,
-    tunman::TunnelManager, AuthOpt, CommonOpt,
+    activity::{notify_activity, timeout_multiplier},
+    cache::ClientCache,
+    plots::stat_derive,
+    stats::{global_sosistab_stats, StatCollector},
+    tunman::TunnelManager,
+    AuthOpt, CommonOpt,
 };
 use crate::{china, stats::GLOBAL_LOGGER};
 use anyhow::Context;
@@ -70,6 +74,8 @@ pub struct ConnectOpt {
 /// Main function for `connect` subcommand
 pub async fn main_connect(mut opt: ConnectOpt) -> anyhow::Result<()> {
     log::info!("connect mode started");
+
+    let _stats = smolscale::spawn(print_stats_loop());
 
     // Test china
     let is_china = test_china().await;
@@ -175,7 +181,7 @@ pub async fn main_connect(mut opt: ConnectOpt) -> anyhow::Result<()> {
 async fn test_china() -> surf::Result<bool> {
     let response = surf::get("http://checkip.amazonaws.com")
         .recv_string()
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(5))
         .await
         .ok_or_else(|| anyhow::anyhow!("checkip timeout"))??;
     let response = response.trim();
@@ -186,6 +192,22 @@ async fn test_china() -> surf::Result<bool> {
     }
 }
 
+/// Prints stats in a loop.
+async fn print_stats_loop() {
+    let gather = global_sosistab_stats();
+    loop {
+        smol::Timer::after(Duration::from_secs(3).mul_f64(timeout_multiplier().powf(2.0))).await;
+        log::info!(
+            "** STATS **: smooth_ping = {:.2}; raw_ping = {:.2}; total_recv = {}; high_recv = {}",
+            gather.get_last("smooth_ping").unwrap_or_default() * 1000.0,
+            gather.get_last("raw_ping").unwrap_or_default() * 1000.0,
+            gather.get_last("total_recv").unwrap_or_default() as u64,
+            gather.get_last("high_recv").unwrap_or_default() as u64,
+        )
+    }
+}
+
+/// Forwards ports using a particular description.
 async fn port_forwarder(tunnel_manager: TunnelManager, desc: String) {
     let exploded = desc.split(":::").collect::<Vec<_>>();
     let listen_addr: SocketAddr = exploded[0].parse().expect("invalid port forwarding syntax");
@@ -220,66 +242,67 @@ async fn handle_stats(
     let mut res = http_types::Response::new(http_types::StatusCode::Ok);
     match _req.url().path() {
         "/debugpack" => {
+            todo!()
             // Form a tar from the logs and sosistab trace
-            let tar_buffer = Vec::new();
-            let mut tar_build = tar::Builder::new(tar_buffer);
-            let mut logs_buffer = Vec::new();
-            {
-                let logs = GLOBAL_LOGGER.read();
-                for line in logs.iter() {
-                    writeln!(logs_buffer, "{}", line)?;
-                }
-            }
-            // Obtain sosistab trace
-            let detail = tunnel_manager
-                .get_stats()
-                .timeout(Duration::from_secs(1))
-                .await;
-            if let Some(detail) = detail {
-                let detail = detail?;
-                let mut sosistab_buf = Vec::new();
-                writeln!(sosistab_buf, "time,last_recv,total_recv,total_loss,ping")?;
-                if let Some(first) = detail.get(0) {
-                    let first_time = first.time;
-                    for item in detail.iter() {
-                        writeln!(
-                            sosistab_buf,
-                            "{},{},{},{},{}",
-                            item.time
-                                .duration_since(first_time)
-                                .unwrap_or_default()
-                                .as_secs_f64(),
-                            item.high_recv,
-                            item.total_recv,
-                            item.total_loss,
-                            item.smooth_ping,
-                        )?;
-                    }
-                }
-                let mut sosis_header = tar::Header::new_gnu();
-                sosis_header.set_mode(0o666);
-                sosis_header.set_size(sosistab_buf.len() as u64);
-                tar_build.append_data(
-                    &mut sosis_header,
-                    "sosistab-trace.csv",
-                    sosistab_buf.as_slice(),
-                )?;
-            }
-            let mut logs_header = tar::Header::new_gnu();
-            logs_header.set_mode(0o666);
-            logs_header.set_size(logs_buffer.len() as u64);
-            tar_build.append_data(&mut logs_header, "logs.txt", logs_buffer.as_slice())?;
-            let result = tar_build.into_inner()?;
-            res.insert_header("content-type", "application/tar");
-            res.insert_header(
-                "content-disposition",
-                format!(
-                    "attachment; filename=\"geph4-debug-{}.tar\"",
-                    Local::now().to_rfc3339()
-                ),
-            );
-            res.set_body(result);
-            Ok(res)
+            // let tar_buffer = Vec::new();
+            // let mut tar_build = tar::Builder::new(tar_buffer);
+            // let mut logs_buffer = Vec::new();
+            // {
+            //     let logs = GLOBAL_LOGGER.read();
+            //     for line in logs.iter() {
+            //         writeln!(logs_buffer, "{}", line)?;
+            //     }
+            // }
+            // // Obtain sosistab trace
+            // let detail = tunnel_manager
+            //     .get_stats()
+            //     .timeout(Duration::from_secs(1))
+            //     .await;
+            // if let Some(detail) = detail {
+            //     let detail = detail?;
+            //     let mut sosistab_buf = Vec::new();
+            //     writeln!(sosistab_buf, "time,last_recv,total_recv,total_loss,ping")?;
+            //     if let Some(first) = detail.get(0) {
+            //         let first_time = first.time;
+            //         for item in detail.iter() {
+            //             writeln!(
+            //                 sosistab_buf,
+            //                 "{},{},{},{},{}",
+            //                 item.time
+            //                     .duration_since(first_time)
+            //                     .unwrap_or_default()
+            //                     .as_secs_f64(),
+            //                 item.high_recv,
+            //                 item.total_recv,
+            //                 item.total_loss,
+            //                 item.smooth_ping,
+            //             )?;
+            //         }
+            //     }
+            //     let mut sosis_header = tar::Header::new_gnu();
+            //     sosis_header.set_mode(0o666);
+            //     sosis_header.set_size(sosistab_buf.len() as u64);
+            //     tar_build.append_data(
+            //         &mut sosis_header,
+            //         "sosistab-trace.csv",
+            //         sosistab_buf.as_slice(),
+            //     )?;
+            // }
+            // let mut logs_header = tar::Header::new_gnu();
+            // logs_header.set_mode(0o666);
+            // logs_header.set_size(logs_buffer.len() as u64);
+            // tar_build.append_data(&mut logs_header, "logs.txt", logs_buffer.as_slice())?;
+            // let result = tar_build.into_inner()?;
+            // res.insert_header("content-type", "application/tar");
+            // res.insert_header(
+            //     "content-disposition",
+            //     format!(
+            //         "attachment; filename=\"geph4-debug-{}.tar\"",
+            //         Local::now().to_rfc3339()
+            //     ),
+            // );
+            // res.set_body(result);
+            // Ok(res)
         }
         "/proxy.pac" => {
             // Serves a Proxy Auto-Configuration file
@@ -288,51 +311,54 @@ async fn handle_stats(
         }
         "/rawstats" => {
             // Serves all the stats as json
-            let detail = tunnel_manager.get_stats().await?;
-            res.set_body(serde_json::to_string(&detail)?);
-            res.set_content_type(http_types::mime::JSON);
-            Ok(res)
+            // let detail = tunnel_manager.get_stats().await?;
+            // res.set_body(serde_json::to_string(&detail)?);
+            // res.set_content_type(http_types::mime::JSON);
+            // Ok(res)
+            todo!()
         }
         "/deltastats" => {
             // Serves all the delta stats as json
-            let detail = tunnel_manager.get_stats().await?;
-            let body_str = smol::unblock(move || {
-                let detail = stat_derive(&detail);
-                serde_json::to_string(&detail)
-            })
-            .await?;
-            res.set_body(body_str);
-            res.set_content_type(http_types::mime::JSON);
-            Ok(res)
+            // let detail = tunnel_manager.get_stats().await?;
+            // let body_str = smol::unblock(move || {
+            //     let detail = stat_derive(&detail);
+            //     serde_json::to_string(&detail)
+            // })
+            // .await?;
+            // res.set_body(body_str);
+            // res.set_content_type(http_types::mime::JSON);
+            // Ok(res)
+            todo!()
         }
         "/kill" => std::process::exit(0),
         _ => {
-            // Serves general statistics
-            let detail = tunnel_manager
-                .get_stats()
-                .timeout(Duration::from_millis(100))
-                .await;
-            if let Some(Ok(details)) = detail {
-                if let Some(detail) = details.last() {
-                    stats.set_latency(detail.smooth_ping);
-                    // Compute loss
-                    let midpoint_stat = &details[details.len() / 2];
-                    let delta_high = detail
-                        .high_recv
-                        .saturating_sub(midpoint_stat.high_recv)
-                        .max(1) as f64;
-                    let delta_total = detail
-                        .total_recv
-                        .saturating_sub(midpoint_stat.total_recv)
-                        .max(1) as f64;
-                    let loss = 1.0 - (delta_total / delta_high).min(1.0).max(0.0);
-                    stats.set_loss(loss * 100.0)
-                }
-            }
-            let jstats = serde_json::to_string(&stats)?;
-            res.set_body(jstats);
-            res.set_content_type(http_types::mime::JSON);
-            Ok(res)
+            todo!()
+            // // Serves general statistics
+            // let detail = tunnel_manager
+            //     .get_stats()
+            //     .timeout(Duration::from_millis(100))
+            //     .await;
+            // if let Some(Ok(details)) = detail {
+            //     if let Some(detail) = details.last() {
+            //         stats.set_latency(detail.smooth_ping);
+            //         // Compute loss
+            //         let midpoint_stat = &details[details.len() / 2];
+            //         let delta_high = detail
+            //             .high_recv
+            //             .saturating_sub(midpoint_stat.high_recv)
+            //             .max(1) as f64;
+            //         let delta_total = detail
+            //             .total_recv
+            //             .saturating_sub(midpoint_stat.total_recv)
+            //             .max(1) as f64;
+            //         let loss = 1.0 - (delta_total / delta_high).min(1.0).max(0.0);
+            //         stats.set_loss(loss * 100.0)
+            //     }
+            // }
+            // let jstats = serde_json::to_string(&stats)?;
+            // res.set_body(jstats);
+            // res.set_content_type(http_types::mime::JSON);
+            // Ok(res)
         }
     }
 }

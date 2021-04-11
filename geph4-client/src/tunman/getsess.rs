@@ -1,4 +1,4 @@
-use crate::cache::ClientCache;
+use crate::{cache::ClientCache, stats::global_sosistab_stats};
 use anyhow::Context;
 use async_net::SocketAddr;
 use binder_transport::ExitDescriptor;
@@ -35,12 +35,26 @@ pub async fn get_session(
                     let res = async {
                         if !use_tcp {
                             for _ in 0u8..3 {
-                                let _ =
-                                    sosistab::connect_udp(desc.endpoint, desc.sosistab_key).await;
+                                let _ = sosistab::connect_udp(
+                                    desc.endpoint,
+                                    desc.sosistab_key,
+                                    global_sosistab_stats(),
+                                )
+                                .await;
                             }
-                            sosistab::connect_udp(desc.endpoint, desc.sosistab_key).await
+                            sosistab::connect_udp(
+                                desc.endpoint,
+                                desc.sosistab_key,
+                                global_sosistab_stats(),
+                            )
+                            .await
                         } else {
-                            sosistab::connect_tcp(desc.endpoint, desc.sosistab_key).await
+                            sosistab::connect_tcp(
+                                desc.endpoint,
+                                desc.sosistab_key,
+                                global_sosistab_stats(),
+                            )
+                            .await
                         }
                     }
                     .timeout(Duration::from_secs(10))
@@ -79,9 +93,19 @@ pub async fn get_session(
 
                     Ok((
                         if use_tcp {
-                            sosistab::connect_tcp(server_addr, exit_info.sosistab_key).await?
+                            sosistab::connect_tcp(
+                                server_addr,
+                                exit_info.sosistab_key,
+                                global_sosistab_stats(),
+                            )
+                            .await?
                         } else {
-                            sosistab::connect_udp(server_addr, exit_info.sosistab_key).await?
+                            sosistab::connect_udp(
+                                server_addr,
+                                exit_info.sosistab_key,
+                                global_sosistab_stats(),
+                            )
+                            .await?
                         },
                         server_addr,
                     ))

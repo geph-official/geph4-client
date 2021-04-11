@@ -16,13 +16,7 @@ pub struct InflightEntry {
     pub retrans: u64,
     pub payload: Message,
 
-    rto_duration: Duration,
-}
-
-impl InflightEntry {
-    fn retrans_time(&self) -> Instant {
-        self.send_time + self.rto_duration
-    }
+    retrans_time: Instant,
 }
 
 /// A data structure that tracks in-flight packets.
@@ -93,7 +87,7 @@ impl Inflight {
                     .record_sample(now.saturating_duration_since(seg.send_time))
             }
             // remove from rtos
-            let rto_entry = self.rtos.entry(seg.retrans_time());
+            let rto_entry = self.rtos.entry(seg.retrans_time);
             if let Entry::Occupied(mut o) = rto_entry {
                 o.get_mut().retain(|v| *v != seqno);
                 if o.get().is_empty() {
@@ -120,7 +114,7 @@ impl Inflight {
                 send_time: now,
                 payload: msg,
                 retrans: 0,
-                rto_duration,
+                retrans_time: rto,
             },
         );
         // we insert into RTOs.
@@ -136,13 +130,15 @@ impl Inflight {
     }
     /// Retransmits a particular seqno.
     pub fn retransmit(&mut self, seqno: Seqno) -> Option<Message> {
+        let rto = self.rtt.rto();
         let (payload, old_retrans, new_retrans) = {
             let entry = self.segments.get_mut(&seqno);
             entry.map(|entry| {
-                let old_retrans = entry.retrans_time();
-                entry.rto_duration += entry.rto_duration;
+                let old_retrans = entry.retrans_time;
                 entry.retrans += 1;
-                (entry.payload.clone(), old_retrans, entry.retrans_time())
+                entry.retrans_time =
+                    Instant::now() + rto.mul_f64(2.0f64.powi(entry.retrans as i32));
+                (entry.payload.clone(), old_retrans, entry.retrans_time)
             })?
         };
         let rto_entry = self.rtos.entry(old_retrans);
@@ -158,40 +154,3 @@ impl Inflight {
         Some(payload)
     }
 }
-
-// struct RateCalculator {
-//     rate: f64,
-//     rate_update_time: Instant,
-// }
-
-// impl Default for RateCalculator {
-//     fn default() -> Self {
-//         RateCalculator {
-//             rate: 500.0,
-//             rate_update_time: Instant::now(),
-//         }
-//     }
-// }
-
-// impl RateCalculator {
-//     fn record_sample(&mut self, sample: f64) {
-//         let now = Instant::now();
-//         if now
-//             .saturating_duration_since(self.rate_update_time)
-//             .as_secs()
-//             > 3
-//             || sample > self.rate
-//         {
-//             self.rate = sample;
-//             self.rate_update_time = now;
-//         }
-//     }
-// }
-
-// fn diff(a: u64, b: u64) -> u64 {
-//     if b > a {
-//         b - a
-//     } else {
-//         a - b
-//     }
-// }

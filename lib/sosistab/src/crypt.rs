@@ -96,8 +96,6 @@ impl LegacyAead {
     /// Decrypt and depad.
     pub fn pad_decrypt_v1<T: DeserializeOwned>(&self, ctext: &[u8]) -> Option<Vec<T>> {
         let plain = self.decrypt(ctext)?;
-        // Some(vec![bincode::deserialize(&plain).ok()?])
-        // eprintln!("plain gotten");
         let mut reader = plain.as_ref();
         let mut output = Vec::with_capacity(1);
         while !reader.is_empty() {

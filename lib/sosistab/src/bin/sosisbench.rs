@@ -80,6 +80,7 @@ async fn client_main(args: ClientArgs) -> anyhow::Result<()> {
             .await
             .context("cannot resolve")?[0],
         (&*SNAKEOIL_SK).into(),
+        Default::default(),
     )
     .await
     .context("cannot conenct to sosistab")?;

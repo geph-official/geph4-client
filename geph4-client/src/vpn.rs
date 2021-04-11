@@ -1,3 +1,4 @@
+use anyhow::Context;
 use async_net::Ipv4Addr;
 use bytes::Bytes;
 
@@ -94,7 +95,7 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
                 Ok::<Option<Bytes>, anyhow::Error>(Some(body))
             }
         };
-        let body = stdin_fut.await?;
+        let body = stdin_fut.await.context("stdin failed")?;
         if let Some(body) = body {
             notify_activity();
             ctx.stats.incr_total_tx(body.len() as u64);
@@ -117,7 +118,7 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     loop {
         buff.clear();
         let mut batch = Vec::with_capacity(64);
-        batch.push(ctx.mux.recv_urel().await?);
+        batch.push(ctx.mux.recv_urel().await.context("downstream failed")?);
         while let Ok(v) = ctx.mux.try_recv_urel() {
             batch.push(v)
         }
@@ -126,18 +127,11 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         for bts in batch {
             count += 1;
             if count % 1000 == 1 {
-                let sess_stats = ctx.mux.get_session().latest_stat();
-                if let Some(sess_stats) = sess_stats {
-                    log::debug!(
-                        "VPN received {} pkts (bsize={}); ping {:.1} ms, loss {:.2}%",
-                        count,
-                        bsize,
-                        sess_stats.smooth_ping,
-                        sess_stats.total_loss * 100.0,
-                    );
-                }
+                log::debug!("VPN received {} pkts (bsize={})", count, bsize,);
             }
-            if let vpn_structs::Message::Payload(bts) = bincode::deserialize(&bts)? {
+            if let vpn_structs::Message::Payload(bts) =
+                bincode::deserialize(&bts).context("invalid downstream data")?
+            {
                 ctx.stats.incr_total_rx(bts.len() as u64);
                 let bts = if let Some(bts) = fix_dns_src(&bts, ctx.dns_nat) {
                     bts

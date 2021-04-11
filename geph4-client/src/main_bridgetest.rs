@@ -32,9 +32,13 @@ pub async fn main_bridgetest(opt: BridgeTestOpt) -> anyhow::Result<()> {
             .map(|bridge| {
                 smolscale::spawn(async move {
                     let start = Instant::now();
-                    let sess = sosistab::connect_udp(bridge.endpoint, bridge.sosistab_key)
-                        .timeout(Duration::from_secs(5))
-                        .await;
+                    let sess = sosistab::connect_udp(
+                        bridge.endpoint,
+                        bridge.sosistab_key,
+                        Default::default(),
+                    )
+                    .timeout(Duration::from_secs(5))
+                    .await;
                     match sess {
                         Some(Ok(_)) => eprintln!(">>> {} ({:?})", bridge.endpoint, start.elapsed()),
                         Some(Err(e)) => eprintln!(">>> {} (!! ERR: {} !!)", bridge.endpoint, e),
