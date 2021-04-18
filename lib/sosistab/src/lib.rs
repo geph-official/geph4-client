@@ -27,7 +27,7 @@ use bincode::Options;
 pub use client::*;
 pub use listener::*;
 use serde::de::DeserializeOwned;
-use std::time::Duration;
+use std::{future::Future, pin::Pin, task::Poll, time::Duration};
 mod protocol;
 pub mod runtime;
 mod session;
@@ -42,12 +42,44 @@ mod recfilter;
 mod stats;
 pub use stats::*;
 
+/// Safely deserialize
 pub(crate) fn safe_deserialize<T: DeserializeOwned>(bts: &[u8]) -> bincode::Result<T> {
     let my_options = bincode::DefaultOptions::new()
         .with_fixint_encoding()
         .allow_trailing_bytes()
         .with_limit(bts.len() as u64);
     my_options.deserialize(bts)
+}
+
+impl<T: Future> MyFutureExt for T {}
+
+/// Our own futures extension trait
+pub(crate) trait MyFutureExt: Future + Sized {
+    /// Returns a future that is pending unless a certain value is true. Useful to "turn off" a future based on a condition.
+    fn pending_unless(self, unless: bool) -> PendingUnless<Self> {
+        PendingUnless {
+            inner: self,
+            always_pending: !unless,
+        }
+    }
+}
+
+pub(crate) struct PendingUnless<T: Future> {
+    inner: T,
+    always_pending: bool,
+}
+
+impl<T: Future> Future for PendingUnless<T> {
+    type Output = T::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> Poll<Self::Output> {
+        if self.always_pending {
+            Poll::Pending
+        } else {
+            let inner = unsafe { self.map_unchecked_mut(|v| &mut v.inner) };
+            inner.poll(cx)
+        }
+    }
 }
 
 #[cfg(test)]

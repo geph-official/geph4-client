@@ -1,17 +1,17 @@
+use crate::china;
 use crate::{
     activity::{notify_activity, timeout_multiplier},
     cache::ClientCache,
-    plots::stat_derive,
+    // plots::stat_derive,
     stats::{global_sosistab_stats, StatCollector},
     tunman::TunnelManager,
-    AuthOpt, CommonOpt,
+    AuthOpt,
+    CommonOpt,
 };
-use crate::{china, stats::GLOBAL_LOGGER};
 use anyhow::Context;
 use async_compat::Compat;
 use async_net::IpAddr;
 use china::is_chinese_ip;
-use chrono::prelude::*;
 use smol_timeout::TimeoutExt;
 use std::{net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, sync::Arc, time::Duration};
 use structopt::StructOpt;

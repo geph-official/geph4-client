@@ -1,13 +1,20 @@
-use crate::*;
+use crate::{
+    backhaul::{Backhaul, StatsBackhaul},
+    batchan::batch_recv,
+    crypt::{triple_ecdh, Cookie, LegacyAead, NgAead},
+    protocol::HandshakeFrame,
+    runtime, safe_deserialize,
+};
 use crate::{
     recfilter::RECENT_FILTER,
     session::{Session, SessionConfig},
 };
 use bytes::Bytes;
 
+use crate::protocol::HandshakeFrame::*;
+use crate::tcp::TcpServerBackhaul;
 use governor::{Quota, RateLimiter};
 use parking_lot::RwLock;
-use protocol::HandshakeFrame::*;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
 use smol::net::AsyncToSocketAddrs;
@@ -15,12 +22,11 @@ use smol::{
     channel::{Receiver, Sender},
     net::TcpListener,
 };
-use std::net::SocketAddr;
+use std::{net::SocketAddr, time::Duration};
 use std::{num::NonZeroU32, sync::Arc};
 use table::ShardedAddrs;
-use tcp::TcpServerBackhaul;
 
-use self::table::SessionTable;
+use table::SessionTable;
 
 mod table;
 
@@ -45,7 +51,7 @@ impl Listener {
     ) -> Self {
         let socket = runtime::new_udp_socket_bind(addr).unwrap();
         let local_addr = socket.get_ref().local_addr().unwrap();
-        let cookie = crypt::Cookie::new((&long_sk).into());
+        let cookie = Cookie::new((&long_sk).into());
         let (send, recv) = smol::channel::unbounded();
         let task = runtime::spawn(
             ListenerActor {
@@ -72,7 +78,7 @@ impl Listener {
         // let addr = async_net::resolve(addr).await;
         let listener = TcpListener::bind(addr).await.unwrap();
         let local_addr = listener.local_addr().unwrap();
-        let cookie = crypt::Cookie::new((&long_sk).into());
+        let cookie = Cookie::new((&long_sk).into());
         let socket = TcpServerBackhaul::new(listener, long_sk.clone());
         let (send, recv) = smol::channel::unbounded();
         let task = runtime::spawn(
@@ -98,7 +104,7 @@ impl Listener {
 
 struct ListenerActor {
     socket: Arc<dyn Backhaul>,
-    cookie: crypt::Cookie,
+    cookie: Cookie,
     long_sk: x25519_dalek::StaticSecret,
 }
 impl ListenerActor {
@@ -142,7 +148,7 @@ impl ListenerActor {
             smol::future::yield_now().await;
             match event.await? {
                 Evt::DeadSess(resume_token) => {
-                    tracing::trace!("removing existing session!");
+                    tracing::warn!("removing existing session!");
                     session_table.delete(resume_token);
                 }
                 Evt::NewRecv((buffer, addr)) => {
@@ -158,10 +164,8 @@ impl ListenerActor {
                     let s2c_key = self.cookie.generate_s2c().next().unwrap();
                     for possible_key in self.cookie.generate_c2s() {
                         smol::future::yield_now().await;
-                        let crypter = crypt::LegacyAead::new(&possible_key);
-                        if let Some(handshake) =
-                            crypter.pad_decrypt_v1::<protocol::HandshakeFrame>(&buffer)
-                        {
+                        let crypter = LegacyAead::new(&possible_key);
+                        if let Some(handshake) = crypter.pad_decrypt_v1::<HandshakeFrame>(&buffer) {
                             if !RECENT_FILTER.lock().check(&buffer) {
                                 tracing::debug!(
                                     "discarding replay attempt with len {}",
@@ -191,7 +195,7 @@ impl ListenerActor {
                                     let my_eph_sk =
                                         x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
                                     let token = TokenInfo {
-                                        sess_key: crypt::triple_ecdh(
+                                        sess_key: triple_ecdh(
                                             &self.long_sk,
                                             &my_eph_sk,
                                             &long_pk,
@@ -208,13 +212,13 @@ impl ListenerActor {
                                         version,
                                     }
                                     .encrypt(&token_key);
-                                    let reply = protocol::HandshakeFrame::ServerHello {
+                                    let reply = HandshakeFrame::ServerHello {
                                         long_pk: (&self.long_sk).into(),
                                         eph_pk: (&my_eph_sk).into(),
                                         resume_token: token,
                                     };
-                                    let reply = crypt::LegacyAead::new(&s2c_key)
-                                        .pad_encrypt_v1(&[reply], 1000);
+                                    let reply =
+                                        LegacyAead::new(&s2c_key).pad_encrypt_v1(&[reply], 1000);
                                     tracing::debug!(
                                         "[{}] GONNA reply to ClientHello from {}",
                                         trace_id,
@@ -247,11 +251,11 @@ impl ListenerActor {
                                             );
 
                                             let up_key = blake3::keyed_hash(
-                                                crypt::UP_KEY,
+                                                crate::crypt::UP_KEY,
                                                 &tokinfo.sess_key,
                                             );
                                             let dn_key = blake3::keyed_hash(
-                                                crypt::DN_KEY,
+                                                crate::crypt::DN_KEY,
                                                 &tokinfo.sess_key,
                                             );
                                             let write_socket = write_socket.clone();
@@ -266,14 +270,23 @@ impl ListenerActor {
                                                 let locked_addrs = locked_addrs.clone();
                                                 runtime::spawn(async move {
                                                     loop {
-                                                        match session_output_recv.recv().await {
+                                                        match batch_recv(&session_output_recv).await
+                                                        {
                                                             Ok(data) => {
                                                                 // let start = Instant::now();
                                                                 let remote_addr =
                                                                     locked_addrs.write().get_addr();
                                                                 drop(
                                                                     write_socket
-                                                                        .send_to(data, remote_addr)
+                                                                        .send_to_many(
+                                                                            &data
+                                                                                .into_iter()
+                                                                                .map(|v| {
+                                                                                    (v, remote_addr)
+                                                                                })
+                                                                                .collect::<Vec<_>>(
+                                                                                ),
+                                                                        )
                                                                         .await,
                                                                 );
                                                             }
@@ -289,19 +302,15 @@ impl ListenerActor {
                                                 recv_packet: session_input_recv,
                                                 recv_timeout: Duration::from_secs(3600),
                                                 gather: Default::default(),
-                                                send_crypt_legacy: crypt::LegacyAead::new(
+                                                send_crypt_legacy: LegacyAead::new(
                                                     dn_key.as_bytes(),
                                                 ),
-                                                recv_crypt_legacy: crypt::LegacyAead::new(
+                                                recv_crypt_legacy: LegacyAead::new(
                                                     up_key.as_bytes(),
                                                 ),
 
-                                                send_crypt_ng: crypt::NgAead::new(
-                                                    dn_key.as_bytes(),
-                                                ),
-                                                recv_crypt_ng: crypt::NgAead::new(
-                                                    up_key.as_bytes(),
-                                                ),
+                                                send_crypt_ng: NgAead::new(dn_key.as_bytes()),
+                                                recv_crypt_ng: NgAead::new(up_key.as_bytes()),
                                                 version: tokinfo.version,
                                             });
                                             let send_dead_clo = send_dead.clone();
@@ -349,13 +358,13 @@ struct TokenInfo {
 impl TokenInfo {
     fn decrypt(key: &[u8], encrypted: &[u8]) -> Option<Self> {
         // first we decrypt
-        let crypter = crypt::LegacyAead::new(key);
+        let crypter = LegacyAead::new(key);
         let plain = crypter.decrypt(encrypted)?;
         safe_deserialize(&plain).ok()
     }
 
     fn encrypt(&self, key: &[u8]) -> Bytes {
-        let crypter = crypt::LegacyAead::new(key);
+        let crypter = LegacyAead::new(key);
         let mut rng = rand::thread_rng();
         crypter.encrypt(
             &bincode::serialize(self).expect("must serialize"),
