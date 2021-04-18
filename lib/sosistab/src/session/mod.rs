@@ -10,7 +10,6 @@ use governor::{NegativeMultiDecision, Quota, RateLimiter};
 use machine::RecvMachine;
 use parking_lot::Mutex;
 use rand::prelude::*;
-use serde::Serialize;
 use smol::channel::{Receiver, Sender, TrySendError};
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
