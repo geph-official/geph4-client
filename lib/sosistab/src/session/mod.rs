@@ -1,40 +1,41 @@
-use crate::{batchan::batch_recv, mux::Multiplex, runtime, StatsGatherer};
-use crate::{crypt::LegacyAead, fec::FrameEncoder};
-use crate::{
-    crypt::NgAead,
-    protocol::{DataFrameV1, DataFrameV2},
-};
+use crate::fec::FrameEncoder;
+use crate::{crypt::AeadError, mux::Multiplex, runtime, StatsGatherer};
+use crate::{crypt::NgAead, protocol::DataFrameV2};
 use bytes::Bytes;
-use concurrent_queue::ConcurrentQueue;
-use governor::{NegativeMultiDecision, Quota, RateLimiter};
+use governor::{Quota, RateLimiter};
 use machine::RecvMachine;
 use parking_lot::Mutex;
-use rand::prelude::*;
-use smol::channel::{Receiver, Sender, TrySendError};
+use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
-use smol_timeout::TimeoutExt;
 use stats::StatsCalculator;
 use std::{
     num::NonZeroU32,
-    sync::atomic::{AtomicU32, AtomicU64, Ordering},
+    sync::atomic::{AtomicU64, Ordering},
     time::SystemTime,
 };
 use std::{sync::Arc, time::Duration};
-
+use thiserror::Error;
 mod machine;
 mod stats;
 
 #[derive(Debug, Clone)]
 pub(crate) struct SessionConfig {
-    pub send_packet: Sender<Bytes>,
-    pub recv_packet: Receiver<Bytes>,
-    pub recv_timeout: Duration,
     pub version: u64,
-    pub send_crypt_legacy: LegacyAead,
-    pub recv_crypt_legacy: LegacyAead,
-    pub send_crypt_ng: NgAead,
-    pub recv_crypt_ng: NgAead,
+    pub session_key: Vec<u8>,
+    pub role: Role,
     pub gather: Arc<StatsGatherer>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Role {
+    Server,
+    Client,
+}
+
+#[derive(Error, Debug)]
+pub enum SessionError {
+    #[error("session dropped")]
+    SessionDropped,
 }
 
 /// This struct represents a **session**: a single end-to-end connection between a client and a server. This can be thought of as analogous to `TcpStream`, except all reads and writes are datagram-based and unreliable. [Session] is thread-safe and can be wrapped in an [Arc](std::sync::Arc) to be shared between threads.
@@ -42,13 +43,8 @@ pub(crate) struct SessionConfig {
 /// [Session] should be used directly only if an unreliable connection is all you need. For most applications, use [Multiplex](crate::mux::Multiplex), which wraps a [Session] and provides QUIC-like reliable streams as well as unreliable messages, all multiplexed over a single [Session].
 pub struct Session {
     send_tosend: Sender<Bytes>,
-    recv_packet: Receiver<Bytes>,
+    recv_decoded: Receiver<Bytes>,
     statistics: Arc<StatsGatherer>,
-    machine: Mutex<RecvMachine>,
-    machine_output: ConcurrentQueue<Bytes>,
-    rate_limit: Arc<AtomicU32>,
-    last_recv: Arc<Mutex<SystemTime>>,
-    recv_timeout: Duration,
     sent_count: AtomicU64,
     dropper: Vec<Box<dyn FnOnce() + Send + Sync + 'static>>,
     _task: smol::Task<()>,
@@ -64,43 +60,47 @@ impl Drop for Session {
 
 impl Session {
     /// Creates a Session.
-    pub(crate) fn new(cfg: SessionConfig) -> Self {
-        let (send_tosend, recv_tosend) = smol::channel::unbounded();
-        let rate_limit = Arc::new(AtomicU32::new(25600));
-        let recv_timeout = cfg.recv_timeout;
+    pub(crate) fn new(cfg: SessionConfig) -> (Self, SessionBack) {
+        let (send_tosend, recv_tosend) = smol::channel::bounded(1024);
         let gather = cfg.gather.clone();
         let calculator = Arc::new(StatsCalculator::new(gather.clone()));
         let machine = Mutex::new(RecvMachine::new(
             calculator.clone(),
             cfg.version,
-            cfg.recv_crypt_legacy,
-            cfg.recv_crypt_ng.clone(),
+            &cfg.session_key,
+            cfg.role,
         ));
-        let last_recv = Arc::new(Mutex::new(SystemTime::now()));
-        let recv_packet = cfg.recv_packet.clone();
+
+        let (send_decoded, recv_decoded) = smol::channel::bounded(64);
+        let (send_outgoing, recv_outgoing) = smol::channel::bounded(64);
+        let session_back = SessionBack {
+            machine,
+            send_decoded,
+            recv_outgoing,
+        };
+        let send_crypt_key = match cfg.role {
+            Role::Server => blake3::keyed_hash(crate::crypt::DN_KEY, &cfg.session_key),
+            Role::Client => blake3::keyed_hash(crate::crypt::UP_KEY, &cfg.session_key),
+        };
+        let send_crypt = NgAead::new(send_crypt_key.as_bytes());
         let ctx = SessionSendCtx {
             cfg,
             statg: calculator,
             recv_tosend,
-            rate_limit: rate_limit.clone(),
-            recv_timeout,
-            last_recv: last_recv.clone(),
+            send_crypt,
+            send_outgoing,
         };
 
         let task = runtime::spawn(session_send_loop(ctx));
-        Session {
+        let session = Session {
             send_tosend,
-            rate_limit,
-            recv_packet,
-            machine,
-            machine_output: ConcurrentQueue::unbounded(),
-            last_recv,
+            recv_decoded,
             sent_count: AtomicU64::new(0),
             statistics: gather,
-            recv_timeout,
             dropper: Vec::new(),
             _task: task,
-        }
+        };
+        (session, session_back)
     }
 
     /// Adds a closure to be run when the Session is dropped. This can be used to manage associated "worker" resources.
@@ -109,59 +109,22 @@ impl Session {
     }
 
     /// Takes a [Bytes] to be sent and stuffs it into the session.
-    pub fn send_bytes(&self, to_send: Bytes) {
-        let rate = self.rate_limit.load(Ordering::Relaxed);
-        // RED with max 500ms latency
-        let max_queue_length = rate / 2;
-        let fill_ratio = self.send_tosend.len() as f64 / max_queue_length as f64;
-        if rand::random::<f64>() < fill_ratio.powi(3) {
-            tracing::debug!("RED dropping packet");
-            return;
-        }
-        if let Err(err) = self.send_tosend.try_send(to_send) {
-            if let TrySendError::Closed(_) = err {
-                self.recv_packet.close();
-            } else {
-                tracing::warn!("overflowing send_tosend");
-            }
+    pub async fn send_bytes(&self, to_send: Bytes) -> Result<(), SessionError> {
+        if let Err(err) = self.send_tosend.send(to_send).await {
+            self.recv_decoded.close();
+            Err(SessionError::SessionDropped)
         } else {
             self.sent_count.fetch_add(1, Ordering::Relaxed);
+            Ok(())
         }
     }
 
     /// Waits until the next application input is decoded by the session.
-    pub async fn recv_bytes(&self) -> Option<Bytes> {
-        loop {
-            // try dequeuing from Q
-            if let Ok(b) = self.machine_output.pop() {
-                break Some(b);
-            }
-            // receive more stuff
-            let frames = batch_recv(&self.recv_packet)
-                .timeout(self.recv_timeout)
-                .await;
-            if let Some(frames) = frames {
-                let frames = frames.ok()?;
-                let mut machine = self.machine.lock();
-                for frame in frames {
-                    let out = machine.process(&frame);
-                    if let Some(out) = out {
-                        for o in out {
-                            self.machine_output.push(o).unwrap();
-                        }
-                        *self.last_recv.lock() = SystemTime::now();
-                    }
-                }
-            } else {
-                self.recv_packet.close();
-                return None;
-            }
-        }
-    }
-
-    /// Sets the rate limit, in packets per second.
-    pub fn set_ratelimit(&self, pps: u32) {
-        self.rate_limit.store(pps, Ordering::Relaxed);
+    pub async fn recv_bytes(&self) -> Result<Bytes, SessionError> {
+        self.recv_decoded
+            .recv()
+            .await
+            .map_err(|_| SessionError::SessionDropped)
     }
 
     /// "Upgrades" this session into a [Multiplex]
@@ -170,20 +133,48 @@ impl Session {
     }
 }
 
+/// "Back side" of a Session.
+pub(crate) struct SessionBack {
+    machine: Mutex<RecvMachine>,
+    send_decoded: Sender<Bytes>,
+    recv_outgoing: Receiver<Bytes>,
+}
+
+impl SessionBack {
+    /// Given an incoming raw packet, injects it into the sessionback. If decryption fails, returns an error.
+    pub fn inject_incoming(&self, pkt: &[u8]) -> Result<(), AeadError> {
+        let decoded = self.machine.lock().process(pkt)?;
+        if let Some(decoded) = decoded {
+            for decoded in decoded {
+                let _ = self.send_decoded.try_send(decoded);
+            }
+        }
+        Ok(())
+    }
+
+    /// Wait for an outgoing packet from the session.
+    pub async fn next_outgoing(&self) -> Result<Bytes, SessionError> {
+        self.recv_outgoing
+            .recv()
+            .await
+            .ok()
+            .ok_or(SessionError::SessionDropped)
+    }
+}
+
 struct SessionSendCtx {
     cfg: SessionConfig,
     statg: Arc<StatsCalculator>,
     recv_tosend: Receiver<Bytes>,
-    rate_limit: Arc<AtomicU32>,
-    recv_timeout: Duration,
-    last_recv: Arc<Mutex<SystemTime>>,
+    send_crypt: NgAead,
+    send_outgoing: Sender<Bytes>,
 }
 
 // #[tracing::instrument(skip(ctx))]
 async fn session_send_loop(ctx: SessionSendCtx) {
     // sending loop
     if ctx.cfg.version == 1 {
-        session_send_loop_v1(ctx).await;
+        return;
     } else {
         let version = ctx.cfg.version;
         session_send_loop_nextgen(ctx, version).await;
@@ -215,14 +206,6 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
     let mut fec_encoder = FrameEncoder::new(1);
     let mut frame_no = 0;
     loop {
-        smol::future::yield_now().await;
-        // we die an early death if something went wrong
-        if let Ok(elapsed) = SystemTime::now().duration_since(*ctx.last_recv.lock()) {
-            if elapsed > ctx.recv_timeout {
-                tracing::warn!("skew-induced timeout detected. killing session now");
-                return None;
-            }
-        }
         // either we have something new to send, or the FEC timer expired.
         let event: Option<Event> = async {
             if unfecked.is_empty() {
@@ -239,16 +222,6 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
         match event? {
             // we have something to send as a data packet.
             Event::NewPayload(send_payload) => {
-                let limit = ctx.rate_limit.load(Ordering::Relaxed);
-                if limit < 1000 {
-                    let multiplier = 25600 / limit;
-                    while let Err(NegativeMultiDecision::BatchNonConforming(_, err)) =
-                        policy_limiter.check_n(NonZeroU32::new(multiplier).unwrap())
-                    {
-                        smol::Timer::at(err.earliest_possible()).await;
-                    }
-                }
-
                 let send_framed = DataFrameV2::Data {
                     frame_no,
                     high_recv_frame_no: ctx.statg.high_recv_frame_no(),
@@ -259,16 +232,8 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
                 unfecked.push((frame_no, send_payload));
                 let send_padded = send_framed.pad();
                 ctx.statg.ping_send(frame_no);
-                let send_encrypted = match version {
-                    2 => ctx
-                        .cfg
-                        .send_crypt_legacy
-                        .encrypt(&send_padded, rand::thread_rng().gen()),
-                    3 => ctx.cfg.send_crypt_ng.encrypt(&send_padded),
-                    _ => return None,
-                };
-                ctx.cfg.send_packet.send(send_encrypted).await.ok()?;
-
+                let send_encrypted = ctx.send_crypt.encrypt(&send_padded);
+                ctx.send_outgoing.send(send_encrypted).await.ok()?;
                 // increment frame no
                 frame_no += 1;
                 // reset fec timer
@@ -311,110 +276,10 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
                         pad_size,
                     };
                     let send_padded = send_framed.pad();
-                    let send_encrypted = match version {
-                        2 => ctx
-                            .cfg
-                            .send_crypt_legacy
-                            .encrypt(&send_padded, rand::thread_rng().gen()),
-                        3 => ctx.cfg.send_crypt_ng.encrypt(&send_padded),
-                        _ => return None,
-                    };
-                    ctx.cfg.send_packet.send(send_encrypted).await.ok()?;
+                    let send_encrypted = ctx.send_crypt.encrypt(&send_padded);
+                    ctx.send_outgoing.send(send_encrypted).await.ok()?;
                 }
             }
         }
-    }
-}
-
-#[tracing::instrument(skip(ctx))]
-async fn session_send_loop_v1(ctx: SessionSendCtx) -> Option<()> {
-    let mut frame_no = 0u64;
-    let mut run_no = 0u64;
-    let mut to_send = Vec::new();
-
-    let batch_limiter = RateLimiter::direct_with_clock(
-        Quota::per_second(NonZeroU32::new(50u32).unwrap())
-            .allow_burst(NonZeroU32::new(10u32).unwrap()),
-        &governor::clock::MonotonicClock,
-    );
-
-    let policy_limiter = RateLimiter::direct_with_clock(
-        Quota::per_second(NonZeroU32::new(25600u32).unwrap()),
-        &governor::clock::MonotonicClock,
-    );
-    let mut encoder = FrameEncoder::new(4);
-    loop {
-        // obtain a vector of bytes to send
-        let loss = ctx.statg.loss_u8();
-        to_send.clear();
-        to_send.push(ctx.recv_tosend.recv().await.ok()?);
-        while to_send.len() < BURST_SIZE {
-            if let Ok(val) = ctx.recv_tosend.try_recv() {
-                to_send.push(val)
-            } else {
-                break;
-            }
-        }
-        // we limit bursts that are less than half full only. this is so that we don't accidentally "rate limit" stuff
-        if to_send.len() < BURST_SIZE / 2 {
-            // we use smol to wait to be more efficient
-            while let Err(err) = batch_limiter.check() {
-                smol::Timer::at(err.earliest_possible()).await;
-            }
-        }
-        let now = SystemTime::now();
-        if let Ok(elapsed) = now.duration_since(*ctx.last_recv.lock()) {
-            if elapsed > ctx.recv_timeout {
-                tracing::warn!("skew-induced timeout detected. killing session now");
-                return None;
-            }
-        }
-        // encode into raptor
-        let encoded = encoder.encode(loss, &to_send);
-        let mut tosend = Vec::with_capacity(encoded.len());
-        for (idx, bts) in encoded.iter().enumerate() {
-            // limit
-            let limit = ctx.rate_limit.load(Ordering::Relaxed);
-            if limit < 1000 {
-                if ctx.recv_tosend.len() > 100 {
-                    continue;
-                }
-                let multiplier = 25600 / limit;
-                while let Err(NegativeMultiDecision::BatchNonConforming(_, err)) =
-                    policy_limiter.check_n(NonZeroU32::new(multiplier).unwrap())
-                {
-                    smol::Timer::at(err.earliest_possible()).await;
-                }
-            }
-            tosend.push(DataFrameV1 {
-                frame_no,
-                run_no,
-                run_idx: idx as u8,
-                data_shards: to_send.len() as u8,
-                parity_shards: (encoded.len() - to_send.len()) as u8,
-                high_recv_frame_no: ctx.statg.high_recv_frame_no(),
-                total_recv_frames: ctx.statg.total_recv_frames(),
-                body: bts.clone(),
-            });
-            ctx.statg.ping_send(frame_no);
-            frame_no += 1;
-        }
-
-        // TODO: batching
-        for tosend in tosend {
-            let encoded = ctx.cfg.send_crypt_legacy.pad_encrypt_v1(&[tosend], 1000);
-            ctx.cfg.send_packet.send(encoded).await.ok()?;
-        }
-
-        // let tosend = ctx.cfg.send_crypt.pad_encrypt(msgs, target_len)
-
-        // if ctx.cfg.use_batching.load(Ordering::Relaxed) {
-        //     ctx.cfg.send_packet.send(tosend).await.ok()?;
-        // } else {
-        //     for tosend in tosend {
-        //         ctx.cfg.send_packet.send(vec![tosend]).await.ok()?;
-        //     }
-        // }
-        run_no += 1;
     }
 }

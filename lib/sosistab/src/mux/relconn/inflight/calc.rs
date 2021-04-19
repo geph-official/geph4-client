@@ -49,7 +49,7 @@ impl RttCalculator {
     }
 
     pub fn rto(&self) -> Duration {
-        Duration::from_millis(*self.rtt_measurements.last().unwrap() + 50)
+        Duration::from_millis(*self.rtt_measurements.last().unwrap()) + self.srtt()
     }
 
     pub fn srtt(&self) -> Duration {

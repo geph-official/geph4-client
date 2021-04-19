@@ -39,7 +39,7 @@ pub async fn run_vpn(
     log::info!("negotiating VPN with client id {}...", client_id);
     let client_ip = loop {
         let hello = vpn_structs::Message::ClientHello { client_id };
-        mux.send_urel(bincode::serialize(&hello)?.into())?;
+        mux.send_urel(bincode::serialize(&hello)?.into()).await?;
         let resp = mux.recv_urel().timeout(Duration::from_secs(1)).await;
         if let Some(resp) = resp {
             let resp = resp?;
@@ -99,13 +99,13 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         if let Some(body) = body {
             notify_activity();
             ctx.stats.incr_total_tx(body.len() as u64);
-            drop(
-                ctx.mux.send_urel(
+            ctx.mux
+                .send_urel(
                     bincode::serialize(&vpn_structs::Message::Payload(body))
                         .unwrap()
                         .into(),
-                ),
-            );
+                )
+                .await?
         }
     }
 }
@@ -114,39 +114,26 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
 async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     let mut stdout = std::io::stdout();
     let mut count = 0u64;
-    let mut buff = Vec::with_capacity(32768);
     loop {
-        buff.clear();
-        let mut batch = Vec::with_capacity(64);
-        batch.push(ctx.mux.recv_urel().await.context("downstream failed")?);
-        while let Ok(v) = ctx.mux.try_recv_urel() {
-            batch.push(v)
+        let bts = ctx.mux.recv_urel().await.context("downstream failed")?;
+        count += 1;
+        if count % 1000 == 1 {
+            log::debug!("VPN received {} pkts ", count);
         }
-        // Buffer
-        let bsize = batch.len();
-        for bts in batch {
-            count += 1;
-            if count % 1000 == 1 {
-                log::debug!("VPN received {} pkts (bsize={})", count, bsize,);
-            }
-            if let vpn_structs::Message::Payload(bts) =
-                bincode::deserialize(&bts).context("invalid downstream data")?
-            {
-                ctx.stats.incr_total_rx(bts.len() as u64);
-                let bts = if let Some(bts) = fix_dns_src(&bts, ctx.dns_nat) {
-                    bts
-                } else {
-                    bts
-                };
-                let msg = StdioMsg { verb: 0, body: bts };
-                {
-                    msg.write_blocking(&mut buff).unwrap();
-                }
-            }
-        }
+        if let vpn_structs::Message::Payload(bts) =
+            bincode::deserialize(&bts).context("invalid downstream data")?
         {
-            stdout.write_all(&buff).unwrap();
-            stdout.flush().unwrap();
+            ctx.stats.incr_total_rx(bts.len() as u64);
+            let bts = if let Some(bts) = fix_dns_src(&bts, ctx.dns_nat) {
+                bts
+            } else {
+                bts
+            };
+            let msg = StdioMsg { verb: 0, body: bts };
+            {
+                msg.write_blocking(&mut stdout).unwrap();
+                stdout.flush().unwrap();
+            }
         }
     }
 }

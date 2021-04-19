@@ -104,7 +104,7 @@ async fn backhaul_one(
         let s2c_key = blake3::keyed_hash(&TCP_DN_KEY, &possible_s2c);
         let s2c_enc = NgAead::new(s2c_key.as_bytes());
         // if we can succesfully decrypt the hello length, that's awesome! it means that we got the right up/down key
-        if let Some(hello_length) = c2s_dec.decrypt(&encrypted_hello_length) {
+        if let Ok(hello_length) = c2s_dec.decrypt(&encrypted_hello_length) {
             let hello_length = u16::from_be_bytes(
                 (&hello_length[..])
                     .try_into()
@@ -114,7 +114,7 @@ async fn backhaul_one(
             client.read_exact(&mut encrypted_hello).await?;
             let raw_hello = c2s_dec
                 .decrypt(&encrypted_hello)
-                .ok_or_else(|| anyhow::anyhow!("cannot decrypt hello"))?;
+                .context("cannot decrypt hello")?;
             if !RECENT_FILTER.lock().check(&raw_hello) {
                 anyhow::bail!("hello failed replay check")
             }

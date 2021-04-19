@@ -123,6 +123,44 @@ pub async fn copy_with_stats(
     }
 }
 
+#[inline]
+pub async fn copy_with_stats_async<F: Future<Output = ()>>(
+    mut reader: impl AsyncRead + Unpin,
+    mut writer: impl AsyncWrite + Unpin,
+    mut on_write: impl FnMut(usize) -> F,
+) -> std::io::Result<()> {
+    let mut buffer = [0u8; 8192];
+    let mut timeout = smol::Timer::after(IDLE_TIMEOUT);
+    loop {
+        // first read into the small buffer
+        let n = reader
+            .read(&mut buffer)
+            .or(async {
+                (&mut timeout).await;
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "copy_with_stats timeout",
+                ))
+            })
+            .await?;
+        if n == 0 {
+            return Ok(());
+        }
+        on_write(n).await;
+        timeout.set_after(IDLE_TIMEOUT);
+        writer
+            .write_all(&buffer[..n])
+            .or(async {
+                (&mut timeout).await;
+                Err(std::io::Error::new(
+                    std::io::ErrorKind::TimedOut,
+                    "copy_with_stats timeout",
+                ))
+            })
+            .await?;
+    }
+}
+
 /// Copies an Read to an Write, with a callback for every write.
 pub fn copy_with_stats_sync(
     mut reader: impl std::io::Read,

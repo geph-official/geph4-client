@@ -1,9 +1,8 @@
 use crate::{
     backhaul::{Backhaul, StatsBackhaul},
-    batchan::batch_recv,
-    crypt::{triple_ecdh, Cookie, LegacyAead, NgAead},
+    crypt::{triple_ecdh, Cookie, LegacyAead},
     protocol::HandshakeFrame,
-    runtime, safe_deserialize,
+    runtime, safe_deserialize, Role,
 };
 use crate::{
     recfilter::RECENT_FILTER,
@@ -13,7 +12,6 @@ use bytes::Bytes;
 
 use crate::protocol::HandshakeFrame::*;
 use crate::tcp::TcpServerBackhaul;
-use governor::{Quota, RateLimiter};
 use parking_lot::RwLock;
 use rand::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -22,8 +20,8 @@ use smol::{
     channel::{Receiver, Sender},
     net::TcpListener,
 };
-use std::{net::SocketAddr, time::Duration};
-use std::{num::NonZeroU32, sync::Arc};
+use std::net::SocketAddr;
+use std::sync::Arc;
 use table::ShardedAddrs;
 
 use table::SessionTable;
@@ -125,45 +123,31 @@ impl ListenerActor {
         let read_socket = self.socket.clone();
         let write_socket = self.socket.clone();
 
-        // "fallthrough" rate limit. the idea is that new sessions on the same addr are infrequent, so we don't need to check constantly.
-        let fallthrough_limiter = RateLimiter::dashmap_with_clock(
-            Quota::per_minute(NonZeroU32::new(20u32).unwrap()),
-            &governor::clock::MonotonicClock,
-        );
-
         // two possible events
         enum Evt {
             NewRecv((Bytes, SocketAddr)),
             DeadSess(Bytes),
         }
 
-        for trace_id in 0u64.. {
+        for trace_id in 0u128.. {
             let event = smol::future::race(
                 async { Some(Evt::NewRecv(read_socket.recv_from().await.unwrap())) },
                 async { Some(Evt::DeadSess(recv_dead.recv().await.ok()?)) },
             );
-            if rand::random::<f32>() < 0.001 {
-                fallthrough_limiter.retain_recent();
-            }
-            smol::future::yield_now().await;
             match event.await? {
                 Evt::DeadSess(resume_token) => {
-                    tracing::warn!("removing existing session!");
                     session_table.delete(resume_token);
                 }
                 Evt::NewRecv((buffer, addr)) => {
                     // first we attempt to map this to an existing session
                     if let Some(handle) = session_table.lookup(addr) {
-                        let _ = handle.try_send(buffer.clone());
-                        if fallthrough_limiter.check_key(&addr).is_err() {
+                        if handle.inject_incoming(&buffer).is_ok() {
                             continue;
                         }
-                        // TODO figure out a way to decide whether to continue
                     }
                     // we know it's not part of an existing session then. we decrypt it under the current key
                     let s2c_key = self.cookie.generate_s2c().next().unwrap();
                     for possible_key in self.cookie.generate_c2s() {
-                        smol::future::yield_now().await;
                         let crypter = LegacyAead::new(&possible_key);
                         if let Some(handshake) = crypter.pad_decrypt_v1::<HandshakeFrame>(&buffer) {
                             if !RECENT_FILTER.lock().check(&buffer) {
@@ -173,7 +157,7 @@ impl ListenerActor {
                                 );
                                 continue;
                             }
-                            tracing::debug!(
+                            tracing::trace!(
                                 "[{}] decoded some sort of handshake: {:?}",
                                 trace_id,
                                 handshake
@@ -184,7 +168,7 @@ impl ListenerActor {
                                     eph_pk,
                                     version,
                                 } => {
-                                    if version != 1 && version != 2 && version != 3 {
+                                    if version != 3 {
                                         tracing::warn!(
                                             "got packet with incorrect version {}",
                                             version
@@ -250,43 +234,30 @@ impl ListenerActor {
                                                 addr
                                             );
 
-                                            let up_key = blake3::keyed_hash(
-                                                crate::crypt::UP_KEY,
-                                                &tokinfo.sess_key,
-                                            );
-                                            let dn_key = blake3::keyed_hash(
-                                                crate::crypt::DN_KEY,
-                                                &tokinfo.sess_key,
-                                            );
                                             let write_socket = write_socket.clone();
-                                            let (session_input, session_input_recv) =
-                                                smol::channel::bounded(1000);
-                                            // create session
-                                            let (session_output_send, session_output_recv) =
-                                                smol::channel::bounded(1000);
                                             let locked_addrs = ShardedAddrs::new(shard_id, addr);
                                             let locked_addrs = Arc::new(RwLock::new(locked_addrs));
+                                            let (mut session, session_back) =
+                                                Session::new(SessionConfig {
+                                                    gather: Default::default(),
+                                                    version: tokinfo.version,
+                                                    session_key: tokinfo.sess_key.to_vec(),
+                                                    role: Role::Server,
+                                                });
+                                            let session_back = Arc::new(session_back);
                                             let output_poller = {
                                                 let locked_addrs = locked_addrs.clone();
+                                                let session_back = session_back.clone();
                                                 runtime::spawn(async move {
                                                     loop {
-                                                        match batch_recv(&session_output_recv).await
-                                                        {
+                                                        match session_back.next_outgoing().await {
                                                             Ok(data) => {
                                                                 // let start = Instant::now();
                                                                 let remote_addr =
                                                                     locked_addrs.write().get_addr();
                                                                 drop(
                                                                     write_socket
-                                                                        .send_to_many(
-                                                                            &data
-                                                                                .into_iter()
-                                                                                .map(|v| {
-                                                                                    (v, remote_addr)
-                                                                                })
-                                                                                .collect::<Vec<_>>(
-                                                                                ),
-                                                                        )
+                                                                        .send_to(data, remote_addr)
                                                                         .await,
                                                                 );
                                                             }
@@ -297,22 +268,6 @@ impl ListenerActor {
                                                     }
                                                 })
                                             };
-                                            let mut session = Session::new(SessionConfig {
-                                                send_packet: session_output_send,
-                                                recv_packet: session_input_recv,
-                                                recv_timeout: Duration::from_secs(3600),
-                                                gather: Default::default(),
-                                                send_crypt_legacy: LegacyAead::new(
-                                                    dn_key.as_bytes(),
-                                                ),
-                                                recv_crypt_legacy: LegacyAead::new(
-                                                    up_key.as_bytes(),
-                                                ),
-
-                                                send_crypt_ng: NgAead::new(dn_key.as_bytes()),
-                                                recv_crypt_ng: NgAead::new(up_key.as_bytes()),
-                                                version: tokinfo.version,
-                                            });
                                             let send_dead_clo = send_dead.clone();
                                             let resume_token_clo = resume_token.clone();
                                             session.on_drop(move || {
@@ -322,14 +277,14 @@ impl ListenerActor {
                                             // spawn a task that writes to the socket.
                                             session_table.new_sess(
                                                 resume_token.clone(),
-                                                session_input,
+                                                session_back,
                                                 locked_addrs,
                                             );
                                             session_table.rebind(addr, shard_id, resume_token);
                                             tracing::debug!("[{}] accept {}", trace_id, addr);
                                             accepted.try_send(session).ok()?;
                                         } else {
-                                            tracing::debug!(
+                                            tracing::trace!(
                                                 "[{}] ClientResume from {} rebound",
                                                 trace_id,
                                                 addr

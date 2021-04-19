@@ -44,6 +44,8 @@ pub(crate) struct ConnVars {
 
     in_recovery: bool,
 
+    next_pace_time: Instant,
+
     lost_seqnos: Vec<Seqno>,
 }
 
@@ -77,6 +79,8 @@ impl Default for ConnVars {
 
             in_recovery: false,
 
+            next_pace_time: Instant::now(),
+
             lost_seqnos: Vec::new(),
             // limiter: VarRateLimit::new(),
         }
@@ -106,8 +110,6 @@ impl ConnVars {
         recv_wire_read: &Receiver<Message>,
         transmit: impl Fn(Message),
     ) -> anyhow::Result<()> {
-        let _implied_rate = self.pacing_rate() as u32;
-
         // let cwnd_choked =
         //     self.inflight.inflight() <= self.cwnd as usize && self.inflight.len() < 10000;
         match self.next_event(recv_write, recv_wire_read).await {
@@ -257,6 +259,9 @@ impl ConnVars {
         recv_write: &mut BipeReader,
         recv_wire_read: &Receiver<Message>,
     ) -> anyhow::Result<ConnVarEvt> {
+        if rand::random::<f32>() < 0.1 {
+            smol::future::yield_now().await;
+        }
         // There's a rather subtle logic involved here.
         //
         // We want to make sure the *total inflight* is less than cwnd.
@@ -291,7 +296,8 @@ impl ConnVars {
         .pending_unless(first_rto.is_some());
 
         let new_write = async {
-            if self.write_fragments.is_empty() {
+            smol::Timer::at(self.next_pace_time).await;
+            while self.write_fragments.is_empty() {
                 let to_write = {
                     let mut bts = BytesMut::with_capacity(MSS);
                     bts.extend_from_slice(&[0; MSS]);
@@ -305,17 +311,15 @@ impl ConnVars {
                 };
                 if let Some(to_write) = to_write {
                     self.write_fragments.push_back(to_write);
-                    Ok(ConnVarEvt::NewWrite(
-                        self.write_fragments.pop_front().unwrap(),
-                    ))
                 } else {
-                    Ok(ConnVarEvt::Closing)
+                    return Ok(ConnVarEvt::Closing);
                 }
-            } else {
-                Ok::<ConnVarEvt, anyhow::Error>(ConnVarEvt::NewWrite(
-                    self.write_fragments.pop_front().unwrap(),
-                ))
             }
+            let pacing_interval = Duration::from_secs_f64(1.0 / self.pacing_rate());
+            self.next_pace_time = Instant::now().max(self.next_pace_time + pacing_interval);
+            Ok::<ConnVarEvt, anyhow::Error>(ConnVarEvt::NewWrite(
+                self.write_fragments.pop_front().unwrap(),
+            ))
         }
         .pending_unless(can_write);
         let new_pkt = async {
@@ -352,7 +356,7 @@ impl ConnVars {
         }
         .max(0.23 * self.cwnd.powf(0.4)) // at least as fast as HSTCP
         .min(self.cwnd)
-        .min(256.0);
+        .min(512.0);
         self.cwnd += bic_inc / self.cwnd;
     }
 
@@ -360,8 +364,7 @@ impl ConnVars {
         self.slow_start = false;
         self.loss_rate = self.loss_rate * 0.99 + 0.01;
         let now = Instant::now();
-        if !self.in_recovery
-            && now.saturating_duration_since(self.last_loss) > self.inflight.min_rtt()
+        if !self.in_recovery && now.saturating_duration_since(self.last_loss) > self.inflight.rto()
         {
             self.in_recovery = true;
             let beta = 0.25;

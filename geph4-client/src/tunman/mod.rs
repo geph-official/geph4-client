@@ -134,7 +134,6 @@ async fn tunnel_actor_once(
     }
 
     let mux1 = tunnel_mux.clone();
-    let mux2 = tunnel_mux.clone();
     async move {
         loop {
             let (conn_host, conn_reply) = recv_socks5_conn
