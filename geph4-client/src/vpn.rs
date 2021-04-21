@@ -19,21 +19,17 @@ use sosistab::Multiplex;
 use std::{collections::HashMap, io::Stdin, num::NonZeroU32, sync::Arc, time::Duration};
 use vpn_structs::StdioMsg;
 
-use crate::{activity::notify_activity, stats::StatCollector};
+use crate::activity::notify_activity;
 use std::io::Write;
 
 #[derive(Clone, Copy)]
 struct VpnContext<'a> {
     mux: &'a Multiplex,
-    stats: &'a StatCollector,
     dns_nat: &'a RwLock<HashMap<u16, Ipv4Addr>>,
 }
 
 /// Runs a vpn session
-pub async fn run_vpn(
-    stats: Arc<StatCollector>,
-    mux: Arc<sosistab::Multiplex>,
-) -> anyhow::Result<()> {
+pub async fn run_vpn(mux: Arc<sosistab::Multiplex>) -> anyhow::Result<()> {
     // First, we negotiate the vpn
     let client_id: u128 = rand::random();
     log::info!("negotiating VPN with client id {}...", client_id);
@@ -67,7 +63,6 @@ pub async fn run_vpn(
     let dns_nat = RwLock::new(HashMap::new());
     let ctx = VpnContext {
         mux: &mux,
-        stats: &stats,
         dns_nat: &dns_nat,
     };
     vpn_up_loop(ctx).or(vpn_down_loop(ctx)).await
@@ -98,7 +93,6 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         let body = stdin_fut.await.context("stdin failed")?;
         if let Some(body) = body {
             notify_activity();
-            ctx.stats.incr_total_tx(body.len() as u64);
             ctx.mux
                 .send_urel(
                     bincode::serialize(&vpn_structs::Message::Payload(body))
@@ -123,7 +117,6 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         if let vpn_structs::Message::Payload(bts) =
             bincode::deserialize(&bts).context("invalid downstream data")?
         {
-            ctx.stats.incr_total_rx(bts.len() as u64);
             let bts = if let Some(bts) = fix_dns_src(&bts, ctx.dns_nat) {
                 bts
             } else {

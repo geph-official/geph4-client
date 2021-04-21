@@ -11,7 +11,6 @@ use stats::StatsCalculator;
 use std::{
     num::NonZeroU32,
     sync::atomic::{AtomicU64, Ordering},
-    time::SystemTime,
 };
 use std::{sync::Arc, time::Duration};
 use thiserror::Error;
@@ -45,7 +44,6 @@ pub struct Session {
     send_tosend: Sender<Bytes>,
     recv_decoded: Receiver<Bytes>,
     statistics: Arc<StatsGatherer>,
-    sent_count: AtomicU64,
     dropper: Vec<Box<dyn FnOnce() + Send + Sync + 'static>>,
     _task: smol::Task<()>,
 }
@@ -95,7 +93,6 @@ impl Session {
         let session = Session {
             send_tosend,
             recv_decoded,
-            sent_count: AtomicU64::new(0),
             statistics: gather,
             dropper: Vec::new(),
             _task: task,
@@ -110,21 +107,26 @@ impl Session {
 
     /// Takes a [Bytes] to be sent and stuffs it into the session.
     pub async fn send_bytes(&self, to_send: Bytes) -> Result<(), SessionError> {
-        if let Err(err) = self.send_tosend.send(to_send).await {
+        self.statistics
+            .increment("total_sent_bytes", to_send.len() as f32);
+        if self.send_tosend.send(to_send).await.is_err() {
             self.recv_decoded.close();
             Err(SessionError::SessionDropped)
         } else {
-            self.sent_count.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }
     }
 
     /// Waits until the next application input is decoded by the session.
     pub async fn recv_bytes(&self) -> Result<Bytes, SessionError> {
-        self.recv_decoded
+        let recv = self
+            .recv_decoded
             .recv()
             .await
-            .map_err(|_| SessionError::SessionDropped)
+            .map_err(|_| SessionError::SessionDropped)?;
+        self.statistics
+            .increment("total_recv_bytes", recv.len() as f32);
+        Ok(recv)
     }
 
     /// "Upgrades" this session into a [Multiplex]

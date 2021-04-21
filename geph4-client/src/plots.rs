@@ -1,44 +1,38 @@
-use std::{
-    collections::BTreeMap,
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::time::{Duration, SystemTime};
 
 use serde::Serialize;
 
-// /// Derive delta-stats from the original stats.
-// pub fn stat_derive(stats: &im::Vector<SessionStat>) -> Vec<DeltaStat> {
-//     // we go over the stats, grouping them by Unix second
-//     let mut bins: BTreeMap<u64, Vec<SessionStat>> = BTreeMap::new();
-//     for stat in stats.iter() {
-//         let bin = bins.entry(stat.time.duration_since(UNIX_EPOCH).unwrap().as_secs() / 3);
-//         bin.or_default().push(stat.clone());
-//     }
+use crate::stats::global_sosistab_stats;
 
-//     let mut toret = bins
-//         .iter()
-//         .map(|(_, window)| {
-//             let first = window.first().unwrap();
-//             let last = window.last().unwrap();
-//             let delta_time = Duration::from_secs(3);
-//             let delta_top = last.high_recv - first.high_recv;
-//             let delta_recv = last.total_recv - first.total_recv;
-//             let delta_sent = last.total_sent - first.total_sent;
-//             let recv_speed = delta_recv as f64 / delta_time.as_secs_f64();
-//             let send_speed = delta_sent as f64 / delta_time.as_secs_f64();
-//             let loss = 1.0 - delta_recv as f64 / (delta_top as f64).max(1.0);
-//             DeltaStat {
-//                 time: last.time,
-//                 send_speed,
-//                 recv_speed,
-//                 loss: if delta_recv > 10 { Some(loss) } else { None },
-//             }
-//         })
-//         .collect::<Vec<_>>();
-//     // as a last step, we normalize the loss. this is done by finding all negative losses and crediting them against previous losses.
-//     normalize_loss(&mut toret);
-//     toret.truncate((toret.len() - 1).max(0));
-//     toret
-// }
+/// Derive delta-stats from the original stats.
+pub fn stat_derive() -> Vec<DeltaStat> {
+    let cutoff = SystemTime::now() - Duration::from_secs(600);
+    let stats = global_sosistab_stats();
+    let sent_series = stats
+        .get_timeseries("total_sent_bytes")
+        .unwrap_or_default()
+        .after(cutoff);
+    let recv_series = stats
+        .get_timeseries("total_recv_bytes")
+        .unwrap_or_default()
+        .after(cutoff);
+    let mut toret = vec![];
+    let now = SystemTime::now();
+    for seconds_before_now in 0..600 {
+        let end_time = now - Duration::from_secs(seconds_before_now);
+        let start_time = end_time - Duration::from_secs(5);
+        let send_speed = (sent_series.get(end_time) - sent_series.get(start_time)) as f64 / 5.0;
+        let recv_speed = (recv_series.get(end_time) - recv_series.get(start_time)) as f64 / 5.0;
+        toret.push(DeltaStat {
+            time: end_time,
+            send_speed,
+            recv_speed,
+            loss: None,
+        })
+    }
+    toret.reverse();
+    toret
+}
 
 fn normalize_loss(items: &mut [DeltaStat]) {
     // we go through items in reverse
