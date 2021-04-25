@@ -1,21 +1,20 @@
 use crate::{
     activity::timeout_multiplier,
     cache::ClientCache,
-    // plots::stat_derive,
-    stats::global_sosistab_stats,
+    stats::{global_sosistab_stats, GLOBAL_LOGGER},
     tunman::TunnelManager,
-    AuthOpt,
-    CommonOpt,
+    AuthOpt, CommonOpt,
 };
 use crate::{china, plots::stat_derive};
 use anyhow::Context;
 use async_compat::Compat;
 use async_net::IpAddr;
 use china::is_chinese_ip;
+use smol::prelude::*;
 use smol_timeout::TimeoutExt;
 use std::{
-    collections::BTreeMap, net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, sync::Arc,
-    time::Duration,
+    collections::BTreeMap, net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, path::PathBuf,
+    sync::Arc, time::Duration,
 };
 use structopt::StructOpt;
 
@@ -72,10 +71,24 @@ pub struct ConnectOpt {
     #[structopt(long)]
     /// SSH-style local-remote port forwarding. For example, "0.0.0.0:8888:::example.com:22" will forward local port 8888 to example.com:22. Must be in form host:port:::host:port! May have multiple ones.
     forward_ports: Vec<String>,
+
+    #[structopt(long)]
+    /// Where to store a log file.
+    log_file: Option<PathBuf>,
 }
 
 /// Main function for `connect` subcommand
 pub async fn main_connect(mut opt: ConnectOpt) -> anyhow::Result<()> {
+    // Register the logger first
+    let _logger = if let Some(log_file) = &opt.log_file {
+        let log_file = smol::fs::File::create(log_file)
+            .await
+            .context("cannot create log file")?;
+        Some(smolscale::spawn(run_logger(log_file)))
+    } else {
+        None
+    };
+
     log::info!("connect mode started");
 
     let _stats = smolscale::spawn(print_stats_loop());
@@ -223,7 +236,18 @@ async fn port_forwarder(tunnel_manager: TunnelManager, desc: String) {
     }
 }
 
-use std::io::prelude::*;
+/// Runs a logger that writes to a particular file.
+async fn run_logger(mut file: smol::fs::File) {
+    let (send, recv) = smol::channel::unbounded();
+    *GLOBAL_LOGGER.lock() = Some(send);
+    loop {
+        let log_line = recv.recv().await.unwrap();
+        file.write_all(format!("{}\n", log_line).as_bytes())
+            .await
+            .unwrap();
+        file.flush().await.unwrap();
+    }
+}
 
 /// Handles requests for the debug pack, proxy information, program termination, and general statistics
 async fn handle_stats(
@@ -232,69 +256,6 @@ async fn handle_stats(
 ) -> http_types::Result<http_types::Response> {
     let mut res = http_types::Response::new(http_types::StatusCode::Ok);
     match _req.url().path() {
-        "/debugpack" => {
-            todo!()
-            // Form a tar from the logs and sosistab trace
-            // let tar_buffer = Vec::new();
-            // let mut tar_build = tar::Builder::new(tar_buffer);
-            // let mut logs_buffer = Vec::new();
-            // {
-            //     let logs = GLOBAL_LOGGER.read();
-            //     for line in logs.iter() {
-            //         writeln!(logs_buffer, "{}", line)?;
-            //     }
-            // }
-            // // Obtain sosistab trace
-            // let detail = tunnel_manager
-            //     .get_stats()
-            //     .timeout(Duration::from_secs(1))
-            //     .await;
-            // if let Some(detail) = detail {
-            //     let detail = detail?;
-            //     let mut sosistab_buf = Vec::new();
-            //     writeln!(sosistab_buf, "time,last_recv,total_recv,total_loss,ping")?;
-            //     if let Some(first) = detail.get(0) {
-            //         let first_time = first.time;
-            //         for item in detail.iter() {
-            //             writeln!(
-            //                 sosistab_buf,
-            //                 "{},{},{},{},{}",
-            //                 item.time
-            //                     .duration_since(first_time)
-            //                     .unwrap_or_default()
-            //                     .as_secs_f64(),
-            //                 item.high_recv,
-            //                 item.total_recv,
-            //                 item.total_loss,
-            //                 item.smooth_ping,
-            //             )?;
-            //         }
-            //     }
-            //     let mut sosis_header = tar::Header::new_gnu();
-            //     sosis_header.set_mode(0o666);
-            //     sosis_header.set_size(sosistab_buf.len() as u64);
-            //     tar_build.append_data(
-            //         &mut sosis_header,
-            //         "sosistab-trace.csv",
-            //         sosistab_buf.as_slice(),
-            //     )?;
-            // }
-            // let mut logs_header = tar::Header::new_gnu();
-            // logs_header.set_mode(0o666);
-            // logs_header.set_size(logs_buffer.len() as u64);
-            // tar_build.append_data(&mut logs_header, "logs.txt", logs_buffer.as_slice())?;
-            // let result = tar_build.into_inner()?;
-            // res.insert_header("content-type", "application/tar");
-            // res.insert_header(
-            //     "content-disposition",
-            //     format!(
-            //         "attachment; filename=\"geph4-debug-{}.tar\"",
-            //         Local::now().to_rfc3339()
-            //     ),
-            // );
-            // res.set_body(result);
-            // Ok(res)
-        }
         "/proxy.pac" => {
             // Serves a Proxy Auto-Configuration file
             res.set_body("function FindProxyForURL(url, host){return 'PROXY 127.0.0.1:9910';}");
