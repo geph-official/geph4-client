@@ -6,16 +6,9 @@ use crate::stats::global_sosistab_stats;
 
 /// Derive delta-stats from the original stats.
 pub fn stat_derive() -> Vec<DeltaStat> {
-    let cutoff = SystemTime::now() - Duration::from_secs(600);
     let stats = global_sosistab_stats();
-    let sent_series = stats
-        .get_timeseries("total_sent_bytes")
-        .unwrap_or_default()
-        .after(cutoff);
-    let recv_series = stats
-        .get_timeseries("total_recv_bytes")
-        .unwrap_or_default()
-        .after(cutoff);
+    let sent_series = stats.get_timeseries("total_sent_bytes").unwrap_or_default();
+    let recv_series = stats.get_timeseries("total_recv_bytes").unwrap_or_default();
     let mut toret = vec![];
     let now = SystemTime::now();
     for seconds_before_now in 0..600 {

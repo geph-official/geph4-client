@@ -21,7 +21,7 @@ impl StatsGatherer {
         if let Some(mapping) = &self.mapping {
             let mut ts = mapping
                 .entry(stat.to_string())
-                .or_insert_with(|| TimeSeries::new(1000000));
+                .or_insert_with(|| TimeSeries::new(10000));
             ts.push(val)
         }
     }
@@ -31,7 +31,7 @@ impl StatsGatherer {
         if let Some(mapping) = &self.mapping {
             let mut ts = mapping
                 .entry(stat.to_string())
-                .or_insert_with(|| TimeSeries::new(1000000));
+                .or_insert_with(|| TimeSeries::new(10000));
             ts.increment(delta)
         }
     }
@@ -63,30 +63,50 @@ pub struct TimeSeries {
 impl TimeSeries {
     /// Pushes a new item into the time series.
     pub fn push(&mut self, item: f32) {
+        if self.same_as_last() {
+            return;
+        }
         self.items.insert(SystemTime::now(), item);
+        self.may_decimate()
     }
 
     fn may_decimate(&mut self) {
         if self.items.len() >= self.max_length {
+            tracing::warn!("decimation!");
             // decimate the whole vector
             let half_map: im::OrdMap<_, _> = self
                 .items
                 .iter()
                 .enumerate()
-                .filter_map(|(i, v)| {
-                    if i % 10 != 0 {
-                        Some((*v.0, *v.1))
-                    } else {
-                        None
-                    }
-                })
+                .filter_map(|(i, v)| if i % 2 != 0 { Some((*v.0, *v.1)) } else { None })
                 .collect();
             self.items = half_map;
         }
     }
 
+    fn same_as_last(&self) -> bool {
+        let last = self.items.get_max();
+        if let Some(last) = last {
+            let last_time = last.0;
+            let dur = last_time.elapsed();
+            if let Ok(dur) = dur {
+                if dur.as_millis() < 5 {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Pushes a new item into the time series.
     pub fn increment(&mut self, delta: f32) {
+        if self.same_as_last() {
+            let (last_key, last_val) = self.items.get_max().unwrap();
+            let last_key = *last_key;
+            let new_last = *last_val + delta;
+            self.items.insert(last_key, new_last);
+            return;
+        }
         let last_val = self.items.get_max().map(|v| v.1).unwrap_or_default();
         self.items.insert(SystemTime::now(), delta + last_val);
         self.may_decimate()
@@ -116,6 +136,10 @@ impl TimeSeries {
 
     /// Get the value at a certain time.
     pub fn get(&self, time: SystemTime) -> f32 {
-        self.items.get_prev(&time).map(|v| *v.1).unwrap_or_default()
+        self.items
+            .get_prev(&time)
+            .map(|v| *v.1)
+            .unwrap_or_default()
+            .max(self.items.get_next(&time).map(|v| *v.1).unwrap_or_default())
     }
 }

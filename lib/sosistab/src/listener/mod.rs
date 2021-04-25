@@ -121,7 +121,7 @@ impl ListenerActor {
         };
 
         let read_socket = self.socket.clone();
-        let write_socket = self.socket.clone();
+        let write_socket = Arc::new(smol::lock::Mutex::new(self.socket.clone()));
 
         // two possible events
         enum Evt {
@@ -155,7 +155,7 @@ impl ListenerActor {
                                     "discarding replay attempt with len {}",
                                     buffer.len()
                                 );
-                                continue;
+                                break;
                             }
                             tracing::trace!(
                                 "[{}] decoded some sort of handshake: {:?}",
@@ -208,7 +208,7 @@ impl ListenerActor {
                                         trace_id,
                                         addr
                                     );
-                                    let _ = write_socket.send_to(reply, addr).await;
+                                    let _ = write_socket.lock().await.send_to(reply, addr).await;
                                     tracing::debug!(
                                         "[{}] replied to ClientHello from {}",
                                         trace_id,
@@ -257,6 +257,8 @@ impl ListenerActor {
                                                                     locked_addrs.write().get_addr();
                                                                 drop(
                                                                     write_socket
+                                                                        .lock()
+                                                                        .await
                                                                         .send_to(data, remote_addr)
                                                                         .await,
                                                                 );
