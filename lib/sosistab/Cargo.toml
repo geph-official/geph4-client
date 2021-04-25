@@ -49,6 +49,8 @@ rustc-hash= "1.1.0"
 cached="0.23"
 ring="0.16"
 im="15"
+smallvec="1.6"
+thiserror = "1.0"
 
 
 

@@ -7,9 +7,11 @@ use ring::aead::{Aad, LessSafeKey, Nonce, UnboundKey, CHACHA20_POLY1305};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 use std::{sync::Arc, time::SystemTime};
+use thiserror::Error;
 
 pub const UP_KEY: &[u8; 32] = b"upload--------------------------";
 pub const DN_KEY: &[u8; 32] = b"download------------------------";
+
 /// A structure for encrypting or decrypting Chacha12/Blake3-64.
 #[derive(Debug, Copy, Clone)]
 pub struct LegacyAead {
@@ -158,9 +160,9 @@ impl NgAead {
     }
 
     /// Decrypts a message.
-    pub fn decrypt(&self, ctext: &[u8]) -> Option<Bytes> {
+    pub fn decrypt(&self, ctext: &[u8]) -> Result<Bytes, AeadError> {
         if ctext.len() < CHACHA20_POLY1305.nonce_len() + CHACHA20_POLY1305.tag_len() {
-            return None;
+            return Err(AeadError::BadLength);
         }
         // nonce is last 12 bytes
         let (ctext, nonce) = ctext.split_at(ctext.len() - CHACHA20_POLY1305.nonce_len());
@@ -172,10 +174,19 @@ impl NgAead {
                 Aad::empty(),
                 &mut ctext,
             )
-            .ok()?;
+            .ok()
+            .ok_or(AeadError::DecryptionFailure)?;
         ctext.truncate(ctext.len() - CHACHA20_POLY1305.tag_len());
-        Some(ctext.into())
+        Ok(ctext.into())
     }
+}
+
+#[derive(Error, Debug)]
+pub enum AeadError {
+    #[error("bad ciphertext length")]
+    BadLength,
+    #[error("decryption failure")]
+    DecryptionFailure,
 }
 
 #[derive(Debug, Clone)]

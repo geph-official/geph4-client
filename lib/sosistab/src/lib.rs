@@ -27,6 +27,7 @@ use bincode::Options;
 pub use client::*;
 pub use listener::*;
 use serde::de::DeserializeOwned;
+use smallvec::SmallVec;
 use std::{future::Future, pin::Pin, task::Poll, time::Duration};
 mod protocol;
 pub mod runtime;
@@ -41,6 +42,8 @@ mod batchan;
 mod recfilter;
 mod stats;
 pub use stats::*;
+
+pub(crate) type SVec<T> = SmallVec<[T; 32]>;
 
 /// Safely deserialize
 pub(crate) fn safe_deserialize<T: DeserializeOwned>(bts: &[u8]) -> bincode::Result<T> {

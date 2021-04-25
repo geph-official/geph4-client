@@ -482,6 +482,7 @@ fn generate_captcha(captcha_service: &str) -> Result<String, BinderError> {
 }
 
 /// Verify a captcha.
+#[allow(clippy::unnecessary_wraps)]
 fn verify_captcha(
     captcha_service: &str,
     captcha_id: &str,

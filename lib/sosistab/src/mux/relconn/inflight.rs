@@ -65,6 +65,10 @@ impl Inflight {
         self.rtt.min_rtt()
     }
 
+    pub fn rto(&self) -> Duration {
+        self.rtt.rto()
+    }
+
     /// Mark all inflight packets less than a certain sequence number as acknowledged.
     pub fn mark_acked_lt(&mut self, seqno: Seqno) {
         let mut to_remove = vec![];

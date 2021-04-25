@@ -37,7 +37,7 @@ lru= "0.6.3"
 pnet_packet= "0.27.2"
 rangemap= "0.1.8"
 dashmap= "4.0.1"
- 
+governor="0.3"
 aioutils={path="../lib/aioutils"}
 vpn_structs={path="../lib/vpn_structs"}
 

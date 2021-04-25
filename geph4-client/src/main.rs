@@ -73,14 +73,12 @@ fn main() -> anyhow::Result<()> {
             record.line().unwrap_or(0),
             &record.args()
         );
-        let mut logger = GLOBAL_LOGGER.write();
-        logger.push_back(
-            IP_REGEX
-                .replace_all(&detailed_line, "[redacted]")
-                .to_string(),
-        );
-        if logger.len() > 100000 {
-            logger.pop_front();
+        if let Some(logger) = GLOBAL_LOGGER.lock().as_ref() {
+            let _ = logger.try_send(
+                IP_REGEX
+                    .replace_all(&detailed_line, "[redacted]")
+                    .to_string(),
+            );
         }
         Ok(())
     }
@@ -94,7 +92,7 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
-    smolscale::permanently_single_threaded();
+    // smolscale::permanently_single_threaded();
     smolscale::block_on(async move {
         match opt {
             Opt::Connect(opt) => loop {

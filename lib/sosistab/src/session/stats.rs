@@ -40,14 +40,13 @@ impl StatsCalculator {
 
     fn sync(&self) {
         self.gather
-            .set_stat("high_recv", self.high_recv_frame_no() as f64);
+            .update("high_recv", self.high_recv_frame_no() as f32);
         self.gather
-            .set_stat("total_recv", self.total_recv_frames() as f64);
-        self.gather.set_stat("send_loss", self.loss());
+            .update("total_recv", self.total_recv_frames() as f32);
+        self.gather.update("send_loss", self.loss() as f32);
+        self.gather.update("smooth_ping", self.ping().as_secs_f32());
         self.gather
-            .set_stat("smooth_ping", self.ping().as_secs_f64());
-        self.gather
-            .set_stat("raw_ping", self.raw_ping().as_secs_f64());
+            .update("raw_ping", self.raw_ping().as_secs_f32());
     }
 
     /// Get high recv frame no

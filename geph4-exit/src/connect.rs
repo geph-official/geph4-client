@@ -6,11 +6,12 @@ use smol::{
 };
 use smol_timeout::TimeoutExt;
 
-use crate::listen::RootCtx;
+use crate::{listen::RootCtx, ratelimit::RateLimiter};
 
 /// Connects to a remote host and forwards traffic to/from it and a given client.
 pub async fn proxy_loop(
     ctx: Arc<RootCtx>,
+    rate_limit: Arc<RateLimiter>,
     client: impl AsyncRead + AsyncWrite + Clone + Unpin,
     addr: impl AsyncToSocketAddrs,
     count_stats: bool,
@@ -62,9 +63,13 @@ pub async fn proxy_loop(
     let remote2 = remote.clone();
     let client2 = client.clone();
     smol::future::race(
-        aioutils::copy_with_stats(remote2, client2, |n| {
+        aioutils::copy_with_stats_async(remote2, client2, |n| {
             if fastrand::f32() < 0.01 && count_stats {
                 ctx.stat_client.count(&key, n as f64 * 100.0);
+            }
+            let rate_limit = rate_limit.clone();
+            async move {
+                rate_limit.wait(n).await;
             }
         }),
         aioutils::copy_with_stats(client, remote, |n| {

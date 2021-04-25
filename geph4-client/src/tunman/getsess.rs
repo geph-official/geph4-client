@@ -160,7 +160,7 @@ impl ProtoSession {
         // Then we repeatedly spam the ID on the inner session until we receive one packet (which we assume to be a data packet from the successfully hijacked multiplex)
         let spam_loop = async {
             loop {
-                self.inner.send_bytes(other_id.to_vec().into());
+                self.inner.send_bytes(other_id.to_vec().into()).await?;
                 smol::Timer::after(Duration::from_secs(1)).await;
             }
         };
@@ -170,7 +170,7 @@ impl ProtoSession {
                     .inner
                     .recv_bytes()
                     .await
-                    .ok_or_else(|| anyhow::anyhow!("inner session failed in hijack"))?;
+                    .context("inner session failed in hijack")?;
                 log::debug!(
                     "finished hijack of other_id = {} with downstream data of {}!",
                     hex::encode(&other_id[..5]),
@@ -179,7 +179,7 @@ impl ProtoSession {
                 Ok::<_, anyhow::Error>(())
             })
             .await?;
-        other_mplex.replace_session(self.inner);
+        other_mplex.replace_session(self.inner).await;
         Ok(())
     }
 }

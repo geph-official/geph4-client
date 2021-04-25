@@ -11,6 +11,7 @@ use pnet_packet::{
     ip::IpNextHeaderProtocols, ipv4::Ipv4Packet, tcp::TcpPacket, udp::UdpPacket, Packet,
 };
 use rand::prelude::*;
+use smol::channel::Sender;
 
 use std::os::unix::io::AsRawFd;
 use std::{
@@ -22,7 +23,7 @@ use std::{
 use tundevice::TunDevice;
 use vpn_structs::Message;
 
-use crate::{connect::proxy_loop, listen::RootCtx};
+use crate::{connect::proxy_loop, listen::RootCtx, ratelimit::RateLimiter};
 
 /// Runs the transparent proxy helper
 pub async fn transparent_proxy_helper(ctx: Arc<RootCtx>) -> anyhow::Result<()> {
@@ -38,6 +39,7 @@ pub async fn transparent_proxy_helper(ctx: Arc<RootCtx>) -> anyhow::Result<()> {
     loop {
         let (client, _) = listener.accept().await.unwrap();
         let ctx = ctx.clone();
+        let rate_limit = Arc::new(RateLimiter::new(12500));
         let conn_task = smolscale::spawn(
             async move {
                 let client_fd = client.as_raw_fd();
@@ -62,7 +64,7 @@ pub async fn transparent_proxy_helper(ctx: Arc<RootCtx>) -> anyhow::Result<()> {
                 };
                 let client = async_dup::Arc::new(client);
                 client.get_ref().set_nodelay(true)?;
-                proxy_loop(ctx, client, addr, false).await
+                proxy_loop(ctx, rate_limit, client, addr, false).await
             }
             .map_err(|e| log::trace!("vpn conn closed: {}", e)),
         );
@@ -73,6 +75,7 @@ pub async fn transparent_proxy_helper(ctx: Arc<RootCtx>) -> anyhow::Result<()> {
 /// Handles a VPN session
 pub async fn handle_vpn_session(
     mux: Arc<sosistab::Multiplex>,
+    rate_limit: Arc<RateLimiter>,
     exit_hostname: String,
     stat_client: Arc<statsd::Client>,
     port_whitelist: bool,
@@ -88,23 +91,28 @@ pub async fn handle_vpn_session(
         INCOMING_MAP.remove(&addr);
     });
     let key = format!("exit_usage.{}", exit_hostname.replace(".", "-"));
-    {
+
+    let (send_down, recv_down) = smol::channel::bounded(128);
+    INCOMING_MAP.insert(addr, send_down);
+    let _down_task: smol::Task<anyhow::Result<()>> = {
         let key = key.clone();
         let mux = mux.clone();
         let stat_client = stat_client.clone();
-        INCOMING_MAP.insert(
-            addr,
-            Box::new(move |bts| {
+        smolscale::spawn(async move {
+            loop {
+                let bts = recv_down.recv().await?;
                 if fastrand::f32() < 0.01 {
                     stat_client.count(&key, bts.len() as f64 * 100.0)
                 }
+                rate_limit.wait(bts.len()).await;
                 let pkt = Ipv4Packet::new(&bts).expect("don't send me invalid IPv4 packets!");
                 assert_eq!(pkt.get_destination(), addr);
                 let msg = Message::Payload(bts);
-                let _ = mux.send_urel(bincode::serialize(&msg).unwrap().into());
-            }),
-        );
-    }
+                let _ =
+                    smol::future::block_on(mux.send_urel(bincode::serialize(&msg).unwrap().into()));
+            }
+        })
+    };
 
     loop {
         let bts = mux.recv_urel().await?;
@@ -118,7 +126,8 @@ pub async fn handle_vpn_session(
                     })
                     .unwrap()
                     .into(),
-                )?;
+                )
+                .await?;
             }
             Message::Payload(bts) => {
                 if fastrand::f32() < 0.01 {
@@ -165,8 +174,7 @@ pub async fn handle_vpn_session(
 
 /// Mapping for incoming packets
 #[allow(clippy::clippy::type_complexity)]
-static INCOMING_MAP: Lazy<DashMap<Ipv4Addr, Box<dyn Fn(Bytes) + Send + Sync>>> =
-    Lazy::new(DashMap::new);
+static INCOMING_MAP: Lazy<DashMap<Ipv4Addr, Sender<Bytes>>> = Lazy::new(DashMap::new);
 
 /// Incoming packet handler
 static INCOMING_PKT_HANDLER: Lazy<smol::Task<()>> = Lazy::new(|| {
@@ -181,7 +189,7 @@ static INCOMING_PKT_HANDLER: Lazy<smol::Task<()>> = Lazy::new(|| {
             }
             let dest = Ipv4Packet::new(&pkt).map(|pkt| INCOMING_MAP.get(&pkt.get_destination()));
             if let Some(Some(dest)) = dest {
-                (dest.value())(pkt);
+                let _ = dest.try_send(pkt);
             }
         }
     })

@@ -1,9 +1,9 @@
+use crate::vpn::run_vpn;
 use crate::{
     activity::{notify_activity, timeout_multiplier},
     cache::ClientCache,
     main_connect::ConnectOpt,
 };
-use crate::{stats::StatCollector, vpn::run_vpn};
 use anyhow::Context;
 use binder_transport::ExitDescriptor;
 use getsess::get_session;
@@ -28,12 +28,12 @@ pub struct TunnelManager {
 
 impl TunnelManager {
     /// Creates a new TunnelManager
-    pub fn new(stats: Arc<StatCollector>, cfg: ConnectOpt, ccache: Arc<ClientCache>) -> Self {
+    pub fn new(cfg: ConnectOpt, ccache: Arc<ClientCache>) -> Self {
         // Sets up channels to communicate with the background task
         let (send, recv) = smol::channel::unbounded();
         TunnelManager {
             open_socks5_conn: send,
-            _task: Arc::new(smolscale::spawn(tunnel_actor(stats, cfg, ccache, recv))),
+            _task: Arc::new(smolscale::spawn(tunnel_actor(cfg, ccache, recv))),
         }
     }
 
@@ -56,7 +56,6 @@ impl TunnelManager {
 
 /// Background task of a TunnelManager
 async fn tunnel_actor(
-    stats: Arc<StatCollector>,
     cfg: ConnectOpt,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::RelConn>)>,
@@ -64,9 +63,7 @@ async fn tunnel_actor(
     loop {
         let cfg = cfg.clone();
         // Run until a failure happens, log the error, then restart
-        if let Err(err) =
-            tunnel_actor_once(stats.clone(), cfg, ccache.clone(), recv_socks5_conn.clone()).await
-        {
+        if let Err(err) = tunnel_actor_once(cfg, ccache.clone(), recv_socks5_conn.clone()).await {
             log::warn!("tunnel_actor restarting: {:?}", err);
             smol::Timer::after(Duration::from_secs(1)).await;
         }
@@ -74,13 +71,11 @@ async fn tunnel_actor(
 }
 
 async fn tunnel_actor_once(
-    stats: Arc<StatCollector>,
     cfg: ConnectOpt,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::RelConn>)>,
 ) -> anyhow::Result<()> {
     notify_activity();
-    stats.set_exit_descriptor(None);
     let exit_info = get_closest_exit(cfg.exit_server.clone(), &ccache).await?;
 
     let protosess = if cfg.use_tcp {
@@ -104,8 +99,6 @@ async fn tunnel_actor_once(
         cfg.use_tcp
     );
 
-    stats.set_exit_descriptor(Some(exit_info.clone()));
-
     // Set up a watchdog to keep the connection alive
     let _watchdog = smolscale::spawn(watchdog_loop(tunnel_mux.clone()));
 
@@ -125,16 +118,14 @@ async fn tunnel_actor_once(
     if cfg.stdio_vpn {
         let mux = tunnel_mux.clone();
         let send_death = send_death.clone();
-        let stats = stats.clone();
         _vpn_task = Some(smolscale::spawn(async move {
-            if let Err(err) = run_vpn(stats, mux).await.context("run_vpn failed") {
+            if let Err(err) = run_vpn(mux).await.context("run_vpn failed") {
                 drop(send_death.try_send(err));
             }
         }));
     }
 
     let mux1 = tunnel_mux.clone();
-    let mux2 = tunnel_mux.clone();
     async move {
         loop {
             let (conn_host, conn_reply) = recv_socks5_conn

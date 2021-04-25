@@ -96,9 +96,7 @@ async fn read_encrypted<R: AsyncRead + Unpin>(
     let mut length_buf = vec![0u8; NgAead::overhead() + 2];
     rdr.read_exact(&mut length_buf).await?;
     // decrypt the length
-    let length_buf = decrypt
-        .decrypt(&length_buf)
-        .ok_or_else(|| anyhow::anyhow!("failed to decrypt length"))?;
+    let length_buf = decrypt.decrypt(&length_buf)?;
     if length_buf.len() != 2 {
         anyhow::bail!("length must be 16 bits");
     }
@@ -106,9 +104,7 @@ async fn read_encrypted<R: AsyncRead + Unpin>(
     // now read the actual body
     let mut actual_buf = vec![0u8; u16::from_be_bytes(length_buf.try_into().unwrap()) as usize];
     rdr.read_exact(&mut actual_buf).await?;
-    decrypt
-        .decrypt(&actual_buf)
-        .ok_or_else(|| anyhow::anyhow!("cannot decrypt"))
+    Ok(decrypt.decrypt(&actual_buf)?)
 }
 
 async fn write_encrypted<W: AsyncWrite + Unpin>(
