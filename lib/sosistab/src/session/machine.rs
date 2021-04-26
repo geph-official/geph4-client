@@ -113,7 +113,6 @@ impl ReplayFilter {
     fn add(&mut self, seqno: u64) -> bool {
         if seqno < self.bottom_seqno {
             // out of range. we can't know, so we just say no
-            eprintln!("out of range");
             return false;
         }
         // check the seen

@@ -34,5 +34,5 @@ overflow-checks = true
 # lto=true
 
 [patch.crates-io]
-async-executor={git="https://github.com/geph-official/async-executor.git", branch="local-queues"}
+async-executor={git="https://github.com/geph-official/async-executor.git", branch="spsc"}
 # async-executor={path="../async-executor"}
