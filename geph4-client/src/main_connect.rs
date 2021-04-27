@@ -280,7 +280,7 @@ async fn handle_stats(_req: http_types::Request) -> http_types::Result<http_type
             );
             stats.insert(
                 "latency".into(),
-                gather.get_last("raw_ping").unwrap_or_default(),
+                gather.get_last("smooth_ping").unwrap_or_default(),
             );
             stats.insert(
                 "loss".into(),

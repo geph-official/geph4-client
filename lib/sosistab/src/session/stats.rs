@@ -128,9 +128,11 @@ impl PingCalc {
         if let Some(send_seqno) = self.send_seqno {
             if sn >= send_seqno {
                 let ping_sample = self.send_time.take().unwrap().elapsed();
-                self.pings.push_back(ping_sample);
-                if self.pings.len() > 8 {
-                    self.pings.pop_front();
+                if ping_sample.as_millis() < 800 {
+                    self.pings.push_back(ping_sample);
+                    if self.pings.len() > 8 {
+                        self.pings.pop_front();
+                    }
                 }
                 self.send_seqno = None
             }

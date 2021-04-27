@@ -98,7 +98,7 @@ async fn tunnel_actor_once(
     );
 
     // Set up a watchdog to keep the connection alive
-    let _watchdog = smolscale::spawn(watchdog_loop(tunnel_mux.clone()));
+    let watchdog_fut = smolscale::spawn(watchdog_loop(tunnel_mux.clone()));
 
     // Set up a session rerouter
     let rerouter_fut = rerouter_loop(
@@ -163,6 +163,7 @@ async fn tunnel_actor_once(
         anyhow::bail!(e)
     })
     .or(rerouter_fut)
+    .or(watchdog_fut)
     .await
 }
 
@@ -183,16 +184,16 @@ async fn get_closest_exit(
     Ok(exits[0].clone())
 }
 
-async fn watchdog_loop(tunnel_mux: Arc<Multiplex>) {
+async fn watchdog_loop(tunnel_mux: Arc<Multiplex>) -> anyhow::Result<()> {
     loop {
         wait_activity().await;
         if tunnel_mux
             .open_conn(None)
-            .timeout(Duration::from_secs(60))
+            .timeout(Duration::from_secs(15))
             .await
             .is_none()
         {
-            log::warn!("watchdog conn failed!");
+            anyhow::bail!("watchdog conn failed!");
         }
         smol::Timer::after(Duration::from_secs(60)).await;
     }

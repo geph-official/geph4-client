@@ -142,4 +142,9 @@ impl TimeSeries {
             .unwrap_or_default()
             .max(self.items.get_next(&time).map(|v| *v.1).unwrap_or_default())
     }
+
+    /// Get the earliest time.
+    pub fn earliest(&self) -> Option<(SystemTime, f32)> {
+        self.items.get_min().cloned()
+    }
 }
