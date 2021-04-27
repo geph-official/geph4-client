@@ -67,7 +67,7 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
             RateLimiter::new(root.free_limit)
         }
     } else {
-        RateLimiter::new(12500)
+        RateLimiter::unlimited()
     };
     let rate_limit = Arc::new(rate_limit);
 

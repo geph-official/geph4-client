@@ -338,7 +338,7 @@ impl ConnVars {
 
     fn pacing_rate(&self) -> f64 {
         // calculate implicit rate
-        self.cwnd / self.inflight.min_rtt().as_secs_f64()
+        (self.cwnd / self.inflight.min_rtt().as_secs_f64()).max(200.0)
     }
 
     fn congestion_ack(&mut self) {
@@ -354,9 +354,9 @@ impl ConnVars {
         } else {
             self.cwnd - self.ssthresh
         }
-        .max(0.23 * self.cwnd.powf(0.4)) // at least as fast as HSTCP
+        .max(2.0) // at least as fast as 2 Renos
         .min(self.cwnd)
-        .min(512.0);
+        .min(128.0); // at most as fast as 128 Renos
         self.cwnd += bic_inc / self.cwnd;
     }
 
@@ -367,7 +367,7 @@ impl ConnVars {
         if !self.in_recovery && now.saturating_duration_since(self.last_loss) > self.inflight.rto()
         {
             self.in_recovery = true;
-            let beta = 0.25;
+            let beta = 0.125;
             if self.cwnd < self.ssthresh {
                 self.ssthresh = self.cwnd * (2.0 - beta) / 2.0;
             } else {

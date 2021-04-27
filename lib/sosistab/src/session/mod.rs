@@ -2,19 +2,18 @@ use crate::fec::FrameEncoder;
 use crate::{crypt::AeadError, mux::Multiplex, runtime, StatsGatherer};
 use crate::{crypt::NgAead, protocol::DataFrameV2};
 use bytes::Bytes;
-use governor::{Quota, RateLimiter};
+
 use machine::RecvMachine;
 use parking_lot::Mutex;
+use rloss::RecvLossCalc;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use stats::StatsCalculator;
-use std::{
-    num::NonZeroU32,
-    sync::atomic::{AtomicU64, Ordering},
-};
+
 use std::{sync::Arc, time::Duration};
 use thiserror::Error;
 mod machine;
+mod rloss;
 mod stats;
 
 #[derive(Debug, Clone)]
@@ -59,17 +58,18 @@ impl Drop for Session {
 impl Session {
     /// Creates a Session.
     pub(crate) fn new(cfg: SessionConfig) -> (Self, SessionBack) {
-        let (send_tosend, recv_tosend) = smol::channel::bounded(1024);
+        let (send_tosend, recv_tosend) = smol::channel::bounded(512);
         let gather = cfg.gather.clone();
         let calculator = Arc::new(StatsCalculator::new(gather.clone()));
+        let rloss = Arc::new(Mutex::new(RecvLossCalc::new(1.0)));
         let machine = Mutex::new(RecvMachine::new(
             calculator.clone(),
-            cfg.version,
+            rloss.clone(),
             &cfg.session_key,
             cfg.role,
         ));
 
-        let (send_decoded, recv_decoded) = smol::channel::bounded(64);
+        let (send_decoded, recv_decoded) = smol::channel::bounded(512);
         let (send_outgoing, recv_outgoing) = smol::channel::bounded(64);
         let session_back = SessionBack {
             machine,
@@ -84,6 +84,8 @@ impl Session {
         let ctx = SessionSendCtx {
             cfg,
             statg: calculator,
+            gather: gather.clone(),
+            rloss,
             recv_tosend,
             send_crypt,
             send_outgoing,
@@ -167,6 +169,8 @@ impl SessionBack {
 struct SessionSendCtx {
     cfg: SessionConfig,
     statg: Arc<StatsCalculator>,
+    gather: Arc<StatsGatherer>,
+    rloss: Arc<Mutex<RecvLossCalc>>,
     recv_tosend: Receiver<Bytes>,
     send_crypt: NgAead,
     send_outgoing: Sender<Bytes>,
@@ -183,7 +187,7 @@ async fn session_send_loop(ctx: SessionSendCtx) {
     }
 }
 
-const BURST_SIZE: usize = 32;
+const BURST_SIZE: usize = 40;
 
 #[tracing::instrument(skip(ctx))]
 async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<()> {
@@ -192,20 +196,13 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
         FecTimeout,
     }
 
-    // Limiter used to enforce the set speed limit.
-    let policy_limiter = RateLimiter::direct_with_clock(
-        Quota::per_second(NonZeroU32::new(25600).unwrap())
-            .allow_burst(NonZeroU32::new(1280).unwrap()),
-        &governor::clock::MonotonicClock,
-    );
-
-    const FEC_TIMEOUT_MS: u64 = 40;
+    const FEC_TIMEOUT_MS: u64 = 20;
 
     // FEC timer: when this expires, send parity packets regardless if we have assembled BURST_SIZE data packets.
     let mut fec_timer = smol::Timer::after(Duration::from_millis(FEC_TIMEOUT_MS));
     // Vector of "unfecked" frames.
     let mut unfecked: Vec<(u64, Bytes)> = Vec::new();
-    let mut fec_encoder = FrameEncoder::new(1);
+    let mut fec_encoder = FrameEncoder::new(10); // around 4 percent
     let mut frame_no = 0;
     loop {
         // either we have something new to send, or the FEC timer expired.
@@ -221,6 +218,9 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
         }
         .or(async { Some(Event::NewPayload(ctx.recv_tosend.recv().await.ok()?)) })
         .await;
+        let loss = ctx.rloss.lock().calculate_loss();
+        let loss_u8 = (loss * 254.0) as u8;
+        ctx.gather.update("recv_loss", loss as f32);
         match event? {
             // we have something to send as a data packet.
             Event::NewPayload(send_payload) => {
@@ -232,7 +232,7 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
                 };
                 // we now add to unfecked
                 unfecked.push((frame_no, send_payload));
-                let send_padded = send_framed.pad();
+                let send_padded = send_framed.pad(loss_u8);
                 ctx.statg.ping_send(frame_no);
                 let send_encrypted = ctx.send_crypt.encrypt(&send_padded);
                 ctx.send_outgoing.send(send_encrypted).await.ok()?;
@@ -277,7 +277,7 @@ async fn session_send_loop_nextgen(ctx: SessionSendCtx, version: u64) -> Option<
                         body: parity.clone(),
                         pad_size,
                     };
-                    let send_padded = send_framed.pad();
+                    let send_padded = send_framed.pad(loss_u8);
                     let send_encrypted = ctx.send_crypt.encrypt(&send_padded);
                     ctx.send_outgoing.send(send_encrypted).await.ok()?;
                 }

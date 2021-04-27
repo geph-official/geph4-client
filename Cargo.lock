@@ -1651,6 +1651,7 @@ dependencies = [
  "chrono",
  "dirs",
  "ed25519-dalek",
+ "event-listener",
  "flexi_logger",
  "futures-lite",
  "governor",

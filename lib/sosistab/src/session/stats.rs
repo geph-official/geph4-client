@@ -10,6 +10,7 @@ use crate::StatsGatherer;
 pub struct StatsCalculator {
     high_recv_frame_no: AtomicU64,
     total_recv_frames: AtomicU64,
+    actual_loss: RwLock<Option<f64>>,
     loss_calc: RwLock<SendLossCalc>,
     ping_calc: RwLock<PingCalc>,
     gather: Arc<StatsGatherer>,
@@ -21,6 +22,7 @@ impl StatsCalculator {
         Self {
             high_recv_frame_no: Default::default(),
             total_recv_frames: Default::default(),
+            actual_loss: Default::default(),
             loss_calc: Default::default(),
             ping_calc: Default::default(),
             gather,
@@ -28,13 +30,24 @@ impl StatsCalculator {
     }
 
     /// Process an incoming dataframe.
-    pub fn incoming(&self, frame_no: u64, their_hrfn: u64, their_trf: u64) {
+    pub fn incoming(
+        &self,
+        frame_no: u64,
+        their_hrfn: u64,
+        their_trf: u64,
+        actual_loss: Option<f64>,
+    ) {
         self.high_recv_frame_no
             .fetch_max(frame_no, std::sync::atomic::Ordering::Relaxed);
         self.total_recv_frames
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.ping_calc.write().ack(their_hrfn);
-        self.loss_calc.write().update_params(their_hrfn, their_trf);
+        if let Some(actual_loss) = actual_loss {
+            // tracing::warn!("recording actual loss {}", actual_loss);
+            self.actual_loss.write().replace(actual_loss);
+        } else {
+            self.loss_calc.write().update_params(their_hrfn, their_trf);
+        }
         self.sync()
     }
 
@@ -63,7 +76,10 @@ impl StatsCalculator {
 
     /// Get loss
     pub fn loss(&self) -> f64 {
-        self.loss_calc.read().median
+        self.actual_loss
+            .read()
+            .clone()
+            .unwrap_or_else(|| self.loss_calc.read().median)
     }
 
     /// Get loss as u8

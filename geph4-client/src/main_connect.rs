@@ -1,5 +1,5 @@
 use crate::{
-    activity::timeout_multiplier,
+    activity::{notify_activity, wait_activity},
     cache::ClientCache,
     stats::{global_sosistab_stats, GLOBAL_LOGGER},
     tunman::TunnelManager,
@@ -149,16 +149,11 @@ pub async fn main_connect(mut opt: ConnectOpt) -> anyhow::Result<()> {
         .await
         .context("cannot bind stats")?;
     let _stat: smol::Task<anyhow::Result<()>> = {
-        let tunnel_manager = tunnel_manager.clone();
         smolscale::spawn(async move {
             loop {
                 let (stat_client, _) = stat_listener.accept().await?;
-                let tunnel_manager = tunnel_manager.clone();
                 smolscale::spawn(async move {
-                    drop(
-                        async_h1::accept(stat_client, |req| handle_stats(&tunnel_manager, req))
-                            .await,
-                    );
+                    drop(async_h1::accept(stat_client, handle_stats).await);
                 })
                 .detach();
             }
@@ -202,13 +197,13 @@ async fn test_china() -> surf::Result<bool> {
 async fn print_stats_loop() {
     let gather = global_sosistab_stats();
     loop {
-        smol::Timer::after(Duration::from_secs(10).mul_f64(timeout_multiplier().powf(2.0))).await;
+        wait_activity().await;
         log::info!(
-            "** STATS **: smooth_ping = {:.2}; total_recv = {:.2} KB; total_sent = {:.2} KB",
+            "** STATS **: smooth_ping = {:.2}; recv_loss = {:.2}%",
             gather.get_last("smooth_ping").unwrap_or_default() * 1000.0,
-            gather.get_last("total_recv_bytes").unwrap_or_default() / 1024.0,
-            gather.get_last("total_sent_bytes").unwrap_or_default() / 1024.0,
-        )
+            gather.get_last("recv_loss").unwrap_or_default() * 100.0
+        );
+        smol::Timer::after(Duration::from_secs(3)).await;
     }
 }
 
@@ -250,10 +245,7 @@ async fn run_logger(mut file: smol::fs::File) {
 }
 
 /// Handles requests for the debug pack, proxy information, program termination, and general statistics
-async fn handle_stats(
-    tunnel_manager: &TunnelManager,
-    _req: http_types::Request,
-) -> http_types::Result<http_types::Response> {
+async fn handle_stats(_req: http_types::Request) -> http_types::Result<http_types::Response> {
     let mut res = http_types::Response::new(http_types::StatusCode::Ok);
     match _req.url().path() {
         "/proxy.pac" => {
@@ -289,6 +281,10 @@ async fn handle_stats(
             stats.insert(
                 "latency".into(),
                 gather.get_last("raw_ping").unwrap_or_default(),
+            );
+            stats.insert(
+                "loss".into(),
+                gather.get_last("recv_loss").unwrap_or_default(),
             );
             res.set_body(serde_json::to_string(&stats)?);
             res.set_content_type(http_types::mime::JSON);
@@ -346,8 +342,12 @@ async fn handle_socks5(
     } else {
         let conn = tunnel_manager.connect(&addr).await?;
         smol::future::race(
-            aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| {}),
-            aioutils::copy_with_stats(s5client, conn, |_| {}),
+            aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| {
+                notify_activity();
+            }),
+            aioutils::copy_with_stats(s5client, conn, |_| {
+                notify_activity();
+            }),
         )
         .await?;
     }

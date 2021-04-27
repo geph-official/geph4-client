@@ -8,13 +8,15 @@ use crate::{
 };
 use bytes::Bytes;
 use cached::{Cached, SizedCache};
+use parking_lot::Mutex;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::stats::StatsCalculator;
+use super::{rloss::RecvLossCalc, stats::StatsCalculator};
 
 /// I/O-free receiving machine.
 pub(crate) struct RecvMachine {
     oob_decoder: OobDecoder,
+    rloss: Arc<Mutex<RecvLossCalc>>,
     recv_crypt: NgAead,
     replay_filter: ReplayFilter,
     ping_calc: Arc<StatsCalculator>,
@@ -24,7 +26,7 @@ impl RecvMachine {
     /// Creates a new machine based on a version and a down decrypter.
     pub fn new(
         calculator: Arc<StatsCalculator>,
-        version: u64,
+        rloss: Arc<Mutex<RecvLossCalc>>,
         session_key: &[u8],
         direction: Role,
     ) -> Self {
@@ -36,6 +38,7 @@ impl RecvMachine {
 
         Self {
             oob_decoder: OobDecoder::new(100),
+            rloss,
             recv_crypt,
             replay_filter: ReplayFilter::default(),
             ping_calc: calculator,
@@ -51,28 +54,43 @@ impl RecvMachine {
         let plain_frame = self.recv_crypt.decrypt(packet)?;
         let v2frame = DataFrameV2::depad(&plain_frame);
         match v2frame {
-            Some(DataFrameV2::Data {
-                frame_no,
-                high_recv_frame_no,
-                total_recv_frames,
-                body,
-            }) => {
+            Some((
+                DataFrameV2::Data {
+                    frame_no,
+                    high_recv_frame_no,
+                    total_recv_frames,
+                    body,
+                },
+                loss_rate,
+            )) => {
                 if !self.replay_filter.add(frame_no) {
                     return Ok(None);
                 }
-                self.ping_calc
-                    .incoming(frame_no, high_recv_frame_no, total_recv_frames);
+                self.rloss.lock().record(frame_no);
+                self.ping_calc.incoming(
+                    frame_no,
+                    high_recv_frame_no,
+                    total_recv_frames,
+                    if loss_rate != 0xff {
+                        Some((loss_rate as f64) / 255.0)
+                    } else {
+                        None
+                    },
+                );
                 self.oob_decoder.insert_data(frame_no, body.clone());
                 Ok(Some(smallvec::smallvec![body]))
             }
-            Some(DataFrameV2::Parity {
-                data_frame_first,
-                data_count,
-                parity_count,
-                parity_index,
-                pad_size,
-                body,
-            }) => {
+            Some((
+                DataFrameV2::Parity {
+                    data_frame_first,
+                    data_count,
+                    parity_count,
+                    parity_index,
+                    pad_size,
+                    body,
+                },
+                _,
+            )) => {
                 let res = self.oob_decoder.insert_parity(
                     ParitySpaceKey {
                         first_data: data_frame_first,

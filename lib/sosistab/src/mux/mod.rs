@@ -1,14 +1,11 @@
 use crate::*;
 use bytes::Bytes;
-use parking_lot::RwLock;
 use smol::channel::{Receiver, Sender};
-use std::{ops::Deref, sync::Arc};
+use std::sync::Arc;
 mod multiplex_actor;
 mod relconn;
 mod structs;
 pub use relconn::RelConn;
-
-use self::structs::Message;
 
 /// A multiplex session over a sosistab session, implementing both reliable "streams" and unreliable messages.
 pub struct Multiplex {

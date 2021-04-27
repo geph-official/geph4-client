@@ -1,9 +1,5 @@
-use crate::vpn::run_vpn;
-use crate::{
-    activity::{notify_activity, timeout_multiplier},
-    cache::ClientCache,
-    main_connect::ConnectOpt,
-};
+use crate::{activity::notify_activity, cache::ClientCache, main_connect::ConnectOpt};
+use crate::{activity::wait_activity, vpn::run_vpn};
 use anyhow::Context;
 use binder_transport::ExitDescriptor;
 use getsess::get_session;
@@ -79,10 +75,12 @@ async fn tunnel_actor_once(
     let exit_info = get_closest_exit(cfg.exit_server.clone(), &ccache).await?;
 
     let protosess = if cfg.use_tcp {
-        get_session(&exit_info, &ccache, cfg.use_bridges, true).await?
+        get_session(&exit_info, &ccache, cfg.use_bridges, true, None).await?
     } else {
-        get_session(&exit_info, &ccache, cfg.use_bridges, false).await?
+        get_session(&exit_info, &ccache, cfg.use_bridges, false, None).await?
     };
+
+    let protosess_remaddr = protosess.remote_addr();
 
     let tunnel_mux = Arc::new(protosess.multiplex());
 
@@ -106,6 +104,7 @@ async fn tunnel_actor_once(
     let rerouter_fut = rerouter_loop(
         &tunnel_mux,
         &exit_info,
+        protosess_remaddr,
         &ccache,
         cfg.use_bridges,
         cfg.use_tcp,
@@ -186,7 +185,7 @@ async fn get_closest_exit(
 
 async fn watchdog_loop(tunnel_mux: Arc<Multiplex>) {
     loop {
-        smol::Timer::after(Duration::from_secs(10).mul_f64(timeout_multiplier())).await;
+        wait_activity().await;
         if tunnel_mux
             .open_conn(None)
             .timeout(Duration::from_secs(60))
@@ -195,6 +194,7 @@ async fn watchdog_loop(tunnel_mux: Arc<Multiplex>) {
         {
             log::warn!("watchdog conn failed!");
         }
+        smol::Timer::after(Duration::from_secs(60)).await;
     }
 }
 

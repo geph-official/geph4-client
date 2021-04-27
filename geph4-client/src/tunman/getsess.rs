@@ -13,6 +13,7 @@ pub async fn get_session(
     ccache: &ClientCache,
     use_bridges: bool,
     use_tcp: bool,
+    privileged: Option<SocketAddr>,
 ) -> anyhow::Result<ProtoSession> {
     let bridge_sess_async = async {
         let bridges = ccache
@@ -31,6 +32,11 @@ pub async fn get_session(
             .map(|desc| {
                 let send = send.clone();
                 smolscale::spawn(async move {
+                    if let Some(privileged) = privileged {
+                        if desc.endpoint != privileged {
+                            smol::Timer::after(Duration::from_secs(2)).await;
+                        }
+                    }
                     log::debug!("connecting through {}...", desc.endpoint);
                     let res = async {
                         if !use_tcp {

@@ -39,7 +39,7 @@ pub async fn transparent_proxy_helper(ctx: Arc<RootCtx>) -> anyhow::Result<()> {
     loop {
         let (client, _) = listener.accept().await.unwrap();
         let ctx = ctx.clone();
-        let rate_limit = Arc::new(RateLimiter::new(12500));
+        let rate_limit = Arc::new(RateLimiter::unlimited());
         let conn_task = smolscale::spawn(
             async move {
                 let client_fd = client.as_raw_fd();
