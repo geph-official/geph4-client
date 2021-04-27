@@ -5,7 +5,8 @@ use std::{
 };
 
 use super::SessCtx;
-use crate::{connect::proxy_loop, vpn::handle_vpn_session};
+use crate::{connect::proxy_loop, ratelimit::RateLimiter, vpn::handle_vpn_session};
+use anyhow::Context;
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse};
 
 use futures_util::TryFutureExt;
@@ -31,7 +32,7 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
         .timeout(Duration::from_secs(300))
         .await
         .ok_or_else(|| anyhow::anyhow!("first packet timeout"))?
-        .ok_or_else(|| anyhow::anyhow!("first packet failed"))?;
+        .context("first packet failed")?;
     if first_pkt.len() != 32 {
         log::warn!("first packet not 32 bytes long, falling back to legacy");
     } else {
@@ -57,12 +58,18 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
         is_plus,
         root.raw_session_count.load(Ordering::Relaxed)
     );
-    if !is_plus {
+
+    // TODO: ENFORCE RATE LIMIT
+    let rate_limit = if !is_plus {
         if root.free_limit == 0 {
             anyhow::bail!("not accepting free users here")
+        } else {
+            RateLimiter::new(root.free_limit)
         }
-        sess.get_session().set_ratelimit(root.free_limit);
-    }
+    } else {
+        RateLimiter::unlimited()
+    };
+    let rate_limit = Arc::new(rate_limit);
 
     // we register an entry into the session replace table
     let sess_replace_key: [u8; 32] = rand::random();
@@ -107,11 +114,17 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
     let proxy_loop = {
         let root = root.clone();
         let sess = sess.clone();
+        let rate_limit = rate_limit.clone();
         async move {
             loop {
-                let mut client = sess.accept_conn().await?;
+                let mut client = sess
+                    .accept_conn()
+                    .timeout(Duration::from_secs(3600))
+                    .await
+                    .ok_or_else(|| anyhow::anyhow!("accept timeout"))??;
                 let send_sess_alive = send_sess_alive.clone();
                 let root = root.clone();
+                let rate_limit = rate_limit.clone();
                 smolscale::spawn(
                     async move {
                         let _ = send_sess_alive.try_send(());
@@ -121,7 +134,7 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
                                 // return the ID of this mux
                                 client.write_all(&sess_replace_key).await?;
                             }
-                            _ => proxy_loop(root, client, addr, true).await?,
+                            _ => proxy_loop(root, rate_limit, client, addr, true).await?,
                         }
                         Ok(())
                     }
@@ -133,6 +146,7 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
     };
     let vpn_loop = handle_vpn_session(
         sess.clone(),
+        rate_limit.clone(),
         root.exit_hostname.clone(),
         root.stat_client.clone(),
         root.port_whitelist,
@@ -141,10 +155,7 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
     let sess_replace_loop = async {
         loop {
             let new_sess = recv_sess_replace.recv().await?;
-            if !is_plus {
-                new_sess.set_ratelimit(root.free_limit);
-            }
-            sess.replace_session(new_sess);
+            sess.replace_session(new_sess).await;
         }
     };
 

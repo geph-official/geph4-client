@@ -1,11 +1,8 @@
-use crate::{
-    crypt::{self, LegacyAead, NgAead},
-    protocol, runtime, Backhaul, Session, SessionConfig,
-};
+use crate::crypt;
+use crate::{protocol, runtime, Backhaul, Session, SessionBack, SessionConfig, StatsGatherer};
 use bytes::Bytes;
 use governor::{Quota, RateLimiter};
 use rand::prelude::*;
-use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use std::{
     net::SocketAddr,
@@ -22,6 +19,7 @@ pub(crate) struct ClientConfig {
     pub backhaul_gen: Arc<dyn Fn() -> Arc<dyn Backhaul> + 'static + Send + Sync>,
     pub num_shards: usize,
     pub reset_interval: Option<Duration>,
+    pub gather: Arc<StatsGatherer>,
 }
 
 /// Connects to a remote server, given a closure that generates socket addresses.
@@ -74,8 +72,7 @@ pub(crate) async fn connect_custom(cfg: ClientConfig) -> std::io::Result<Session
                             }
                             let shared_sec =
                                 crypt::triple_ecdh(&my_long_sk, &my_eph_sk, &long_pk, &eph_pk);
-                            return init_session(cookie, resume_token, shared_sec, cfg.clone())
-                                .await;
+                            return Ok(init_session(cookie, resume_token, shared_sec, cfg.clone()));
                         }
                     }
                 }
@@ -97,47 +94,38 @@ pub(crate) async fn connect_custom(cfg: ClientConfig) -> std::io::Result<Session
 }
 const VERSION: u64 = 3;
 
-async fn init_session(
+fn init_session(
     cookie: crypt::Cookie,
     resume_token: Bytes,
     shared_sec: blake3::Hash,
     cfg: ClientConfig,
-) -> std::io::Result<Session> {
+) -> Session {
     let remind_ratelimit = Arc::new(RateLimiter::direct(Quota::per_second(
         NonZeroU32::new(3).unwrap(),
     )));
-    let (send_frame_out, recv_frame_out) = smol::channel::bounded(5000);
-    let (send_frame_in, recv_frame_in) = smol::channel::bounded(5000);
+    let (mut session, back) = Session::new(SessionConfig {
+        version: VERSION,
+        gather: cfg.gather.clone(),
+        session_key: shared_sec.as_bytes().to_vec(),
+        role: crate::Role::Client,
+    });
+    let back = Arc::new(back);
     let backhaul_tasks: Vec<_> = (0..cfg.num_shards)
         .map(|i| {
             runtime::spawn(client_backhaul_once(
                 remind_ratelimit.clone(),
                 cookie.clone(),
                 resume_token.clone(),
-                send_frame_in.clone(),
-                recv_frame_out.clone(),
+                back.clone(),
                 i as u8,
                 cfg.clone(),
             ))
         })
         .collect();
-    let up_key = blake3::keyed_hash(crypt::UP_KEY, shared_sec.as_bytes());
-    let dn_key = blake3::keyed_hash(crypt::DN_KEY, shared_sec.as_bytes());
-    let mut session = Session::new(SessionConfig {
-        send_packet: send_frame_out,
-        recv_packet: recv_frame_in,
-        send_crypt_legacy: LegacyAead::new(up_key.as_bytes()),
-        recv_crypt_legacy: LegacyAead::new(dn_key.as_bytes()),
-        send_crypt_ng: NgAead::new(up_key.as_bytes()),
-        recv_crypt_ng: NgAead::new(dn_key.as_bytes()),
-        recv_timeout: Duration::from_secs(300),
-        statistics: 8000,
-        version: VERSION,
-    });
     session.on_drop(move || {
         drop(backhaul_tasks);
     });
-    Ok(session)
+    session
 }
 
 #[allow(clippy::all)]
@@ -151,8 +139,7 @@ async fn client_backhaul_once(
     >,
     cookie: crypt::Cookie,
     resume_token: Bytes,
-    send_packet_in: Sender<Bytes>,
-    recv_packet_out: Receiver<Bytes>,
+    session_back: Arc<SessionBack>,
     shard_id: u8,
     cfg: ClientConfig,
 ) -> Option<()> {
@@ -180,14 +167,14 @@ async fn client_backhaul_once(
             }
         };
         let up = async {
-            let raw_upload = recv_packet_out.recv().await.ok()?;
+            let raw_upload = session_back.next_outgoing().await.ok()?;
             Some(Evt::Outgoing(raw_upload))
         };
 
         match smol::future::race(down, up).await {
             Some(Evt::Incoming(bts)) => {
                 for bts in bts {
-                    let _ = send_packet_in.try_send(bts);
+                    let _ = session_back.inject_incoming(&bts);
                 }
             }
             Some(Evt::Outgoing(bts)) => {
@@ -205,14 +192,14 @@ async fn client_backhaul_once(
                             last_reset = now;
                             // also replace the UDP socket!
                             let old_socket = socket.clone();
-                            let send_packet_in = send_packet_in.clone();
+                            let session_back = session_back.clone();
                             // spawn a task to clean up the UDP socket
                             let tata: smol::Task<Option<()>> = runtime::spawn(
                                 async move {
                                     loop {
                                         let bufs = old_socket.recv_from_many().await.ok()?;
                                         for (buf, _) in bufs {
-                                            drop(send_packet_in.send(buf).await)
+                                            drop(session_back.inject_incoming(&buf))
                                         }
                                     }
                                 }

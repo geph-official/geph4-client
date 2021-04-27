@@ -1,15 +1,21 @@
 use crate::{
-    activity::notify_activity, cache::ClientCache, plots::stat_derive, stats::StatCollector,
-    tunman::TunnelManager, AuthOpt, CommonOpt,
+    activity::{notify_activity, wait_activity},
+    cache::ClientCache,
+    stats::{global_sosistab_stats, GLOBAL_LOGGER},
+    tunman::TunnelManager,
+    AuthOpt, CommonOpt,
 };
-use crate::{china, stats::GLOBAL_LOGGER};
+use crate::{china, plots::stat_derive};
 use anyhow::Context;
 use async_compat::Compat;
 use async_net::IpAddr;
 use china::is_chinese_ip;
-use chrono::prelude::*;
+use smol::prelude::*;
 use smol_timeout::TimeoutExt;
-use std::{net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeMap, net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, path::PathBuf,
+    sync::Arc, time::Duration,
+};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt, Clone)]
@@ -65,11 +71,27 @@ pub struct ConnectOpt {
     #[structopt(long)]
     /// SSH-style local-remote port forwarding. For example, "0.0.0.0:8888:::example.com:22" will forward local port 8888 to example.com:22. Must be in form host:port:::host:port! May have multiple ones.
     forward_ports: Vec<String>,
+
+    #[structopt(long)]
+    /// Where to store a log file.
+    log_file: Option<PathBuf>,
 }
 
 /// Main function for `connect` subcommand
 pub async fn main_connect(mut opt: ConnectOpt) -> anyhow::Result<()> {
+    // Register the logger first
+    let _logger = if let Some(log_file) = &opt.log_file {
+        let log_file = smol::fs::File::create(log_file)
+            .await
+            .context("cannot create log file")?;
+        Some(smolscale::spawn(run_logger(log_file)))
+    } else {
+        None
+    };
+
     log::info!("connect mode started");
+
+    let _stats = smolscale::spawn(print_stats_loop());
 
     // Test china
     let is_china = test_china().await;
@@ -97,13 +119,11 @@ pub async fn main_connect(mut opt: ConnectOpt) -> anyhow::Result<()> {
         addr
     })));
 
-    let stat_collector = Arc::new(StatCollector::default());
     // Create a database directory if doesn't exist
     let client_cache =
         ClientCache::from_opts(&opt.common, &opt.auth).context("cannot create ClientCache")?;
     // Create a tunnel_manager
-    let tunnel_manager =
-        TunnelManager::new(stat_collector.clone(), opt.clone(), Arc::new(client_cache));
+    let tunnel_manager = TunnelManager::new(opt.clone(), Arc::new(client_cache));
     // Start port forwarders
     let _port_forwarders: Vec<_> = opt
         .forward_ports
@@ -128,22 +148,12 @@ pub async fn main_connect(mut opt: ConnectOpt) -> anyhow::Result<()> {
     let stat_listener = smol::net::TcpListener::bind(opt.stats_listen)
         .await
         .context("cannot bind stats")?;
-    let scollect = stat_collector.clone();
-
     let _stat: smol::Task<anyhow::Result<()>> = {
-        let tunnel_manager = tunnel_manager.clone();
         smolscale::spawn(async move {
             loop {
                 let (stat_client, _) = stat_listener.accept().await?;
-                let scollect = scollect.clone();
-                let tunnel_manager = tunnel_manager.clone();
                 smolscale::spawn(async move {
-                    drop(
-                        async_h1::accept(stat_client, |req| {
-                            handle_stats(scollect.clone(), &tunnel_manager, req)
-                        })
-                        .await,
-                    );
+                    drop(async_h1::accept(stat_client, handle_stats).await);
                 })
                 .detach();
             }
@@ -163,11 +173,8 @@ pub async fn main_connect(mut opt: ConnectOpt) -> anyhow::Result<()> {
             .await
             .context("cannot accept socks5")?;
         let tunnel_manager = tunnel_manager.clone();
-        let stat_collector = stat_collector.clone();
-        smolscale::spawn(async move {
-            handle_socks5(stat_collector, s5client, &tunnel_manager, exclude_prc).await
-        })
-        .detach()
+        smolscale::spawn(async move { handle_socks5(s5client, &tunnel_manager, exclude_prc).await })
+            .detach()
     }
 }
 
@@ -175,7 +182,7 @@ pub async fn main_connect(mut opt: ConnectOpt) -> anyhow::Result<()> {
 async fn test_china() -> surf::Result<bool> {
     let response = surf::get("http://checkip.amazonaws.com")
         .recv_string()
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(5))
         .await
         .ok_or_else(|| anyhow::anyhow!("checkip timeout"))??;
     let response = response.trim();
@@ -186,6 +193,21 @@ async fn test_china() -> surf::Result<bool> {
     }
 }
 
+/// Prints stats in a loop.
+async fn print_stats_loop() {
+    let gather = global_sosistab_stats();
+    loop {
+        wait_activity().await;
+        log::info!(
+            "** STATS **: smooth_ping = {:.2}; recv_loss = {:.2}%",
+            gather.get_last("smooth_ping").unwrap_or_default() * 1000.0,
+            gather.get_last("recv_loss").unwrap_or_default() * 100.0
+        );
+        smol::Timer::after(Duration::from_secs(3)).await;
+    }
+}
+
+/// Forwards ports using a particular description.
 async fn port_forwarder(tunnel_manager: TunnelManager, desc: String) {
     let exploded = desc.split(":::").collect::<Vec<_>>();
     let listen_addr: SocketAddr = exploded[0].parse().expect("invalid port forwarding syntax");
@@ -209,95 +231,33 @@ async fn port_forwarder(tunnel_manager: TunnelManager, desc: String) {
     }
 }
 
-use std::io::prelude::*;
+/// Runs a logger that writes to a particular file.
+async fn run_logger(mut file: smol::fs::File) {
+    let (send, recv) = smol::channel::unbounded();
+    *GLOBAL_LOGGER.lock() = Some(send);
+    loop {
+        let log_line = recv.recv().await.unwrap();
+        file.write_all(format!("{}\n", log_line).as_bytes())
+            .await
+            .unwrap();
+        file.flush().await.unwrap();
+    }
+}
 
 /// Handles requests for the debug pack, proxy information, program termination, and general statistics
-async fn handle_stats(
-    stats: Arc<StatCollector>,
-    tunnel_manager: &TunnelManager,
-    _req: http_types::Request,
-) -> http_types::Result<http_types::Response> {
+async fn handle_stats(_req: http_types::Request) -> http_types::Result<http_types::Response> {
     let mut res = http_types::Response::new(http_types::StatusCode::Ok);
     match _req.url().path() {
-        "/debugpack" => {
-            // Form a tar from the logs and sosistab trace
-            let tar_buffer = Vec::new();
-            let mut tar_build = tar::Builder::new(tar_buffer);
-            let mut logs_buffer = Vec::new();
-            {
-                let logs = GLOBAL_LOGGER.read();
-                for line in logs.iter() {
-                    writeln!(logs_buffer, "{}", line)?;
-                }
-            }
-            // Obtain sosistab trace
-            let detail = tunnel_manager
-                .get_stats()
-                .timeout(Duration::from_secs(1))
-                .await;
-            if let Some(detail) = detail {
-                let detail = detail?;
-                let mut sosistab_buf = Vec::new();
-                writeln!(sosistab_buf, "time,last_recv,total_recv,total_loss,ping")?;
-                if let Some(first) = detail.get(0) {
-                    let first_time = first.time;
-                    for item in detail.iter() {
-                        writeln!(
-                            sosistab_buf,
-                            "{},{},{},{},{}",
-                            item.time
-                                .duration_since(first_time)
-                                .unwrap_or_default()
-                                .as_secs_f64(),
-                            item.high_recv,
-                            item.total_recv,
-                            item.total_loss,
-                            item.smooth_ping,
-                        )?;
-                    }
-                }
-                let mut sosis_header = tar::Header::new_gnu();
-                sosis_header.set_mode(0o666);
-                sosis_header.set_size(sosistab_buf.len() as u64);
-                tar_build.append_data(
-                    &mut sosis_header,
-                    "sosistab-trace.csv",
-                    sosistab_buf.as_slice(),
-                )?;
-            }
-            let mut logs_header = tar::Header::new_gnu();
-            logs_header.set_mode(0o666);
-            logs_header.set_size(logs_buffer.len() as u64);
-            tar_build.append_data(&mut logs_header, "logs.txt", logs_buffer.as_slice())?;
-            let result = tar_build.into_inner()?;
-            res.insert_header("content-type", "application/tar");
-            res.insert_header(
-                "content-disposition",
-                format!(
-                    "attachment; filename=\"geph4-debug-{}.tar\"",
-                    Local::now().to_rfc3339()
-                ),
-            );
-            res.set_body(result);
-            Ok(res)
-        }
         "/proxy.pac" => {
             // Serves a Proxy Auto-Configuration file
             res.set_body("function FindProxyForURL(url, host){return 'PROXY 127.0.0.1:9910';}");
             Ok(res)
         }
-        "/rawstats" => {
-            // Serves all the stats as json
-            let detail = tunnel_manager.get_stats().await?;
-            res.set_body(serde_json::to_string(&detail)?);
-            res.set_content_type(http_types::mime::JSON);
-            Ok(res)
-        }
+        "/rawstats" => Ok(res),
         "/deltastats" => {
             // Serves all the delta stats as json
-            let detail = tunnel_manager.get_stats().await?;
             let body_str = smol::unblock(move || {
-                let detail = stat_derive(&detail);
+                let detail = stat_derive();
                 serde_json::to_string(&detail)
             })
             .await?;
@@ -307,30 +267,26 @@ async fn handle_stats(
         }
         "/kill" => std::process::exit(0),
         _ => {
-            // Serves general statistics
-            let detail = tunnel_manager
-                .get_stats()
-                .timeout(Duration::from_millis(100))
-                .await;
-            if let Some(Ok(details)) = detail {
-                if let Some(detail) = details.last() {
-                    stats.set_latency(detail.smooth_ping);
-                    // Compute loss
-                    let midpoint_stat = &details[details.len() / 2];
-                    let delta_high = detail
-                        .high_recv
-                        .saturating_sub(midpoint_stat.high_recv)
-                        .max(1) as f64;
-                    let delta_total = detail
-                        .total_recv
-                        .saturating_sub(midpoint_stat.total_recv)
-                        .max(1) as f64;
-                    let loss = 1.0 - (delta_total / delta_high).min(1.0).max(0.0);
-                    stats.set_loss(loss * 100.0)
-                }
-            }
-            let jstats = serde_json::to_string(&stats)?;
-            res.set_body(jstats);
+            // Serves all the stats as json
+            let gather = global_sosistab_stats();
+            let mut stats: BTreeMap<String, f32> = BTreeMap::new();
+            stats.insert(
+                "total_tx".into(),
+                gather.get_last("total_sent_bytes").unwrap_or_default(),
+            );
+            stats.insert(
+                "total_rx".into(),
+                gather.get_last("total_recv_bytes").unwrap_or_default(),
+            );
+            stats.insert(
+                "latency".into(),
+                gather.get_last("smooth_ping").unwrap_or_default(),
+            );
+            stats.insert(
+                "loss".into(),
+                gather.get_last("recv_loss").unwrap_or_default(),
+            );
+            res.set_body(serde_json::to_string(&stats)?);
             res.set_content_type(http_types::mime::JSON);
             Ok(res)
         }
@@ -339,7 +295,6 @@ async fn handle_stats(
 
 /// Handles a socks5 client from localhost
 async fn handle_socks5(
-    stats: Arc<StatCollector>,
     s5client: smol::net::TcpStream,
     tunnel_manager: &TunnelManager,
     exclude_prc: bool,
@@ -387,12 +342,11 @@ async fn handle_socks5(
     } else {
         let conn = tunnel_manager.connect(&addr).await?;
         smol::future::race(
-            aioutils::copy_with_stats(conn.clone(), s5client.clone(), |n| {
-                stats.incr_total_rx(n as u64)
-            }),
-            aioutils::copy_with_stats(s5client, conn, |n| {
+            aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| {
                 notify_activity();
-                stats.incr_total_tx(n as u64)
+            }),
+            aioutils::copy_with_stats(s5client, conn, |_| {
+                notify_activity();
             }),
         )
         .await?;

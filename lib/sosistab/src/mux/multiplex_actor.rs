@@ -5,7 +5,7 @@ use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use std::sync::Arc;
 
-use crate::{runtime, RelConn, Session};
+use crate::{runtime, safe_deserialize, RelConn, Session};
 
 use super::{
     relconn::{RelConnBack, RelConnState},
@@ -14,6 +14,7 @@ use super::{
 
 pub async fn multiplex(
     recv_session: Receiver<Arc<Session>>,
+    urel_send_recv: Receiver<Bytes>,
     urel_recv_send: Sender<Bytes>,
     conn_open_recv: Receiver<(Option<String>, Sender<RelConn>)>,
     conn_accept_send: Sender<RelConn>,
@@ -33,7 +34,6 @@ pub async fn multiplex(
     }
 
     loop {
-        smol::future::yield_now().await;
         // fires on session replacement
         let sess_replace = async {
             let new_session = recv_session.recv().await?;
@@ -41,18 +41,20 @@ pub async fn multiplex(
         };
         // fires on receiving messages
         let recv_msg = async {
-            let msg = session
-                .recv_bytes()
-                .await
-                .ok_or_else(|| anyhow::anyhow!("underlying session is dead"))?;
-            let msg = bincode::deserialize::<Message>(&msg);
+            let msg = session.recv_bytes().await?;
+            let msg = safe_deserialize(&msg);
             if let Ok(msg) = msg {
                 Ok::<_, anyhow::Error>(Event::RecvMsg(msg))
             } else {
-                tracing::warn!("error receiving message from sess");
+                tracing::trace!("unrecognizable message from sess");
                 // In this case, we echo back an empty packet.
                 Ok(Event::SendMsg(Message::Empty))
             }
+        };
+        // fires on sending urel
+        let send_urel = async {
+            let msg = urel_send_recv.recv().await?;
+            Ok(Event::SendMsg(Message::Urel(msg)))
         };
         // fires on sending messages
         let send_msg = async {
@@ -71,7 +73,7 @@ pub async fn multiplex(
         };
         // match on the event
         match conn_open
-            .or(recv_msg.or(send_msg.or(sess_replace.or(death))))
+            .or(recv_msg.or(send_urel.or(send_msg.or(sess_replace.or(death)))))
             .await?
         {
             Event::SessionReplace(new_sess) => session = new_sess,
@@ -127,7 +129,7 @@ pub async fn multiplex(
             }
             Event::SendMsg(msg) => {
                 let msg = bincode::serialize(&msg).unwrap();
-                session.send_bytes(msg.into());
+                session.send_bytes(msg.into()).await?;
             }
             Event::RecvMsg(msg) => {
                 match msg {
@@ -147,16 +149,18 @@ pub async fn multiplex(
                     } => {
                         if conn_tab.get_stream(stream_id).is_some() {
                             tracing::trace!("syn recv {} REACCEPT", stream_id);
-                            session.send_bytes(
-                                bincode::serialize(&Message::Rel {
-                                    kind: RelKind::SynAck,
-                                    stream_id,
-                                    seqno: 0,
-                                    payload: Bytes::new(),
-                                })
-                                .unwrap()
-                                .into(),
-                            );
+                            session
+                                .send_bytes(
+                                    bincode::serialize(&Message::Rel {
+                                        kind: RelKind::SynAck,
+                                        stream_id,
+                                        seqno: 0,
+                                        payload: Bytes::new(),
+                                    })
+                                    .unwrap()
+                                    .into(),
+                                )
+                                .await?;
                         } else {
                             let dead_send = dead_send.clone();
                             tracing::trace!("syn recv {} ACCEPT", stream_id);
@@ -185,16 +189,18 @@ pub async fn multiplex(
                         } else {
                             tracing::trace!("discarding {:?} to nonexistent {}", kind, stream_id);
                             if kind != RelKind::Rst {
-                                session.send_bytes(
-                                    bincode::serialize(&Message::Rel {
-                                        kind: RelKind::Rst,
-                                        stream_id,
-                                        seqno: 0,
-                                        payload: Bytes::new(),
-                                    })
-                                    .unwrap()
-                                    .into(),
-                                );
+                                session
+                                    .send_bytes(
+                                        bincode::serialize(&Message::Rel {
+                                            kind: RelKind::Rst,
+                                            stream_id,
+                                            seqno: 0,
+                                            payload: Bytes::new(),
+                                        })
+                                        .unwrap()
+                                        .into(),
+                                    )
+                                    .await?;
                             }
                         }
                     }

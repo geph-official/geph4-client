@@ -180,7 +180,7 @@ impl Backhaul for TcpClientBackhaul {
         .await;
 
         if let Err(err) = res {
-            tracing::warn!("error in TcpClientBackhaul: {:?}", err);
+            tracing::debug!("error in TcpClientBackhaul: {:?}", err);
         }
 
         Ok(())

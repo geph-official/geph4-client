@@ -1,6 +1,6 @@
 [package]
 name = "geph4-client"
-version = "4.3.2"
+version = "4.4.0"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2018"
 
@@ -54,6 +54,7 @@ socks2http={path="../lib/socks2http-rs"}
 async-compat="0.2"
 im="15"
 surf={version="2.2.0", features=["h1-client-rustls"], default-features=false}
+event-listener="2.5.1"
 
 [dependencies.async-tls]
 version = "0.11.0"

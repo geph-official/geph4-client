@@ -1,4 +1,4 @@
-use crate::cache::ClientCache;
+use crate::{cache::ClientCache, stats::global_sosistab_stats};
 use anyhow::Context;
 use async_net::SocketAddr;
 use binder_transport::ExitDescriptor;
@@ -13,6 +13,7 @@ pub async fn get_session(
     ccache: &ClientCache,
     use_bridges: bool,
     use_tcp: bool,
+    privileged: Option<SocketAddr>,
 ) -> anyhow::Result<ProtoSession> {
     let bridge_sess_async = async {
         let bridges = ccache
@@ -31,16 +32,35 @@ pub async fn get_session(
             .map(|desc| {
                 let send = send.clone();
                 smolscale::spawn(async move {
+                    if let Some(privileged) = privileged {
+                        if desc.endpoint != privileged {
+                            smol::Timer::after(Duration::from_secs(2)).await;
+                        }
+                    }
                     log::debug!("connecting through {}...", desc.endpoint);
                     let res = async {
                         if !use_tcp {
                             for _ in 0u8..3 {
-                                let _ =
-                                    sosistab::connect_udp(desc.endpoint, desc.sosistab_key).await;
+                                let _ = sosistab::connect_udp(
+                                    desc.endpoint,
+                                    desc.sosistab_key,
+                                    global_sosistab_stats(),
+                                )
+                                .await;
                             }
-                            sosistab::connect_udp(desc.endpoint, desc.sosistab_key).await
+                            sosistab::connect_udp(
+                                desc.endpoint,
+                                desc.sosistab_key,
+                                global_sosistab_stats(),
+                            )
+                            .await
                         } else {
-                            sosistab::connect_tcp(desc.endpoint, desc.sosistab_key).await
+                            sosistab::connect_tcp(
+                                desc.endpoint,
+                                desc.sosistab_key,
+                                global_sosistab_stats(),
+                            )
+                            .await
                         }
                     }
                     .timeout(Duration::from_secs(10))
@@ -79,9 +99,19 @@ pub async fn get_session(
 
                     Ok((
                         if use_tcp {
-                            sosistab::connect_tcp(server_addr, exit_info.sosistab_key).await?
+                            sosistab::connect_tcp(
+                                server_addr,
+                                exit_info.sosistab_key,
+                                global_sosistab_stats(),
+                            )
+                            .await?
                         } else {
-                            sosistab::connect_udp(server_addr, exit_info.sosistab_key).await?
+                            sosistab::connect_udp(
+                                server_addr,
+                                exit_info.sosistab_key,
+                                global_sosistab_stats(),
+                            )
+                            .await?
                         },
                         server_addr,
                     ))
@@ -136,7 +166,7 @@ impl ProtoSession {
         // Then we repeatedly spam the ID on the inner session until we receive one packet (which we assume to be a data packet from the successfully hijacked multiplex)
         let spam_loop = async {
             loop {
-                self.inner.send_bytes(other_id.to_vec().into());
+                self.inner.send_bytes(other_id.to_vec().into()).await?;
                 smol::Timer::after(Duration::from_secs(1)).await;
             }
         };
@@ -146,7 +176,7 @@ impl ProtoSession {
                     .inner
                     .recv_bytes()
                     .await
-                    .ok_or_else(|| anyhow::anyhow!("inner session failed in hijack"))?;
+                    .context("inner session failed in hijack")?;
                 log::debug!(
                     "finished hijack of other_id = {} with downstream data of {}!",
                     hex::encode(&other_id[..5]),
@@ -155,7 +185,7 @@ impl ProtoSession {
                 Ok::<_, anyhow::Error>(())
             })
             .await?;
-        other_mplex.replace_session(self.inner);
+        other_mplex.replace_session(self.inner).await;
         Ok(())
     }
 }

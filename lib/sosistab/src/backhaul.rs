@@ -119,7 +119,7 @@ impl Backhaul for Async<UdpSocket> {
         }
         // non-blocking
         self.write_with(|sock| {
-            tracing::debug!("send_to_many({})", to_send.len());
+            tracing::trace!("send_to_many({})", to_send.len());
             let fd: RawFd = sock.as_raw_fd();
             let iov: Vec<[IoVec<&[u8]>; 1]> = to_send
                 .iter()

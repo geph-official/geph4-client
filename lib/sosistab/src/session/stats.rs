@@ -1,27 +1,65 @@
 use parking_lot::RwLock;
 use std::{
     collections::VecDeque,
-    sync::atomic::AtomicU64,
+    sync::{atomic::AtomicU64, Arc},
     time::{Duration, Instant},
 };
+
+use crate::StatsGatherer;
 /// Stat gatherer
-#[derive(Default)]
-pub struct StatGatherer {
+pub struct StatsCalculator {
     high_recv_frame_no: AtomicU64,
     total_recv_frames: AtomicU64,
+    actual_loss: RwLock<Option<f64>>,
     loss_calc: RwLock<SendLossCalc>,
     ping_calc: RwLock<PingCalc>,
+    gather: Arc<StatsGatherer>,
 }
 
-impl StatGatherer {
+impl StatsCalculator {
+    /// Creates a new StatCalculator based on a StatsGatherer.
+    pub fn new(gather: Arc<StatsGatherer>) -> Self {
+        Self {
+            high_recv_frame_no: Default::default(),
+            total_recv_frames: Default::default(),
+            actual_loss: Default::default(),
+            loss_calc: Default::default(),
+            ping_calc: Default::default(),
+            gather,
+        }
+    }
+
     /// Process an incoming dataframe.
-    pub fn incoming(&self, frame_no: u64, their_hrfn: u64, their_trf: u64) {
+    pub fn incoming(
+        &self,
+        frame_no: u64,
+        their_hrfn: u64,
+        their_trf: u64,
+        actual_loss: Option<f64>,
+    ) {
         self.high_recv_frame_no
             .fetch_max(frame_no, std::sync::atomic::Ordering::Relaxed);
         self.total_recv_frames
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         self.ping_calc.write().ack(their_hrfn);
-        self.loss_calc.write().update_params(their_hrfn, their_trf);
+        if let Some(actual_loss) = actual_loss {
+            // tracing::warn!("recording actual loss {}", actual_loss);
+            self.actual_loss.write().replace(actual_loss);
+        } else {
+            self.loss_calc.write().update_params(their_hrfn, their_trf);
+        }
+        self.sync()
+    }
+
+    fn sync(&self) {
+        self.gather
+            .update("high_recv", self.high_recv_frame_no() as f32);
+        self.gather
+            .update("total_recv", self.total_recv_frames() as f32);
+        self.gather.update("send_loss", self.loss() as f32);
+        self.gather.update("smooth_ping", self.ping().as_secs_f32());
+        self.gather
+            .update("raw_ping", self.raw_ping().as_secs_f32());
     }
 
     /// Get high recv frame no
@@ -38,7 +76,10 @@ impl StatGatherer {
 
     /// Get loss
     pub fn loss(&self) -> f64 {
-        self.loss_calc.read().median
+        self.actual_loss
+            .read()
+            .clone()
+            .unwrap_or_else(|| self.loss_calc.read().median)
     }
 
     /// Get loss as u8
@@ -87,9 +128,11 @@ impl PingCalc {
         if let Some(send_seqno) = self.send_seqno {
             if sn >= send_seqno {
                 let ping_sample = self.send_time.take().unwrap().elapsed();
-                self.pings.push_back(ping_sample);
-                if self.pings.len() > 8 {
-                    self.pings.pop_front();
+                if ping_sample.as_millis() < 800 {
+                    self.pings.push_back(ping_sample);
+                    if self.pings.len() > 8 {
+                        self.pings.pop_front();
+                    }
                 }
                 self.send_seqno = None
             }
@@ -167,43 +210,5 @@ impl SendLossCalc {
             self.last_time = now;
         }
         // self.median = (1.0 - total_seqno as f64 / top_seqno as f64).max(0.0);
-    }
-}
-
-/// A time-series that is just a vector of things that automatically decimates and compacts old data.
-#[derive(Debug)]
-pub struct TimeSeries<T: Clone> {
-    max_length: usize,
-    items: im::Vector<T>,
-}
-
-impl<T: Clone> TimeSeries<T> {
-    /// Pushes a new item into the time series.
-    pub fn push(&mut self, item: T) {
-        self.items.push_back(item);
-        if self.items.len() >= self.max_length {
-            // decimate the whole vector
-            let half_vector: im::Vector<T> = self
-                .items
-                .iter()
-                .cloned()
-                .enumerate()
-                .filter_map(|(i, v)| if i % 10 != 0 { Some(v) } else { None })
-                .collect();
-            self.items = half_vector;
-        }
-    }
-
-    /// Create a new time series with a given maximum length.
-    pub fn new(max_length: usize) -> Self {
-        Self {
-            max_length,
-            items: im::Vector::new(),
-        }
-    }
-
-    /// Get items
-    pub fn items(&self) -> &im::Vector<T> {
-        &self.items
     }
 }

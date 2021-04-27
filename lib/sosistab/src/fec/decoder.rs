@@ -33,22 +33,6 @@ impl FrameDecoder {
         }
     }
 
-    pub fn good_pkts(&self) -> usize {
-        if self.done {
-            return self.data_shards;
-        }
-        self.present
-            .iter()
-            .enumerate()
-            .map(|(i, v)| if *v && i < self.data_shards { 1 } else { 0 })
-            .sum::<usize>()
-            .min(self.data_shards)
-    }
-
-    pub fn lost_pkts(&self) -> usize {
-        self.data_shards - self.good_pkts()
-    }
-
     #[tracing::instrument(level = "trace", skip(self, pkt))]
     pub fn decode(&mut self, pkt: &[u8], pkt_idx: usize) -> Option<Vec<Bytes>> {
         // if we don't have parity shards, don't touch anything

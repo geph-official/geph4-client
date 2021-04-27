@@ -1,9 +1,5 @@
-use crate::{
-    activity::{notify_activity, timeout_multiplier},
-    cache::ClientCache,
-    main_connect::ConnectOpt,
-};
-use crate::{stats::StatCollector, vpn::run_vpn};
+use crate::{activity::notify_activity, cache::ClientCache, main_connect::ConnectOpt};
+use crate::{activity::wait_activity, vpn::run_vpn};
 use anyhow::Context;
 use binder_transport::ExitDescriptor;
 use getsess::get_session;
@@ -23,22 +19,17 @@ mod reroute;
 #[derive(Clone)]
 pub struct TunnelManager {
     open_socks5_conn: Sender<(String, Sender<sosistab::RelConn>)>,
-    get_stats: Sender<Sender<im::Vector<sosistab::SessionStat>>>,
     _task: Arc<smol::Task<anyhow::Result<()>>>,
 }
 
 impl TunnelManager {
     /// Creates a new TunnelManager
-    pub fn new(stats: Arc<StatCollector>, cfg: ConnectOpt, ccache: Arc<ClientCache>) -> Self {
+    pub fn new(cfg: ConnectOpt, ccache: Arc<ClientCache>) -> Self {
         // Sets up channels to communicate with the background task
         let (send, recv) = smol::channel::unbounded();
-        let (send_stats, recv_stats) = smol::channel::unbounded();
         TunnelManager {
             open_socks5_conn: send,
-            get_stats: send_stats,
-            _task: Arc::new(smolscale::spawn(tunnel_actor(
-                stats, cfg, ccache, recv, recv_stats,
-            ))),
+            _task: Arc::new(smolscale::spawn(tunnel_actor(cfg, ccache, recv))),
         }
     }
 
@@ -51,56 +42,45 @@ impl TunnelManager {
         Ok(recv.recv().await?)
     }
 
-    /// Gets session statistics
-    pub async fn get_stats(&self) -> anyhow::Result<im::Vector<sosistab::SessionStat>> {
-        let (send, recv) = smol::channel::bounded(1);
-        self.get_stats.send(send).await?;
-        Ok(recv.recv().await?)
-    }
+    // /// Gets session statistics
+    // pub async fn get_stats(&self) -> anyhow::Result<im::Vector<sosistab::SessionStat>> {
+    //     let (send, recv) = smol::channel::bounded(1);
+    //     self.get_stats.send(send).await?;
+    //     Ok(recv.recv().await?)
+    // }
 }
 
 /// Background task of a TunnelManager
 async fn tunnel_actor(
-    stats: Arc<StatCollector>,
     cfg: ConnectOpt,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::RelConn>)>,
-    recv_get_stats: Receiver<Sender<im::Vector<sosistab::SessionStat>>>,
 ) -> anyhow::Result<()> {
     loop {
         let cfg = cfg.clone();
         // Run until a failure happens, log the error, then restart
-        if let Err(err) = tunnel_actor_once(
-            stats.clone(),
-            cfg,
-            ccache.clone(),
-            recv_socks5_conn.clone(),
-            recv_get_stats.clone(),
-        )
-        .await
-        {
-            log::warn!("tunnel_actor restarting: {:#?}", err);
+        if let Err(err) = tunnel_actor_once(cfg, ccache.clone(), recv_socks5_conn.clone()).await {
+            log::warn!("tunnel_actor restarting: {:?}", err);
             smol::Timer::after(Duration::from_secs(1)).await;
         }
     }
 }
 
 async fn tunnel_actor_once(
-    stats: Arc<StatCollector>,
     cfg: ConnectOpt,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::RelConn>)>,
-    recv_get_stats: Receiver<Sender<im::Vector<sosistab::SessionStat>>>,
 ) -> anyhow::Result<()> {
     notify_activity();
-    stats.set_exit_descriptor(None);
     let exit_info = get_closest_exit(cfg.exit_server.clone(), &ccache).await?;
 
     let protosess = if cfg.use_tcp {
-        get_session(&exit_info, &ccache, cfg.use_bridges, true).await?
+        get_session(&exit_info, &ccache, cfg.use_bridges, true, None).await?
     } else {
-        get_session(&exit_info, &ccache, cfg.use_bridges, false).await?
+        get_session(&exit_info, &ccache, cfg.use_bridges, false, None).await?
     };
+
+    let protosess_remaddr = protosess.remote_addr();
 
     let tunnel_mux = Arc::new(protosess.multiplex());
 
@@ -117,15 +97,14 @@ async fn tunnel_actor_once(
         cfg.use_tcp
     );
 
-    stats.set_exit_descriptor(Some(exit_info.clone()));
-
     // Set up a watchdog to keep the connection alive
-    let _watchdog = smolscale::spawn(watchdog_loop(tunnel_mux.clone()));
+    let watchdog_fut = smolscale::spawn(watchdog_loop(tunnel_mux.clone()));
 
     // Set up a session rerouter
     let rerouter_fut = rerouter_loop(
         &tunnel_mux,
         &exit_info,
+        protosess_remaddr,
         &ccache,
         cfg.use_bridges,
         cfg.use_tcp,
@@ -138,16 +117,14 @@ async fn tunnel_actor_once(
     if cfg.stdio_vpn {
         let mux = tunnel_mux.clone();
         let send_death = send_death.clone();
-        let stats = stats.clone();
         _vpn_task = Some(smolscale::spawn(async move {
-            if let Err(err) = run_vpn(stats, mux).await {
+            if let Err(err) = run_vpn(mux).await.context("run_vpn failed") {
                 drop(send_death.try_send(err));
             }
         }));
     }
 
     let mux1 = tunnel_mux.clone();
-    let mux2 = tunnel_mux.clone();
     async move {
         loop {
             let (conn_host, conn_reply) = recv_socks5_conn
@@ -161,15 +138,9 @@ async fn tunnel_actor_once(
                 let remote = (&mux).open_conn(Some(conn_host)).await;
                 match remote {
                     Ok(remote) => {
-                        let sess_stats = mux.get_session().latest_stat();
-                        if let Some(stat) = sess_stats {
-                            log::debug!(
-                                "opened connection in {} ms; loss = {:.2}%",
-                                start.elapsed().as_millis(),
-                                stat.total_loss * 100.0
-                            );
-                        };
-                        conn_reply.send(remote).await?;
+                        log::debug!("opened connection in {} ms", start.elapsed().as_millis(),);
+
+                        conn_reply.send(remote).await.context("conn_reply failed")?;
                         Ok::<(), anyhow::Error>(())
                     }
                     Err(err) => {
@@ -188,17 +159,11 @@ async fn tunnel_actor_once(
         }
     }
     .or(async {
-        let e = recv_death.recv().await?;
+        let e = recv_death.recv().await.context("death received")?;
         anyhow::bail!(e)
     })
-    .or(async {
-        loop {
-            let stat_send = recv_get_stats.recv().await?;
-            let stats = mux2.get_session().all_stats();
-            drop(stat_send.send(stats).await);
-        }
-    })
     .or(rerouter_fut)
+    .or(watchdog_fut)
     .await
 }
 
@@ -219,17 +184,18 @@ async fn get_closest_exit(
     Ok(exits[0].clone())
 }
 
-async fn watchdog_loop(tunnel_mux: Arc<Multiplex>) {
+async fn watchdog_loop(tunnel_mux: Arc<Multiplex>) -> anyhow::Result<()> {
     loop {
-        smol::Timer::after(Duration::from_secs(10).mul_f64(timeout_multiplier())).await;
+        wait_activity().await;
         if tunnel_mux
             .open_conn(None)
-            .timeout(Duration::from_secs(60))
+            .timeout(Duration::from_secs(15))
             .await
             .is_none()
         {
-            log::warn!("watchdog conn failed!");
+            anyhow::bail!("watchdog conn failed!");
         }
+        smol::Timer::after(Duration::from_secs(60)).await;
     }
 }
 

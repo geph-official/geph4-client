@@ -7,7 +7,7 @@ use bytes::{Bytes, BytesMut};
 use rustc_hash::FxHashSet;
 use smol::channel::Receiver;
 
-use crate::mux::structs::*;
+use crate::{mux::structs::*, safe_deserialize, MyFutureExt};
 
 use super::{
     bipe::{BipeReader, BipeWriter},
@@ -41,7 +41,12 @@ pub(crate) struct ConnVars {
     pub closing: bool,
 
     write_fragments: VecDeque<Bytes>,
-    // limiter: VarRateLimit,
+
+    in_recovery: bool,
+
+    next_pace_time: Instant,
+
+    lost_seqnos: Vec<Seqno>,
 }
 
 impl Default for ConnVars {
@@ -71,15 +76,32 @@ impl Default for ConnVars {
             closing: false,
 
             write_fragments: VecDeque::new(),
+
+            in_recovery: false,
+
+            next_pace_time: Instant::now(),
+
+            lost_seqnos: Vec::new(),
             // limiter: VarRateLimit::new(),
         }
     }
 }
 
-const ACK_BATCH: usize = 64;
+const ACK_BATCH: usize = 16;
+
+// match on our current state repeatedly
+#[derive(Debug)]
+enum ConnVarEvt {
+    Rto(Seqno),
+    Retransmit(Seqno),
+    AckTimer,
+    NewWrite(Bytes),
+    NewPkt(Message),
+    Closing,
+}
 
 impl ConnVars {
-    /// Process a *single* event. Returns false when the thing should be closed.
+    /// Process a *single* event. Errors out when the thing should be closed.
     pub async fn process_one(
         &mut self,
         stream_id: u16,
@@ -88,128 +110,75 @@ impl ConnVars {
         recv_wire_read: &Receiver<Message>,
         transmit: impl Fn(Message),
     ) -> anyhow::Result<()> {
-        // match on our current state repeatedly
-        #[derive(Debug)]
-        enum Evt {
-            Rto(Seqno),
-            AckTimer,
-            NewWrite(Bytes),
-            NewPkt(Message),
-            Closing,
-        }
-        let event = {
-            let writeable = self.inflight.inflight() <= self.cwnd as usize
-                && self.inflight.len() < 10000
-                && !self.closing;
-            let force_ack = self.ack_seqnos.len() >= ACK_BATCH;
-            assert!(self.ack_seqnos.len() <= ACK_BATCH);
-
-            let ack_timer = self.delayed_ack_timer;
-            let ack_timer = async {
-                if force_ack {
-                    return Ok(Evt::AckTimer);
-                }
-                if let Some(time) = ack_timer {
-                    smol::Timer::at(time).await;
-                    Ok::<Evt, anyhow::Error>(Evt::AckTimer)
-                } else {
-                    smol::future::pending().await
-                }
-            };
-            let rto_timeout = if let Some((rto_seqno, rto_time)) = self.inflight.first_rto() {
-                async move {
-                    smol::Timer::at(rto_time).await;
-                    Ok::<Evt, anyhow::Error>(Evt::Rto(rto_seqno))
-                }
-                .boxed()
-            } else {
-                async { smol::future::pending().await }.boxed()
-            };
-            let new_write = async {
-                if writeable {
-                    if self.write_fragments.is_empty() {
-                        let to_write = {
-                            let mut bts = BytesMut::with_capacity(MSS);
-                            bts.extend_from_slice(&[0; MSS]);
-                            let n = recv_write.read(&mut bts).await;
-                            if let Ok(n) = n {
-                                let bts = bts.freeze();
-                                Some(bts.slice(0..n))
-                            } else {
-                                None
-                            }
-                        };
-                        if let Some(to_write) = to_write {
-                            self.write_fragments.push_back(to_write);
-                            Ok(Evt::NewWrite(self.write_fragments.pop_front().unwrap()))
-                        } else {
-                            Ok(Evt::Closing)
-                        }
-                    } else {
-                        Ok::<Evt, anyhow::Error>(Evt::NewWrite(
-                            self.write_fragments.pop_front().unwrap(),
-                        ))
-                    }
-                } else {
-                    Ok(smol::future::pending().await)
-                }
-            };
-            let new_pkt =
-                async { Ok::<Evt, anyhow::Error>(Evt::NewPkt(recv_wire_read.recv().await?)) };
-            let final_timeout = async {
-                smol::Timer::after(Duration::from_secs(600)).await;
-                anyhow::bail!("final timeout within relconn actor")
-            };
-            ack_timer
-                .or(new_pkt.or(rto_timeout.or(new_write.or(final_timeout))))
-                .await
-        };
-        let _implied_rate = self.pacing_rate() as u32;
         // let cwnd_choked =
         //     self.inflight.inflight() <= self.cwnd as usize && self.inflight.len() < 10000;
-        match event {
-            Ok(Evt::Closing) => {
+        match self.next_event(recv_write, recv_wire_read).await {
+            Ok(ConnVarEvt::Retransmit(seqno)) => {
+                self.lost_seqnos.retain(|v| *v != seqno);
+                if let Some(msg) = self.inflight.retransmit(seqno) {
+                    tracing::trace!(
+                        "** RETRANSMIT {} (inflight = {}, cwnd = {}, lost_count = {}) **",
+                        seqno,
+                        self.inflight.inflight(),
+                        self.cwnd as u64,
+                        self.inflight.lost_count(),
+                    );
+                    transmit(msg);
+                }
+                Ok(())
+            }
+            Ok(ConnVarEvt::Closing) => {
                 self.closing = true;
-                if self.inflight.len() > 0 {
+                if self.inflight.unacked() > 0 {
                     Ok(())
                 } else {
                     anyhow::bail!("closing when inflight is zero")
                 }
             }
-            Ok(Evt::Rto(seqno)) => {
-                if let Some(payload) = self.inflight.retransmit(seqno) {
-                    self.congestion_loss();
-                    self.retrans_count += 1;
-                    // self.limiter.wait(implied_rate).await;
-                    transmit(payload);
-                }
+            Ok(ConnVarEvt::Rto(seqno)) => {
+                tracing::trace!(
+                    "** MARKING LOST {} (unacked = {}, inflight = {}, cwnd = {}, lost_count = {}) **",
+                    seqno,
+                    self.inflight.unacked(),
+                    self.inflight.inflight(),
+                    self.cwnd as u64,
+                    self.inflight.lost_count(),
+                );
+                self.congestion_loss();
+                self.inflight.mark_lost(seqno);
+                self.lost_seqnos.push(seqno);
                 Ok(())
             }
-            Ok(Evt::NewPkt(Message::Rel {
+            Ok(ConnVarEvt::NewPkt(Message::Rel {
                 kind: RelKind::Rst, ..
             })) => anyhow::bail!("received RST"),
-            Ok(Evt::NewPkt(Message::Rel {
+            Ok(ConnVarEvt::NewPkt(Message::Rel {
                 kind: RelKind::DataAck,
                 payload,
                 seqno,
                 ..
             })) => {
-                let seqnos = bincode::deserialize::<Vec<Seqno>>(&payload)?;
+                let seqnos = safe_deserialize::<Vec<Seqno>>(&payload)?;
                 tracing::trace!("new ACK pkt with {} seqnos", seqnos.len());
                 for seqno in seqnos {
+                    self.lost_seqnos.retain(|v| *v != seqno);
                     if self.inflight.mark_acked(seqno) {
                         self.congestion_ack();
                     }
                 }
                 self.inflight.mark_acked_lt(seqno);
+                let outstanding = self.inflight.unacked() - self.inflight.inflight();
+                if outstanding == 0 {
+                    self.in_recovery = false;
+                }
                 // implied_rate.store(conn_vars.pacing_rate() as u32, Ordering::Relaxed);
-                if self.inflight.len() == 0 && self.closing {
+                if self.inflight.unacked() == 0 && self.closing {
                     anyhow::bail!("inflight is zero, and we are now closing")
                 } else {
                     Ok(())
                 }
             }
-            Ok(Evt::NewPkt(Message::Rel {
+            Ok(ConnVarEvt::NewPkt(Message::Rel {
                 kind: RelKind::Data,
                 seqno,
                 payload,
@@ -234,7 +203,7 @@ impl ConnVars {
                     anyhow::bail!("cannot write into send_read")
                 }
             }
-            Ok(Evt::NewWrite(bts)) => {
+            Ok(ConnVarEvt::NewWrite(bts)) => {
                 assert!(bts.len() <= MSS);
                 // self.limiter.wait(implied_rate).await;
                 let seqno = self.next_free_seqno;
@@ -252,7 +221,7 @@ impl ConnVars {
 
                 Ok(())
             }
-            Ok(Evt::AckTimer) => {
+            Ok(ConnVarEvt::AckTimer) => {
                 // eprintln!("acking {} seqnos", conn_vars.ack_seqnos.len());
                 let mut ack_seqnos: Vec<_> = self.ack_seqnos.iter().collect();
                 assert!(ack_seqnos.len() <= ACK_BATCH);
@@ -268,7 +237,9 @@ impl ConnVars {
                     payload: Bytes::copy_from_slice(&encoded_acks),
                 });
                 self.ack_seqnos.clear();
+
                 self.delayed_ack_timer = None;
+
                 Ok(())
             }
             Err(err) => {
@@ -282,12 +253,95 @@ impl ConnVars {
         }
     }
 
-    pub fn pacing_rate(&self) -> f64 {
-        // calculate implicit rate
-        self.cwnd / self.inflight.min_rtt().as_secs_f64()
+    /// Gets the next event.
+    async fn next_event(
+        &mut self,
+        recv_write: &mut BipeReader,
+        recv_wire_read: &Receiver<Message>,
+    ) -> anyhow::Result<ConnVarEvt> {
+        if rand::random::<f32>() < 0.1 {
+            smol::future::yield_now().await;
+        }
+        // There's a rather subtle logic involved here.
+        //
+        // We want to make sure the *total inflight* is less than cwnd.
+        // This is very tricky when a packet is lost and must be transmitted.
+        // We don't want retransmissions to cause more than CWND packets in flight, any more do we let normal transmissions do so.
+        // Thus, we must have a state where a packet is known to be lost, but is not yet retransmitted.
+        let first_retrans = self.lost_seqnos.get(0).cloned();
+        let can_retransmit = self.inflight.inflight() <= self.cwnd as usize && !self.closing;
+        let can_write = can_retransmit && self.inflight.unacked() <= self.cwnd as usize;
+        let force_ack = self.ack_seqnos.len() >= ACK_BATCH;
+        assert!(self.ack_seqnos.len() <= ACK_BATCH);
+
+        let ack_timer = self.delayed_ack_timer;
+        let ack_timer = async {
+            if force_ack {
+                return Ok(ConnVarEvt::AckTimer);
+            }
+            if let Some(time) = ack_timer {
+                smol::Timer::at(time).await;
+                Ok::<ConnVarEvt, anyhow::Error>(ConnVarEvt::AckTimer)
+            } else {
+                smol::future::pending().await
+            }
+        };
+
+        let first_rto = self.inflight.first_rto();
+        let rto_timeout = async move {
+            let (rto_seqno, rto_time) = first_rto.unwrap();
+            smol::Timer::at(rto_time).await;
+            Ok::<ConnVarEvt, anyhow::Error>(ConnVarEvt::Rto(rto_seqno))
+        }
+        .pending_unless(first_rto.is_some());
+
+        let new_write = async {
+            smol::Timer::at(self.next_pace_time).await;
+            while self.write_fragments.is_empty() {
+                let to_write = {
+                    let mut bts = BytesMut::with_capacity(MSS);
+                    bts.extend_from_slice(&[0; MSS]);
+                    let n = recv_write.read(&mut bts).await;
+                    if let Ok(n) = n {
+                        let bts = bts.freeze();
+                        Some(bts.slice(0..n))
+                    } else {
+                        None
+                    }
+                };
+                if let Some(to_write) = to_write {
+                    self.write_fragments.push_back(to_write);
+                } else {
+                    return Ok(ConnVarEvt::Closing);
+                }
+            }
+            let pacing_interval = Duration::from_secs_f64(1.0 / self.pacing_rate());
+            self.next_pace_time = Instant::now().max(self.next_pace_time + pacing_interval);
+            Ok::<ConnVarEvt, anyhow::Error>(ConnVarEvt::NewWrite(
+                self.write_fragments.pop_front().unwrap(),
+            ))
+        }
+        .pending_unless(can_write);
+        let new_pkt = async {
+            Ok::<ConnVarEvt, anyhow::Error>(ConnVarEvt::NewPkt(recv_wire_read.recv().await?))
+        };
+        let final_timeout = async {
+            smol::Timer::after(Duration::from_secs(600)).await;
+            anyhow::bail!("final timeout within relconn actor")
+        };
+        let retransmit = async { Ok(ConnVarEvt::Retransmit(first_retrans.unwrap())) }
+            .pending_unless(first_retrans.is_some());
+        retransmit
+            .or(ack_timer.or(new_pkt.or(new_write.or(rto_timeout.or(final_timeout)))))
+            .await
     }
 
-    pub fn congestion_ack(&mut self) {
+    fn pacing_rate(&self) -> f64 {
+        // calculate implicit rate
+        (self.cwnd / self.inflight.min_rtt().as_secs_f64()).max(200.0)
+    }
+
+    fn congestion_ack(&mut self) {
         let now = Instant::now();
         if now.saturating_duration_since(self.last_flight) > self.inflight.srtt() {
             self.flights += 1;
@@ -300,17 +354,20 @@ impl ConnVars {
         } else {
             self.cwnd - self.ssthresh
         }
-        .max(3.0)
-        .min(self.cwnd);
+        .max(2.0) // at least as fast as 2 Renos
+        .min(self.cwnd)
+        .min(128.0); // at most as fast as 128 Renos
         self.cwnd += bic_inc / self.cwnd;
     }
 
-    pub fn congestion_loss(&mut self) {
+    fn congestion_loss(&mut self) {
         self.slow_start = false;
         self.loss_rate = self.loss_rate * 0.99 + 0.01;
         let now = Instant::now();
-        if now.saturating_duration_since(self.last_loss) > self.inflight.rto() {
-            let beta = 0.25;
+        if !self.in_recovery && now.saturating_duration_since(self.last_loss) > self.inflight.rto()
+        {
+            self.in_recovery = true;
+            let beta = 0.125;
             if self.cwnd < self.ssthresh {
                 self.ssthresh = self.cwnd * (2.0 - beta) / 2.0;
             } else {

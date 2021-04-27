@@ -28,10 +28,11 @@ lto="off"
 [profile.release]
 panic = "abort"
 opt-level=3
-# debug=0
+debug=2
+overflow-checks = true
 # codegen-units=1
 # lto=true
 
 [patch.crates-io]
-async-executor={git="https://github.com/geph-official/async-executor.git", branch="local-queues"}
+async-executor={git="https://github.com/geph-official/async-executor.git", branch="spsc"}
 # async-executor={path="../async-executor"}

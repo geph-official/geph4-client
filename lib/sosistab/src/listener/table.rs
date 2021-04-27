@@ -1,9 +1,9 @@
 use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Instant};
 
+use crate::SessionBack;
 use bytes::Bytes;
 use indexmap::IndexMap;
 use parking_lot::RwLock;
-use smol::channel::Sender;
 
 pub struct ShardedAddrs {
     map: IndexMap<u8, SocketAddr>,
@@ -38,14 +38,13 @@ impl ShardedAddrs {
     }
 }
 
-#[derive(Clone)]
 struct SessEntry {
-    sender: Sender<Bytes>,
+    session_back: Arc<SessionBack>,
     addrs: Arc<RwLock<ShardedAddrs>>,
 }
 
 #[derive(Default)]
-pub struct SessionTable {
+pub(crate) struct SessionTable {
     token_to_sess: BTreeMap<Bytes, SessEntry>,
     addr_to_token: BTreeMap<SocketAddr, Bytes>,
 }
@@ -81,21 +80,21 @@ impl SessionTable {
     }
 
     #[tracing::instrument(skip(self), level = "trace")]
-    pub fn lookup(&self, addr: SocketAddr) -> Option<&Sender<Bytes>> {
+    pub fn lookup(&self, addr: SocketAddr) -> Option<&SessionBack> {
         let token = self.addr_to_token.get(&addr)?;
         let entry = self.token_to_sess.get(token)?;
-        Some(&entry.sender)
+        Some(&entry.session_back)
     }
 
-    #[tracing::instrument(skip(self, sender, locked_addrs), level = "trace")]
+    #[tracing::instrument(skip(self, session_back, locked_addrs), level = "trace")]
     pub fn new_sess(
         &mut self,
         token: Bytes,
-        sender: Sender<Bytes>,
+        session_back: Arc<SessionBack>,
         locked_addrs: Arc<RwLock<ShardedAddrs>>,
     ) {
         let entry = SessEntry {
-            sender,
+            session_back,
             addrs: locked_addrs,
         };
         self.token_to_sess.insert(token, entry);

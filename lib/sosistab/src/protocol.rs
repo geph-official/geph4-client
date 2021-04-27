@@ -67,25 +67,28 @@ pub enum DataFrameV2 {
 
 impl DataFrameV2 {
     /// Pads the frame to prepare for encryption.
-    pub fn pad(&self) -> Bytes {
+    pub fn pad(&self, hidden_data: u8) -> Bytes {
         let options = bincode::DefaultOptions::new()
             .with_little_endian()
             .with_varint_encoding()
             .allow_trailing_bytes();
         // TODO: padding
         let mut toret = options.serialize(self).unwrap();
+        toret.extend_from_slice(&[hidden_data]);
         toret.extend_from_slice(&vec![0xff; rand::random::<usize>() % 16]);
         toret.into()
     }
 
     /// Depads a decrypted frame.
-    pub fn depad(bts: &[u8]) -> Option<Self> {
+    pub fn depad(bts: &[u8]) -> Option<(Self, u8)> {
         let options = bincode::DefaultOptions::new()
             .with_little_endian()
             .with_varint_encoding()
             .with_limit(bts.len() as _)
             .allow_trailing_bytes();
-        options.deserialize(bts).ok()
+        let mut ptr = bts;
+        let res = options.deserialize_from(&mut ptr).ok()?;
+        Some((res, ptr.get(0).copied().unwrap_or(0xff)))
     }
 }
 

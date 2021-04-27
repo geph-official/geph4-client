@@ -23,11 +23,13 @@ mod plots;
 
 mod china;
 mod main_binderproxy;
+mod main_bridgetest;
 mod main_connect;
 mod main_sync;
 #[derive(Debug, StructOpt)]
 enum Opt {
     Connect(main_connect::ConnectOpt),
+    BridgeTest(main_bridgetest::BridgeTestOpt),
     Sync(main_sync::SyncOpt),
     BinderProxy(main_binderproxy::BinderProxyOpt),
 }
@@ -71,14 +73,12 @@ fn main() -> anyhow::Result<()> {
             record.line().unwrap_or(0),
             &record.args()
         );
-        let mut logger = GLOBAL_LOGGER.write();
-        logger.push_back(
-            IP_REGEX
-                .replace_all(&detailed_line, "[redacted]")
-                .to_string(),
-        );
-        if logger.len() > 100000 {
-            logger.pop_front();
+        if let Some(logger) = GLOBAL_LOGGER.lock().as_ref() {
+            let _ = logger.try_send(
+                IP_REGEX
+                    .replace_all(&detailed_line, "[redacted]")
+                    .to_string(),
+            );
         }
         Ok(())
     }
@@ -103,6 +103,7 @@ fn main() -> anyhow::Result<()> {
             },
             Opt::Sync(opt) => main_sync::main_sync(opt).await,
             Opt::BinderProxy(opt) => main_binderproxy::main_binderproxy(opt).await,
+            Opt::BridgeTest(opt) => main_bridgetest::main_bridgetest(opt).await,
         }
     })
 }

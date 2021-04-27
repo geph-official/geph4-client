@@ -38,7 +38,10 @@ fn main() -> anyhow::Result<()> {
         let opt: Opt = Opt::from_args();
         env_logger::Builder::from_env(Env::default().default_filter_or("geph4_bridge=info")).init();
         run_command("iptables -t nat -F");
-        run_command("iptables -t nat -A POSTROUTING -j MASQUERADE");
+        // --random to not leak origin ports
+        run_command("iptables -t nat -A POSTROUTING -j MASQUERADE --random");
+        // set TTL to 200 to hide distance of clients
+        run_command("iptables -t mangle -I POSTROUTING -j TTL --ttl-set 200");
         let binder_client = Arc::new(binder_transport::HttpClient::new(
             bincode::deserialize(&hex::decode(opt.binder_master_pk)?)?,
             opt.binder_http,

@@ -1,107 +1,96 @@
 use std::sync::Arc;
 
 use crate::{
-    crypt::{LegacyAead, NgAead},
+    crypt::{AeadError, NgAead},
     fec::{pre_encode, FrameDecoder},
-    protocol::{DataFrameV1, DataFrameV2},
+    protocol::DataFrameV2,
+    Role, SVec,
 };
 use bytes::Bytes;
 use cached::{Cached, SizedCache};
+use parking_lot::Mutex;
 use rustc_hash::{FxHashMap, FxHashSet};
 
-use super::stats::StatGatherer;
+use super::{rloss::RecvLossCalc, stats::StatsCalculator};
 
 /// I/O-free receiving machine.
-pub struct RecvMachine {
-    version: u64,
-    decoder: RunDecoder,
+pub(crate) struct RecvMachine {
     oob_decoder: OobDecoder,
-    recv_crypt_legacy: LegacyAead,
-    recv_crypt_ng: NgAead,
+    rloss: Arc<Mutex<RecvLossCalc>>,
+    recv_crypt: NgAead,
     replay_filter: ReplayFilter,
-    ping_calc: Arc<StatGatherer>,
+    ping_calc: Arc<StatsCalculator>,
 }
 
 impl RecvMachine {
     /// Creates a new machine based on a version and a down decrypter.
-    pub fn new(version: u64, recv_crypt_legacy: LegacyAead, recv_crypt_ng: NgAead) -> Self {
+    pub fn new(
+        calculator: Arc<StatsCalculator>,
+        rloss: Arc<Mutex<RecvLossCalc>>,
+        session_key: &[u8],
+        direction: Role,
+    ) -> Self {
+        let recv_crypt_key = match direction {
+            Role::Server => blake3::keyed_hash(crate::crypt::UP_KEY, session_key),
+            Role::Client => blake3::keyed_hash(crate::crypt::DN_KEY, session_key),
+        };
+        let recv_crypt = NgAead::new(recv_crypt_key.as_bytes());
+
         Self {
-            version,
-            decoder: RunDecoder::default(),
             oob_decoder: OobDecoder::new(100),
-            recv_crypt_legacy,
-            recv_crypt_ng,
+            rloss,
+            recv_crypt,
             replay_filter: ReplayFilter::default(),
-            ping_calc: Default::default(),
+            ping_calc: calculator,
         }
     }
 
     /// Processes a single frame. If successfully decoded, return the inner data.
-    pub fn process(&mut self, packet: &[u8]) -> Option<Vec<Bytes>> {
-        if self.version == 1 {
-            self.process_v1(packet)
-        } else {
-            self.process_ng(packet)
-        }
+    pub fn process(&mut self, packet: &[u8]) -> Result<Option<SVec<Bytes>>, AeadError> {
+        self.process_ng(packet)
     }
 
-    fn process_v1(&mut self, packet: &[u8]) -> Option<Vec<Bytes>> {
-        let frames: Vec<DataFrameV1> = self.recv_crypt_legacy.pad_decrypt_v1(packet)?;
-        let mut output = Vec::with_capacity(1);
-        for frame in frames {
-            if !self.replay_filter.add(frame.frame_no) {
-                return None;
-            }
-            self.ping_calc.incoming(
-                frame.frame_no,
-                frame.high_recv_frame_no,
-                frame.total_recv_frames,
-            );
-            output.extend(
-                self.decoder
-                    .input(
-                        frame.run_no,
-                        frame.run_idx,
-                        frame.data_shards,
-                        frame.parity_shards,
-                        &frame.body,
-                    )
-                    .unwrap_or_default(),
-            );
-        }
-        Some(output)
-    }
-
-    fn process_ng(&mut self, packet: &[u8]) -> Option<Vec<Bytes>> {
-        let plain_frame = match self.version {
-            2 => self.recv_crypt_legacy.decrypt(packet)?,
-            3 => self.recv_crypt_ng.decrypt(packet)?,
-            _ => return None,
-        };
-        let v2frame = DataFrameV2::depad(&plain_frame)?;
+    fn process_ng(&mut self, packet: &[u8]) -> Result<Option<SVec<Bytes>>, AeadError> {
+        let plain_frame = self.recv_crypt.decrypt(packet)?;
+        let v2frame = DataFrameV2::depad(&plain_frame);
         match v2frame {
-            DataFrameV2::Data {
-                frame_no,
-                high_recv_frame_no,
-                total_recv_frames,
-                body,
-            } => {
+            Some((
+                DataFrameV2::Data {
+                    frame_no,
+                    high_recv_frame_no,
+                    total_recv_frames,
+                    body,
+                },
+                loss_rate,
+            )) => {
                 if !self.replay_filter.add(frame_no) {
-                    return None;
+                    return Ok(None);
                 }
-                self.ping_calc
-                    .incoming(frame_no, high_recv_frame_no, total_recv_frames);
+                self.rloss.lock().record(frame_no);
+                self.ping_calc.incoming(
+                    frame_no,
+                    high_recv_frame_no,
+                    total_recv_frames,
+                    if loss_rate != 0xff {
+                        Some((loss_rate as f64) / 255.0)
+                    } else {
+                        None
+                    },
+                );
                 self.oob_decoder.insert_data(frame_no, body.clone());
-                Some(vec![body])
+                Ok(Some(smallvec::smallvec![body]))
             }
-            DataFrameV2::Parity {
-                data_frame_first,
-                data_count,
-                parity_count,
-                parity_index,
-                pad_size,
-                body,
-            } => {
+            Some((
+                DataFrameV2::Parity {
+                    data_frame_first,
+                    data_count,
+                    parity_count,
+                    parity_index,
+                    pad_size,
+                    body,
+                },
+                _,
+            )) => {
                 let res = self.oob_decoder.insert_parity(
                     ParitySpaceKey {
                         first_data: data_frame_first,
@@ -112,25 +101,21 @@ impl RecvMachine {
                     parity_index,
                     body,
                 );
-                let mut toret = Vec::with_capacity(res.len());
+                let mut toret = SVec::new();
                 for (i, body) in res {
                     if self.replay_filter.add(i) {
                         toret.push(body);
                     }
                 }
                 if !toret.is_empty() {
-                    tracing::debug!("reconstructed {} packets", toret.len());
-                    Some(toret)
+                    tracing::trace!("reconstructed {} packets", toret.len());
+                    Ok(Some(toret))
                 } else {
-                    None
+                    Ok(None)
                 }
             }
+            None => Ok(None),
         }
-    }
-
-    /// Retrieves the inner stat gatherer.
-    pub fn get_gather(&self) -> Arc<StatGatherer> {
-        self.ping_calc.clone()
     }
 }
 
@@ -146,7 +131,6 @@ impl ReplayFilter {
     fn add(&mut self, seqno: u64) -> bool {
         if seqno < self.bottom_seqno {
             // out of range. we can't know, so we just say no
-            eprintln!("out of range");
             return false;
         }
         // check the seen
@@ -255,61 +239,5 @@ impl OobDecoder {
             }
         }
         return vec![];
-    }
-}
-
-/// A reordering-resistant FEC reconstructor
-#[derive(Default)]
-struct RunDecoder {
-    top_run: u64,
-    bottom_run: u64,
-    decoders: FxHashMap<u64, FrameDecoder>,
-    total_count: u64,
-    correct_count: u64,
-
-    total_data_shards: u64,
-    total_parity_shards: u64,
-}
-
-impl RunDecoder {
-    fn input(
-        &mut self,
-        run_no: u64,
-        run_idx: u8,
-        data_shards: u8,
-        parity_shards: u8,
-        bts: &[u8],
-    ) -> Option<Vec<Bytes>> {
-        if run_no >= self.bottom_run {
-            if run_no > self.top_run {
-                self.top_run = run_no;
-                // advance bottom
-                while self.top_run - self.bottom_run > 100 {
-                    if let Some(dec) = self.decoders.remove(&self.bottom_run) {
-                        if dec.good_pkts() + dec.lost_pkts() > 1 {
-                            self.total_count += (dec.good_pkts() + dec.lost_pkts()) as u64;
-                            self.correct_count += dec.good_pkts() as u64
-                        }
-                    }
-                    self.bottom_run += 1;
-                }
-            }
-            let decoder = self
-                .decoders
-                .entry(run_no)
-                .or_insert_with(|| FrameDecoder::new(data_shards as usize, parity_shards as usize));
-            if run_idx < data_shards {
-                self.total_data_shards += 1
-            } else {
-                self.total_parity_shards += 1
-            }
-            if let Some(res) = decoder.decode(bts, run_idx as usize) {
-                Some(res)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
     }
 }
