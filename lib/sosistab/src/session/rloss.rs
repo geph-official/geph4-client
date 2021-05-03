@@ -1,9 +1,10 @@
 use std::{
-    collections::BTreeMap,
+    cmp::Reverse,
+    collections::{BTreeMap, BinaryHeap, VecDeque},
     time::{Duration, Instant},
 };
 
-use crate::runtime::RateLimiter;
+use ordered_float::OrderedFloat;
 
 /// Receive-side loss calculator.
 ///
@@ -14,17 +15,15 @@ pub struct RecvLossCalc {
     gap_seqnos: BTreeMap<u64, Instant>,
     lost_count: f64,
     good_count: f64,
+    loss_samples: VecDeque<OrderedFloat<f64>>,
 
     // "half-life" of the loss calculation
     window: f64,
     last_loss_update: Instant,
-
-    // rate limit that denies "floods" of packets to prevent congestion-related losses from being recorded
-    congestion_limit: RateLimiter,
 }
 
 impl RecvLossCalc {
-    /// Creates a new RecvLossCalc with a given window. The window value is approximately how many seconds of data to consider when calculating loss.
+    /// Creates a new RecvLossCalc with a given window.
     pub fn new(window: f64) -> Self {
         Self {
             last_seen_seqno: 0,
@@ -32,11 +31,10 @@ impl RecvLossCalc {
             gap_seqnos: BTreeMap::new(),
             lost_count: 0.0,
             good_count: 1.0,
+            loss_samples: Default::default(),
 
             window,
             last_loss_update: Instant::now(),
-
-            congestion_limit: RateLimiter::new(1000),
         }
     }
 
@@ -53,20 +51,12 @@ impl RecvLossCalc {
             self.good_seqnos.insert(seqno, Instant::now());
         }
         // prune and calculate loss
-        self.calculate_loss();
-    }
-
-    /// Calculate loss
-    pub fn calculate_loss(&mut self) -> f64 {
         let mut torem = vec![];
-        let under_limit = self.congestion_limit.check(1000);
         let now = Instant::now();
         for (key, val) in self.good_seqnos.iter() {
             if now.saturating_duration_since(*val) > Duration::from_secs(1) {
                 torem.push(*key);
-                if under_limit {
-                    self.good_count += 1.0;
-                }
+                self.good_count += 1.0;
             } else {
                 break;
             }
@@ -74,31 +64,42 @@ impl RecvLossCalc {
         for (key, val) in self.gap_seqnos.iter() {
             if now.saturating_duration_since(*val) > Duration::from_secs(1) {
                 torem.push(*key);
-                if under_limit {
-                    self.lost_count += 1.0;
-                }
+                self.lost_count += 1.0;
             } else {
                 break;
             }
         }
-        if under_limit {
-            for item in torem {
-                self.good_seqnos.remove(&item);
-                self.gap_seqnos.remove(&item);
-            }
-            // divide the good lost stuff
-            let divider = 2.0f64.powf(
-                now.saturating_duration_since(self.last_loss_update)
-                    .as_secs_f64()
-                    / self.window,
-            );
-            self.last_loss_update = now;
-            if self.good_count > 10.0 {
-                self.good_count /= divider;
-                self.lost_count /= divider;
-            }
+        for torem in torem {
+            self.good_seqnos.remove(&torem);
+            self.gap_seqnos.remove(&torem);
         }
         // loss
-        self.lost_count / (self.good_count + self.lost_count)
+        let now = Instant::now();
+        let loss = self.lost_count / (self.good_count + self.lost_count).max(1.0);
+        if now
+            .saturating_duration_since(self.last_loss_update)
+            .as_secs_f64()
+            > self.window
+            && self.good_count > 100.0
+        {
+            self.loss_samples.push_back(loss.into());
+            tracing::warn!("sampling {}", loss);
+            self.last_loss_update = now;
+            self.lost_count = 0.0;
+            self.good_count = 0.0;
+        }
+        if self.loss_samples.len() > 10 {
+            self.loss_samples.pop_front();
+        }
+    }
+
+    /// Calculate loss
+    pub fn calculate_loss(&mut self) -> f64 {
+        let mut buf = self.loss_samples.clone();
+        buf.make_contiguous().sort_unstable();
+        buf.get(buf.len() / 4)
+            .copied()
+            .map(|v| v.into_inner())
+            .unwrap_or(0.0)
     }
 }

@@ -3,6 +3,7 @@ use crate::{activity::wait_activity, vpn::run_vpn};
 use anyhow::Context;
 use binder_transport::ExitDescriptor;
 use getsess::get_session;
+use parking_lot::RwLock;
 use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
@@ -15,9 +16,17 @@ use self::reroute::rerouter_loop;
 mod getsess;
 mod reroute;
 
+/// The state of the tunnel.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TunnelState {
+    Connecting,
+    Connected { exit: String },
+}
+
 /// An "actor" that manages a Geph tunnel
 #[derive(Clone)]
 pub struct TunnelManager {
+    current_state: Arc<RwLock<TunnelState>>,
     open_socks5_conn: Sender<(String, Sender<sosistab::RelConn>)>,
     _task: Arc<smol::Task<anyhow::Result<()>>>,
 }
@@ -27,9 +36,16 @@ impl TunnelManager {
     pub fn new(cfg: ConnectOpt, ccache: Arc<ClientCache>) -> Self {
         // Sets up channels to communicate with the background task
         let (send, recv) = smol::channel::unbounded();
+        let current_state = Arc::new(RwLock::new(TunnelState::Connecting));
         TunnelManager {
+            current_state: current_state.clone(),
             open_socks5_conn: send,
-            _task: Arc::new(smolscale::spawn(tunnel_actor(cfg, ccache, recv))),
+            _task: Arc::new(smolscale::spawn(tunnel_actor(
+                cfg,
+                ccache,
+                recv,
+                current_state,
+            ))),
         }
     }
 
@@ -40,6 +56,11 @@ impl TunnelManager {
             .send((remote.to_string(), send))
             .await?;
         Ok(recv.recv().await?)
+    }
+
+    /// Obtains the current state.
+    pub fn current_state(&self) -> TunnelState {
+        self.current_state.read().clone()
     }
 
     // /// Gets session statistics
@@ -55,11 +76,19 @@ async fn tunnel_actor(
     cfg: ConnectOpt,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::RelConn>)>,
+    current_state: Arc<RwLock<TunnelState>>,
 ) -> anyhow::Result<()> {
     loop {
         let cfg = cfg.clone();
         // Run until a failure happens, log the error, then restart
-        if let Err(err) = tunnel_actor_once(cfg, ccache.clone(), recv_socks5_conn.clone()).await {
+        if let Err(err) = tunnel_actor_once(
+            cfg,
+            ccache.clone(),
+            recv_socks5_conn.clone(),
+            current_state.clone(),
+        )
+        .await
+        {
             log::warn!("tunnel_actor restarting: {:?}", err);
             smol::Timer::after(Duration::from_secs(1)).await;
         }
@@ -70,7 +99,9 @@ async fn tunnel_actor_once(
     cfg: ConnectOpt,
     ccache: Arc<ClientCache>,
     recv_socks5_conn: Receiver<(String, Sender<sosistab::RelConn>)>,
+    current_state: Arc<RwLock<TunnelState>>,
 ) -> anyhow::Result<()> {
+    *current_state.write() = TunnelState::Connecting;
     notify_activity();
     let exit_info = get_closest_exit(cfg.exit_server.clone(), &ccache).await?;
 
@@ -96,6 +127,9 @@ async fn tunnel_actor_once(
         cfg.use_bridges,
         cfg.use_tcp
     );
+    *current_state.write() = TunnelState::Connected {
+        exit: exit_info.hostname.clone(),
+    };
 
     // Set up a watchdog to keep the connection alive
     let watchdog_fut = smolscale::spawn(watchdog_loop(tunnel_mux.clone()));
@@ -186,16 +220,18 @@ async fn get_closest_exit(
 
 async fn watchdog_loop(tunnel_mux: Arc<Multiplex>) -> anyhow::Result<()> {
     loop {
-        wait_activity().await;
+        wait_activity(Duration::from_secs(200)).await;
+        let start = Instant::now();
         if tunnel_mux
             .open_conn(None)
-            .timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(60))
             .await
             .is_none()
         {
             anyhow::bail!("watchdog conn failed!");
         }
-        smol::Timer::after(Duration::from_secs(60)).await;
+        log::debug!("** watchdog completed in {:?} **", start.elapsed());
+        smol::Timer::after(Duration::from_secs(40)).await;
     }
 }
 

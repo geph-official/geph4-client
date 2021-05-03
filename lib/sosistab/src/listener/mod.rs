@@ -255,6 +255,10 @@ impl ListenerActor {
                                                                 // let start = Instant::now();
                                                                 let remote_addr =
                                                                     locked_addrs.write().get_addr();
+                                                                if data.len() > 1400 {
+                                                                    tracing::warn!("dropping oversize session pkt of length {}", data.len());
+                                                                    continue;
+                                                                }
                                                                 drop(
                                                                     write_socket
                                                                         .lock()
