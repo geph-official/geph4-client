@@ -10,6 +10,7 @@ use anyhow::Context;
 use async_compat::Compat;
 use async_net::IpAddr;
 use china::is_chinese_ip;
+use http_types::{Method, Request, Url};
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
 use std::{
@@ -187,12 +188,22 @@ pub async fn main_connect(mut opt: ConnectOpt) -> anyhow::Result<()> {
 }
 
 /// Returns whether or not we're in China.
-async fn test_china() -> surf::Result<bool> {
-    let response = surf::get("http://checkip.amazonaws.com")
-        .recv_string()
-        .timeout(Duration::from_secs(5))
-        .await
-        .ok_or_else(|| anyhow::anyhow!("checkip timeout"))??;
+async fn test_china() -> http_types::Result<bool> {
+    let req = Request::new(
+        Method::Get,
+        Url::parse("http://checkip.amazonaws.com").unwrap(),
+    );
+    let connect_to = aioutils::resolve("checkip.amazonaws.com:80").await?;
+
+    let response = {
+        let connection =
+            smol::net::TcpStream::connect(connect_to.get(0).context("no addrs for checkip")?)
+                .await?;
+        async_h1::connect(connection, req)
+            .await?
+            .body_string()
+            .await?
+    };
     let response = response.trim();
     let parsed: IpAddr = response.parse()?;
     match parsed {
