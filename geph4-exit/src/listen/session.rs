@@ -59,7 +59,6 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
         root.raw_session_count.load(Ordering::Relaxed)
     );
 
-    // TODO: ENFORCE RATE LIMIT
     let rate_limit = if !is_plus {
         if root.free_limit == 0 {
             anyhow::bail!("not accepting free users here")

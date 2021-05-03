@@ -28,7 +28,7 @@ lto="off"
 [profile.release]
 panic = "abort"
 opt-level=3
-debug=2
+debug=0
 overflow-checks = true
 # codegen-units=1
 # lto=true

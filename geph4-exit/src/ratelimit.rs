@@ -40,6 +40,11 @@ impl RateLimiter {
         }
     }
 
+    /// Checks whether the limiter is unlimited.
+    pub fn is_unlimited(&self) -> bool {
+        self.unlimited
+    }
+
     /// Waits until the given number of bytes can be let through.
     pub async fn wait(&self, bytes: usize) {
         if bytes == 0 || self.unlimited {

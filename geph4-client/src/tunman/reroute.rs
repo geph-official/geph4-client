@@ -31,8 +31,8 @@ pub async fn rerouter_loop(
     };
     loop {
         let start = SystemTime::now();
-        wait_activity().await;
-        log::trace!("rerouter called after interval of {:?}", start.elapsed());
+        wait_activity(Duration::from_secs(300)).await;
+        log::debug!("rerouter called after interval of {:?}", start.elapsed());
         let new_sess = get_session(exit_info, ccache, use_bridges, use_tcp, Some(old_addr)).await;
         match new_sess {
             Ok(new_sess) => {

@@ -2,7 +2,7 @@ use crate::{
     activity::{notify_activity, wait_activity},
     cache::ClientCache,
     stats::{global_sosistab_stats, GLOBAL_LOGGER},
-    tunman::TunnelManager,
+    tunman::{TunnelManager, TunnelState},
     AuthOpt, CommonOpt,
 };
 use crate::{china, plots::stat_derive};
@@ -149,11 +149,19 @@ pub async fn main_connect(mut opt: ConnectOpt) -> anyhow::Result<()> {
         .await
         .context("cannot bind stats")?;
     let _stat: smol::Task<anyhow::Result<()>> = {
+        let tman = tunnel_manager.clone();
         smolscale::spawn(async move {
             loop {
                 let (stat_client, _) = stat_listener.accept().await?;
+                let tman = tman.clone();
                 smolscale::spawn(async move {
-                    drop(async_h1::accept(stat_client, handle_stats).await);
+                    drop(
+                        async_h1::accept(stat_client, move |req| {
+                            let tman = tman.clone();
+                            async move { handle_stats(tman, req).await }
+                        })
+                        .await,
+                    );
                 })
                 .detach();
             }
@@ -197,7 +205,7 @@ async fn test_china() -> surf::Result<bool> {
 async fn print_stats_loop() {
     let gather = global_sosistab_stats();
     loop {
-        wait_activity().await;
+        wait_activity(Duration::from_secs(200)).await;
         log::info!(
             "** STATS **: smooth_ping = {:.2}; recv_loss = {:.2}%",
             gather.get_last("smooth_ping").unwrap_or_default() * 1000.0,
@@ -245,9 +253,12 @@ async fn run_logger(mut file: smol::fs::File) {
 }
 
 /// Handles requests for the debug pack, proxy information, program termination, and general statistics
-async fn handle_stats(_req: http_types::Request) -> http_types::Result<http_types::Response> {
+async fn handle_stats(
+    tman: TunnelManager,
+    req: http_types::Request,
+) -> http_types::Result<http_types::Response> {
     let mut res = http_types::Response::new(http_types::StatusCode::Ok);
-    match _req.url().path() {
+    match req.url().path() {
         "/proxy.pac" => {
             // Serves a Proxy Auto-Configuration file
             res.set_body("function FindProxyForURL(url, host){return 'PROXY 127.0.0.1:9910';}");
@@ -269,25 +280,27 @@ async fn handle_stats(_req: http_types::Request) -> http_types::Result<http_type
         _ => {
             // Serves all the stats as json
             let gather = global_sosistab_stats();
-            let mut stats: BTreeMap<String, f32> = BTreeMap::new();
-            stats.insert(
-                "total_tx".into(),
-                gather.get_last("total_sent_bytes").unwrap_or_default(),
-            );
-            stats.insert(
-                "total_rx".into(),
-                gather.get_last("total_recv_bytes").unwrap_or_default(),
-            );
-            stats.insert(
-                "latency".into(),
-                gather.get_last("smooth_ping").unwrap_or_default(),
-            );
-            stats.insert(
-                "loss".into(),
-                gather.get_last("recv_loss").unwrap_or_default(),
-            );
-            res.set_body(serde_json::to_string(&stats)?);
-            res.set_content_type(http_types::mime::JSON);
+            if tman.current_state() != TunnelState::Connecting {
+                let mut stats: BTreeMap<String, f32> = BTreeMap::new();
+                stats.insert(
+                    "total_tx".into(),
+                    gather.get_last("total_sent_bytes").unwrap_or_default(),
+                );
+                stats.insert(
+                    "total_rx".into(),
+                    gather.get_last("total_recv_bytes").unwrap_or_default(),
+                );
+                stats.insert(
+                    "latency".into(),
+                    gather.get_last("smooth_ping").unwrap_or_default(),
+                );
+                stats.insert(
+                    "loss".into(),
+                    gather.get_last("recv_loss").unwrap_or_default(),
+                );
+                res.set_body(serde_json::to_string(&stats)?);
+                res.set_content_type(http_types::mime::JSON);
+            }
             Ok(res)
         }
     }
@@ -299,6 +312,7 @@ async fn handle_socks5(
     tunnel_manager: &TunnelManager,
     exclude_prc: bool,
 ) -> anyhow::Result<()> {
+    notify_activity();
     s5client.set_nodelay(true)?;
     use socksv5::v5::*;
     let _handshake = read_handshake(s5client.clone()).await?;
