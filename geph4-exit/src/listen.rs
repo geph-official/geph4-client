@@ -51,7 +51,7 @@ impl RootCtx {
         sk: Option<StaticSecret>,
         addr: SocketAddr,
         flow_key: &str,
-    ) -> sosistab::Listener {
+    ) -> std::io::Result<sosistab::Listener> {
         let stat = self.stat_client.clone();
         let stat2 = self.stat_client.clone();
         let flow_key = flow_key.to_owned();
@@ -83,7 +83,7 @@ impl RootCtx {
         sk: Option<StaticSecret>,
         addr: SocketAddr,
         flow_key: &str,
-    ) -> sosistab::Listener {
+    ) -> std::io::Result<sosistab::Listener> {
         let stat = self.stat_client.clone();
         let stat2 = self.stat_client.clone();
         let flow_key = flow_key.to_owned();
@@ -188,10 +188,12 @@ pub async fn main_loop<'a>(
         let flow_key = bridge_pkt_key("SELF");
         let udp_listen = ctx
             .listen_udp(None, "[::0]:19831".parse().unwrap(), &flow_key)
-            .await;
+            .await
+            .unwrap();
         let tcp_listen = ctx
             .listen_tcp(None, "[::0]:19831".parse().unwrap(), &flow_key)
-            .await;
+            .await
+            .unwrap();
         log::debug!("sosis_listener initialized");
         loop {
             let sess = udp_listen

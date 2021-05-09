@@ -12,7 +12,7 @@ use async_net::IpAddr;
 use china::is_chinese_ip;
 use http_types::{Method, Request, Url};
 use smol::prelude::*;
-use smol_timeout::TimeoutExt;
+
 use std::{
     collections::BTreeMap, net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, path::PathBuf,
     sync::Arc, time::Duration,
