@@ -113,7 +113,7 @@ async fn client_main(args: ClientArgs) -> anyhow::Result<()> {
 async fn server_main(args: ServerArgs) -> anyhow::Result<()> {
     let listener =
         sosistab::Listener::listen_udp(args.listen, SNAKEOIL_SK.clone(), |_, _| (), |_, _| ())
-            .await;
+            .await?;
     for count in 1u128.. {
         let session = listener
             .accept_session()

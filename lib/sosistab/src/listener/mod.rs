@@ -46,8 +46,8 @@ impl Listener {
         long_sk: x25519_dalek::StaticSecret,
         on_recv: impl Fn(usize, SocketAddr) + 'static + Send + Sync,
         on_send: impl Fn(usize, SocketAddr) + 'static + Send + Sync,
-    ) -> Self {
-        let socket = runtime::new_udp_socket_bind(addr).unwrap();
+    ) -> std::io::Result<Self> {
+        let socket = runtime::new_udp_socket_bind(addr)?;
         let local_addr = socket.get_ref().local_addr().unwrap();
         let cookie = Cookie::new((&long_sk).into());
         let (send, recv) = smol::channel::unbounded();
@@ -59,11 +59,11 @@ impl Listener {
             }
             .run(send),
         );
-        Listener {
+        Ok(Listener {
             accepted: recv,
             local_addr,
             _task: task,
-        }
+        })
     }
 
     /// Creates a new listener given the parameters.
@@ -72,9 +72,9 @@ impl Listener {
         long_sk: x25519_dalek::StaticSecret,
         on_recv: impl Fn(usize, SocketAddr) + 'static + Send + Sync,
         on_send: impl Fn(usize, SocketAddr) + 'static + Send + Sync,
-    ) -> Self {
+    ) -> std::io::Result<Self> {
         // let addr = async_net::resolve(addr).await;
-        let listener = TcpListener::bind(addr).await.unwrap();
+        let listener = TcpListener::bind(addr).await?;
         let local_addr = listener.local_addr().unwrap();
         let cookie = Cookie::new((&long_sk).into());
         let socket = TcpServerBackhaul::new(listener, long_sk.clone());
@@ -87,11 +87,11 @@ impl Listener {
             }
             .run(send),
         );
-        Listener {
+        Ok(Listener {
             accepted: recv,
             local_addr,
             _task: task,
-        }
+        })
     }
 
     /// Gets the local address.

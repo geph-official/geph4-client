@@ -70,20 +70,29 @@ pub async fn handle_control(
             log::debug!("redoing binding because info is none");
             let sosis_secret = x25519_dalek::StaticSecret::new(&mut rand::thread_rng());
             // we make TCP first since TCP ephemeral ports are a lot more scarce.
-            let sosis_listener_tcp = ctx
-                .listen_tcp(
-                    Some(sosis_secret.clone()),
-                    "[::0]:0".parse().unwrap(),
-                    &flow_key,
-                )
-                .await;
-            let sosis_listener_udp = ctx
-                .listen_udp(
-                    Some(sosis_secret.clone()),
-                    sosis_listener_tcp.local_addr(),
-                    &flow_key,
-                )
-                .await;
+            let to_repeat = || async {
+                let sosis_listener_tcp = ctx
+                    .listen_tcp(
+                        Some(sosis_secret.clone()),
+                        "[::0]:0".parse().unwrap(),
+                        &flow_key,
+                    )
+                    .await?;
+                let sosis_listener_udp = ctx
+                    .listen_udp(
+                        Some(sosis_secret.clone()),
+                        sosis_listener_tcp.local_addr(),
+                        &flow_key,
+                    )
+                    .await?;
+                Ok::<_, anyhow::Error>((sosis_listener_tcp, sosis_listener_udp))
+            };
+            let (sosis_listener_tcp, sosis_listener_udp) = loop {
+                match to_repeat().await {
+                    Err(err) => log::warn!("{:?}", err),
+                    Ok(val) => break val,
+                }
+            };
 
             let (send, recv) = smol::channel::bounded(1);
             info = Some((

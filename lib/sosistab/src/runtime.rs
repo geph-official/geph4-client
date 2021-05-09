@@ -1,4 +1,3 @@
-use governor::{state::NotKeyed, NegativeMultiDecision, Quota};
 use once_cell::sync::OnceCell;
 use smol::prelude::*;
 use smol::Async;
@@ -7,7 +6,6 @@ use socket2::{Domain, Socket, Type};
 use std::{
     convert::TryInto,
     net::{SocketAddr, UdpSocket},
-    num::NonZeroU32,
 };
 
 static USER_EXEC: OnceCell<&'static Executor> = OnceCell::new();

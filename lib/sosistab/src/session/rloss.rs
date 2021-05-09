@@ -1,6 +1,5 @@
 use std::{
-    cmp::Reverse,
-    collections::{BTreeMap, BinaryHeap, VecDeque},
+    collections::{BTreeMap, VecDeque},
     time::{Duration, Instant},
 };
 
