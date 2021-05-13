@@ -108,8 +108,8 @@ fn monitor_loop() {
         std::thread::sleep(Duration::from_millis(MONITOR_MS));
         let after_sleep = POLL_COUNT.load(Ordering::Relaxed);
         let running_threads = THREAD_COUNT.load(Ordering::Relaxed);
-        let some_running = FUTURES_BEING_POLLED.load(Ordering::Relaxed) > 0;
-        if after_sleep == before_sleep && running_threads <= MAX_THREADS && some_running {
+        let full_running = FUTURES_BEING_POLLED.load(Ordering::Relaxed) >= running_threads;
+        if after_sleep == before_sleep && running_threads <= MAX_THREADS && full_running {
             start_thread(true, false);
         }
     }
@@ -151,6 +151,11 @@ static RUNNING_TASKS: AtomicUsize = AtomicUsize::new(0);
 /// Returns the current number of active tasks.
 pub fn active_task_count() -> usize {
     RUNNING_TASKS.load(Ordering::Relaxed)
+}
+
+/// Returns the current number of running tasks.
+pub fn running_task_count() -> usize {
+    FUTURES_BEING_POLLED.load(Ordering::Relaxed)
 }
 
 impl<T, F: Future<Output = T>> Drop for WrappedFuture<T, F> {

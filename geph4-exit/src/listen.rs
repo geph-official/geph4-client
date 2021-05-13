@@ -214,6 +214,7 @@ pub async fn main_loop<'a>(
         let connkey = format!("conn_count.{}", exit_hostname.replace(".", "-"));
         let ctrlkey = format!("control_count.{}", exit_hostname.replace(".", "-"));
         let taskkey = format!("task_count.{}", exit_hostname.replace(".", "-"));
+        let runtaskkey = format!("run_task_count.{}", exit_hostname.replace(".", "-"));
         let e = epoch::mib().unwrap();
         // let allocated = jemalloc_ctl::stats::allocated::mib().unwrap();
         let resident = jemalloc_ctl::stats::allocated::mib().unwrap();
@@ -234,6 +235,8 @@ pub async fn main_loop<'a>(
             stat_client.gauge(&ctrlkey, control_count as f64);
             let task_count = smolscale::active_task_count();
             stat_client.gauge(&taskkey, task_count as f64);
+            let running_count = smolscale::running_task_count();
+            stat_client.gauge(&runtaskkey, running_count as f64);
             smol::Timer::after(Duration::from_secs(10)).await;
         }
     };
