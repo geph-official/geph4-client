@@ -8,7 +8,7 @@
 //!
 //! This crate is heavily inspired by Stjepan Glavina's [previous work on async-std](https://async.rs/blog/stop-worrying-about-blocking-the-new-async-std-runtime/).
 //!
-//! `smolscale` also includes `Nursery`, a helper for [structure concurrency](https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/) on the `smolscale` global executor.
+//! `smolscale` also includes `Nursery`, a helper for [structured concurrency](https://vorpus.org/blog/notes-on-structured-concurrency-or-go-statement-considered-harmful/) on the `smolscale` global executor.
 
 use futures_lite::prelude::*;
 use once_cell::sync::OnceCell;
@@ -146,11 +146,11 @@ struct WrappedFuture<T, F: Future<Output = T>> {
     fut: F,
 }
 
-static RUNNING_TASKS: AtomicUsize = AtomicUsize::new(0);
+static ACTIVE_TASKS: AtomicUsize = AtomicUsize::new(0);
 
 /// Returns the current number of active tasks.
 pub fn active_task_count() -> usize {
-    RUNNING_TASKS.load(Ordering::Relaxed)
+    ACTIVE_TASKS.load(Ordering::Relaxed)
 }
 
 /// Returns the current number of running tasks.
@@ -160,7 +160,7 @@ pub fn running_task_count() -> usize {
 
 impl<T, F: Future<Output = T>> Drop for WrappedFuture<T, F> {
     fn drop(&mut self) {
-        RUNNING_TASKS.fetch_sub(1, Ordering::Relaxed);
+        ACTIVE_TASKS.fetch_sub(1, Ordering::Relaxed);
     }
 }
 
@@ -173,6 +173,7 @@ impl<T, F: Future<Output = T>> Future for WrappedFuture<T, F> {
         scopeguard::defer!({
             FUTURES_BEING_POLLED.fetch_sub(1, Ordering::Relaxed);
         });
+
         let fut = unsafe { self.map_unchecked_mut(|v| &mut v.fut) };
         let start = Instant::now();
         let res = fut.poll(cx);
@@ -183,7 +184,7 @@ impl<T, F: Future<Output = T>> Future for WrappedFuture<T, F> {
 
 impl<T, F: Future<Output = T> + 'static> WrappedFuture<T, F> {
     pub fn new(fut: F) -> Self {
-        RUNNING_TASKS.fetch_add(1, Ordering::Relaxed);
+        ACTIVE_TASKS.fetch_add(1, Ordering::Relaxed);
         WrappedFuture { fut }
     }
 }

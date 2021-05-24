@@ -136,6 +136,7 @@ impl EncryptedBinderRequestData {
         let plaintext = ChaCha20Poly1305::new(Key::from_slice(up_key.as_bytes()))
             .decrypt(Nonce::from_slice(&[0u8; 12]), self.ciphertext.as_slice())
             .ok()?;
+        dbg!(plaintext.len());
         Some((
             bincode::deserialize(&plaintext).ok()?,
             *blake3::keyed_hash(blake3::hash(b"response").as_bytes(), shared_sec.as_bytes())

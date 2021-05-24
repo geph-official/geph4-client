@@ -291,7 +291,7 @@ async fn handle_stats(
         _ => {
             // Serves all the stats as json
             let gather = global_sosistab_stats();
-            if tman.current_state() != TunnelState::Connecting {
+            if dbg!(tman.current_state()) != TunnelState::Connecting {
                 let mut stats: BTreeMap<String, f32> = BTreeMap::new();
                 stats.insert(
                     "total_tx".into(),

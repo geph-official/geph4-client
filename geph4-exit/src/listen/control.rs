@@ -103,15 +103,32 @@ pub async fn handle_control(
             // spawn a task that dies when the binding is gone
             let task: smol::Task<anyhow::Result<()>> = smolscale::spawn(
                 async move {
-                    loop {
-                        let sess = sosis_listener_udp
-                            .accept_session()
-                            .race(sosis_listener_tcp.accept_session())
-                            .await
-                            .ok_or_else(|| anyhow::anyhow!("could not accept sosis session"))?;
-                        let ctx = ctx.clone();
-                        smolscale::spawn(session::handle_session(ctx.new_sess(sess))).detach();
-                    }
+                    let _spam_task = async {
+                        loop {
+                            smol::Timer::after(Duration::from_secs(5)).await;
+                            log::info!(
+                                "UDP {}: {:?}",
+                                sosis_listener_udp.local_addr().port(),
+                                sosis_listener_udp.listener_stats()
+                            )
+                        }
+                    };
+                    _spam_task
+                        .or(async {
+                            loop {
+                                let sess = sosis_listener_udp
+                                    .accept_session()
+                                    .race(sosis_listener_tcp.accept_session())
+                                    .await
+                                    .ok_or_else(|| {
+                                        anyhow::anyhow!("could not accept sosis session")
+                                    })?;
+                                let ctx = ctx.clone();
+                                smolscale::spawn(session::handle_session(ctx.new_sess(sess)))
+                                    .detach();
+                            }
+                        })
+                        .await
                 }
                 .or(async move { Ok(recv.recv().await?) }),
             );

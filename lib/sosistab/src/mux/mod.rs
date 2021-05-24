@@ -44,10 +44,10 @@ impl Multiplex {
         });
         Multiplex {
             urel_send,
-            send_session,
             urel_recv,
             conn_open,
             conn_accept,
+            send_session,
             _task,
         }
     }

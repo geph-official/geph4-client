@@ -195,15 +195,27 @@ pub async fn main_loop<'a>(
             .await
             .unwrap();
         log::debug!("sosis_listener initialized");
-        loop {
-            let sess = udp_listen
-                .accept_session()
-                .race(tcp_listen.accept_session())
-                .await
-                .expect("can't accept from sosistab");
-            let ctx1 = ctx1.clone();
-            smolscale::spawn(session::handle_session(ctx1.new_sess(sess))).detach();
+
+        let _spam_task = async {
+            loop {
+                smol::Timer::after(Duration::from_secs(5)).await;
+                log::info!("UDP 19831: {:?}", udp_listen.listener_stats())
+            }
+        };
+
+        async {
+            loop {
+                let sess = udp_listen
+                    .accept_session()
+                    .race(tcp_listen.accept_session())
+                    .await
+                    .expect("can't accept from sosistab");
+                let ctx1 = ctx1.clone();
+                smolscale::spawn(session::handle_session(ctx1.new_sess(sess))).detach();
+            }
         }
+        .or(_spam_task)
+        .await
     };
     // future that uploads gauge statistics
     let stat_client = ctx.stat_client.clone();
@@ -215,6 +227,7 @@ pub async fn main_loop<'a>(
         let ctrlkey = format!("control_count.{}", exit_hostname.replace(".", "-"));
         let taskkey = format!("task_count.{}", exit_hostname.replace(".", "-"));
         let runtaskkey = format!("run_task_count.{}", exit_hostname.replace(".", "-"));
+        let hijackkey = format!("hijackers.{}", exit_hostname.replace(".", "-"));
         let e = epoch::mib().unwrap();
         // let allocated = jemalloc_ctl::stats::allocated::mib().unwrap();
         let resident = jemalloc_ctl::stats::allocated::mib().unwrap();
@@ -237,6 +250,7 @@ pub async fn main_loop<'a>(
             stat_client.gauge(&taskkey, task_count as f64);
             let running_count = smolscale::running_task_count();
             stat_client.gauge(&runtaskkey, running_count as f64);
+            stat_client.gauge(&hijackkey, ctx.sess_replacers.len() as f64);
             smol::Timer::after(Duration::from_secs(10)).await;
         }
     };

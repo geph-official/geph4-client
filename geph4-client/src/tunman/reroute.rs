@@ -47,7 +47,7 @@ pub async fn rerouter_loop(
                 }
             }
             Err(err) => {
-                log::warn!("rerouter failed to make new sess: {:?}", err);
+                anyhow::bail!("rerouter failed to make new sess: {:?}", err);
             }
         }
         smol::Timer::after(Duration::from_secs(30)).await;

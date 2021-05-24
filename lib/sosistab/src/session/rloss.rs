@@ -82,7 +82,6 @@ impl RecvLossCalc {
             && self.good_count > 100.0
         {
             self.loss_samples.push_back(loss.into());
-            tracing::warn!("sampling {}", loss);
             self.last_loss_update = now;
             self.lost_count = 0.0;
             self.good_count = 0.0;
