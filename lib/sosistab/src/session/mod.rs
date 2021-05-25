@@ -58,7 +58,7 @@ impl Drop for Session {
 impl Session {
     /// Creates a Session.
     pub(crate) fn new(cfg: SessionConfig) -> (Self, SessionBack) {
-        let (send_tosend, recv_tosend) = smol::channel::bounded(512);
+        let (send_tosend, recv_tosend) = smol::channel::bounded(1024);
         let gather = cfg.gather.clone();
         let calculator = Arc::new(StatsCalculator::new(gather.clone()));
         let rloss = Arc::new(Mutex::new(RecvLossCalc::new(1.0)));
@@ -69,8 +69,8 @@ impl Session {
             cfg.role,
         ));
 
-        let (send_decoded, recv_decoded) = smol::channel::bounded(512);
-        let (send_outgoing, recv_outgoing) = smol::channel::bounded(64);
+        let (send_decoded, recv_decoded) = smol::channel::bounded(1024);
+        let (send_outgoing, recv_outgoing) = smol::channel::bounded(1024);
         let session_back = SessionBack {
             machine,
             send_decoded,

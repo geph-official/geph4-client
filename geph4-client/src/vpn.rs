@@ -71,7 +71,7 @@ pub async fn run_vpn(mux: Arc<sosistab::Multiplex>) -> anyhow::Result<()> {
 /// Up loop for vpn
 async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     let limiter = RateLimiter::direct(
-        Quota::per_second(NonZeroU32::new(2000u32).unwrap())
+        Quota::per_second(NonZeroU32::new(5000u32).unwrap())
             .allow_burst(NonZeroU32::new(10u32).unwrap()),
     );
     loop {
@@ -108,8 +108,21 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
 async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     let mut stdout = std::io::stdout();
     let mut count = 0u64;
+    let mut buff = vec![];
     loop {
-        let bts = ctx.mux.recv_urel().await.context("downstream failed")?;
+        let bts = ctx
+            .mux
+            .recv_urel()
+            .or(async {
+                if !buff.is_empty() {
+                    stdout.write_all(&buff)?;
+                    // log::debug!("VPN flushing {} bytes", buff.len());
+                    buff.clear();
+                }
+                smol::future::pending().await
+            })
+            .await
+            .context("downstream failed")?;
         count += 1;
         if count % 1000 == 1 {
             log::debug!("VPN received {} pkts ", count);
@@ -124,8 +137,8 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
             };
             let msg = StdioMsg { verb: 0, body: bts };
             {
-                msg.write_blocking(&mut stdout).unwrap();
-                stdout.flush().unwrap();
+                msg.write_blocking(&mut buff).unwrap();
+                // stdout.flush().unwrap();
             }
         }
     }
@@ -221,16 +234,16 @@ impl AtomicStdin {
         static STDIN: Lazy<async_dup::Arc<async_dup::Mutex<smol::Unblock<Stdin>>>> =
             Lazy::new(|| {
                 async_dup::Arc::new(async_dup::Mutex::new(smol::Unblock::with_capacity(
-                    1024 * 1024,
+                    65536,
                     std::io::stdin(),
                 )))
             });
-        let (send_incoming, incoming) = smol::channel::bounded(1000);
+        let (send_incoming, incoming) = smol::channel::bounded(100);
         let _task = smolscale::spawn(async move {
             let mut stdin = STDIN.clone();
             loop {
                 let msg = StdioMsg::read(&mut stdin).await.unwrap();
-                let _ = send_incoming.try_send(msg);
+                let _ = send_incoming.send(msg).await;
             }
         });
         Self { incoming, _task }
