@@ -46,6 +46,7 @@ fn main() -> anyhow::Result<()> {
             bincode::deserialize(&hex::decode(opt.binder_master_pk)?)?,
             opt.binder_http,
             &[],
+            None,
         ));
         bridge_loop(binder_client, &opt.bridge_secret, &opt.bridge_group).await;
         Ok(())

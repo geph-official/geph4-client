@@ -1,4 +1,9 @@
-use std::{net::SocketAddr, time::Instant};
+use std::{
+    convert::TryInto,
+    net::SocketAddr,
+    sync::{atomic::AtomicUsize, Arc},
+    time::Instant,
+};
 
 use anyhow::Context;
 use argh::FromArgs;
@@ -20,6 +25,7 @@ struct Args {
 enum Subcmds {
     Client(ClientArgs),
     Server(ServerArgs),
+    Flood(FloodArgs),
     SelfTest(SelfTestArgs),
 }
 
@@ -30,6 +36,18 @@ struct ClientArgs {
     #[argh(option)]
     /// host:port of the server
     connect: String,
+}
+
+/// Client
+#[derive(FromArgs, PartialEq, Debug, Clone)]
+#[argh(subcommand, name = "flood")]
+struct FloodArgs {
+    #[argh(option)]
+    /// host:port of the server
+    connect: String,
+    #[argh(option)]
+    /// public key of the server
+    server_pk: String,
 }
 
 /// Client
@@ -50,6 +68,7 @@ fn main() -> anyhow::Result<()> {
     env_logger::init();
     let args: Args = argh::from_env();
     match args.nested {
+        Subcmds::Flood(flood) => smolscale::block_on(flood_main(flood)),
         Subcmds::Client(client) => smolscale::block_on(client_main(client)),
         Subcmds::Server(server) => smolscale::block_on(server_main(server)),
         Subcmds::SelfTest(_) => {
@@ -72,6 +91,37 @@ fn main() -> anyhow::Result<()> {
 static SNAKEOIL_SK: Lazy<x25519_dalek::StaticSecret> =
     Lazy::new(|| x25519_dalek::StaticSecret::new(&mut rand_chacha::ChaCha8Rng::seed_from_u64(0)));
 
+async fn flood_main(args: FloodArgs) -> anyhow::Result<()> {
+    let server_addr = smol::net::resolve(&args.connect)
+        .await
+        .context("cannot resolve")?[0];
+    let server_pk: [u8; 32] = hex::decode(&args.server_pk).unwrap().try_into().unwrap();
+    let server_pk = x25519_dalek::PublicKey::from(server_pk);
+    let count = Arc::new(AtomicUsize::default());
+    for _ in 0..128 {
+        let count = count.clone();
+        smolscale::spawn(async move {
+            loop {
+                let start = Instant::now();
+                eprintln!("connecting to {}...", server_addr);
+                let session = sosistab::connect_udp(server_addr, server_pk, Default::default())
+                    .await
+                    .context("cannot connect to sosistab")
+                    .unwrap();
+                count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                eprintln!(
+                    "spammed {} sessions (last {:?})",
+                    count.load(std::sync::atomic::Ordering::Relaxed),
+                    start.elapsed()
+                );
+                session.send_bytes(vec![0u8; 10000].into()).await.unwrap();
+            }
+        })
+        .detach();
+    }
+    smol::future::pending().await
+}
+
 async fn client_main(args: ClientArgs) -> anyhow::Result<()> {
     // smolscale::permanently_single_threaded();
     let start = Instant::now();
@@ -83,7 +133,7 @@ async fn client_main(args: ClientArgs) -> anyhow::Result<()> {
         Default::default(),
     )
     .await
-    .context("cannot conenct to sosistab")?;
+    .context("cannot connect to sosistab")?;
     eprintln!("Session established in {:?}", start.elapsed());
     let mux = sosistab::Multiplex::new(session);
     let start = Instant::now();

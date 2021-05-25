@@ -1,6 +1,6 @@
 [package]
 name = "geph4-client"
-version = "4.4.1"
+version = "4.4.2"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2018"
 
@@ -26,7 +26,8 @@ parking_lot = { version = "0.11.1", features = ["serde"] }
 rand= "0.7"
 regex= "1.4.2"
 rsa-fdh = "0.5.0"
-sled="0.34"
+# sled="0.34"
+acidjson="0.1"
 scopeguard = "1.1.0"
 serde = { version = "1.0.118", features = ["derive"] }
 serde_json = "1.0.61"
@@ -53,8 +54,11 @@ smolscale={path="../lib/smolscale"}
 socks2http={path="../lib/socks2http-rs"}
 async-compat="0.2"
 im="15"
-surf={version="2.2.0", features=["h1-client-rustls"], default-features=false}
+# surf={version="2.2.0", features=["h1-client-rustls"], default-features=false}
 event-listener="2.5.1"
+cached="0.23"
+rustls="0.19"
+webpki-roots="0.21"
 
 [dependencies.async-tls]
 version = "0.11.0"

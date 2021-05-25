@@ -100,13 +100,23 @@ impl MultiBinderClient {
                 let _ = send_res.send((idx, client.request(request).await)).await;
             }));
         }
-        let (idx, res) = recv_res
-            .recv()
-            .await
-            .expect("result channel shouldn't have closed");
-        self.index.store(idx, Ordering::Relaxed);
-        drop(_tasks);
-        res
+        drop(send_res);
+
+        let mut final_res = None;
+        for _ in 0.._tasks.len() {
+            let (idx, res) = recv_res
+                .recv()
+                .await
+                .expect("result channel shouldn't have closed");
+            self.index.store(idx, Ordering::Relaxed);
+            final_res = Some(res);
+            if final_res.as_ref().unwrap().is_ok() {
+                break;
+            } else {
+                log::warn!("request_multi failed: {:?}", final_res);
+            }
+        }
+        final_res.unwrap()
     }
 }
 

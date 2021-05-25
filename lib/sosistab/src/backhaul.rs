@@ -93,9 +93,12 @@ impl<B: Backhaul> Backhaul for StatsBackhaul<B> {
 #[async_trait::async_trait]
 impl Backhaul for Async<UdpSocket> {
     async fn send_to(&self, to_send: Bytes, dest: SocketAddr) -> io::Result<()> {
-        self.send_to(&to_send, dest).await?;
-        smol::future::yield_now().await;
-        // self.get_ref().send_to(&to_send, dest)?;
+        if to_send.len() > 1472 {
+            tracing::warn!("dropping oversize packet of length {}", to_send.len());
+        } else {
+            // self.send_to(&to_send, dest).await?;
+            self.get_ref().send_to(&to_send, dest)?;
+        }
         Ok(())
     }
 

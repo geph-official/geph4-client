@@ -1,15 +1,17 @@
 use crate::{AuthOpt, CommonOpt};
+use acidjson::AcidJson;
 use binder_transport::{
     BinderClient, BinderError, BinderRequestData, BinderResponse, BridgeDescriptor, ExitDescriptor,
 };
 
+use bytes::Bytes;
 use rand::prelude::*;
 use rsa_fdh::blind;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use sha2::Sha256;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
-use std::{fmt::Debug, sync::Arc, time::Duration, time::SystemTime};
+use std::{collections::BTreeMap, fmt::Debug, sync::Arc, time::Duration, time::SystemTime};
 
 /// An cached client
 pub struct ClientCache {
@@ -18,7 +20,7 @@ pub struct ClientCache {
     binder_client: Arc<dyn BinderClient>,
     free_pk: mizaru::PublicKey,
     plus_pk: mizaru::PublicKey,
-    database: Box<dyn Fn() -> sled::Db + Send + Sync>,
+    database: AcidJson<BTreeMap<String, Bytes>>,
     pub force_sync: bool,
 }
 
@@ -33,7 +35,7 @@ impl ClientCache {
         free_pk: mizaru::PublicKey,
         plus_pk: mizaru::PublicKey,
         binder_client: Arc<dyn BinderClient>,
-        database: Box<dyn Fn() -> sled::Db + Send + Sync>,
+        database: AcidJson<BTreeMap<String, Bytes>>,
     ) -> Self {
         ClientCache {
             username: username.to_string(),
@@ -49,28 +51,20 @@ impl ClientCache {
     /// Create from options
     pub fn from_opts(common: &CommonOpt, auth: &AuthOpt) -> anyhow::Result<Self> {
         let binder_client = common.to_binder_client();
-        let credential_cache = auth.credential_cache.clone();
-        let database = move || loop {
-            match sled::open(credential_cache.clone()) {
-                Ok(val) => return val,
-                Err(sled::Error::Io(err)) => {
-                    if err.kind() == std::io::ErrorKind::WouldBlock {
-                        log::warn!("database busy, retrying...");
-                        continue;
-                    } else {
-                        panic!("{}", err)
-                    }
-                }
-                Err(e) => panic!("{}", e),
-            }
-        };
+        let mut dbpath = auth.credential_cache.clone();
+        std::fs::create_dir_all(&dbpath)?;
+        dbpath.push("ngcredentials.json");
+        if std::fs::read(&dbpath).is_err() {
+            std::fs::write(&dbpath, b"{}")?;
+        }
+        let database = AcidJson::open(&dbpath)?;
         let client_cache = ClientCache::new(
             &auth.username,
             &auth.password,
             common.binder_mizaru_free.clone(),
             common.binder_mizaru_plus.clone(),
             binder_client.clone(),
-            Box::new(database),
+            database,
         );
         Ok(client_cache)
     }
@@ -81,15 +75,11 @@ impl ClientCache {
         }
         let key = self.to_key(key);
         let existing: Option<(T, u64)> = self
-            .database()
-            .get(&key.as_bytes())
-            .unwrap()
+            .database
+            .read()
+            .get(&key)
             .map(|v| bincode::deserialize(&v).unwrap());
         existing.map(|v| v.0)
-    }
-
-    fn database(&self) -> sled::Db {
-        (self.database)()
     }
 
     fn to_key(&self, key: &str) -> String {
@@ -124,9 +114,9 @@ impl ClientCache {
     ) -> anyhow::Result<T> {
         let expanded_key = self.to_key(key);
         let existing: Option<(T, u64)> = self
-            .database()
-            .get(expanded_key.as_bytes())
-            .unwrap()
+            .database
+            .read()
+            .get(&expanded_key)
             .map(|v| bincode::deserialize(&v).unwrap());
         if !self.force_sync {
             if let Some((existing, timeout)) = existing {
@@ -149,12 +139,12 @@ impl ClientCache {
         let fresh = fallback.await?;
         log::trace!("fallback resolved for {}! ({:?})", expanded_key, fresh);
         // save to disk
-        self.database()
-            .insert(
-                expanded_key.as_bytes(),
-                bincode::serialize(&(fresh.clone(), deadline)).unwrap(),
-            )
-            .unwrap();
+        self.database.write().insert(
+            expanded_key.clone(),
+            bincode::serialize(&(fresh.clone(), deadline))
+                .unwrap()
+                .into(),
+        );
         log::trace!("about to return for {}!", expanded_key);
         Ok(fresh)
     }
@@ -193,8 +183,7 @@ impl ClientCache {
     /// Clears the bridge list. This should be called when a connection error happens, so that bad bridge lists are purged as fast as possible.
     pub fn purge_bridges(&self, exit_hostname: &str) -> anyhow::Result<()> {
         let key = self.to_key(&format!("cache.bridges.{}", exit_hostname));
-        let db = self.database();
-        db.remove(&key)?;
+        self.database.write().remove(&key);
         Ok(())
     }
 

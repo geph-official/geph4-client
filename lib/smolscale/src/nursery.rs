@@ -173,7 +173,7 @@ mod tests {
         let nursery = Nursery::new();
         let counter = Arc::new(AtomicUsize::new(0));
         nursery.spawn(OnError::Ignore, {
-            let counter = counter.clone();
+            let counter = counter;
             move |nursery| async move {
                 eprintln!("hello world");
                 nursery.spawn(

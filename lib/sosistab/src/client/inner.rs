@@ -227,7 +227,7 @@ async fn client_backhaul_once(
                             .await,
                     );
                 }
-                drop(socket.send_to(bts, cfg.server_addr).await);
+                socket.send_to(bts, cfg.server_addr).await.unwrap();
             }
             None => return None,
         }

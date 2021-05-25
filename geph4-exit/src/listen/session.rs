@@ -34,7 +34,6 @@ pub async fn handle_session(ctx: SessCtx) -> anyhow::Result<()> {
         .ok_or_else(|| anyhow::anyhow!("first packet timeout"))?
         .context("first packet failed")?;
     if first_pkt.len() != 32 {
-        log::warn!("first packet not 32 bytes long, falling back to legacy");
     } else {
         let first_pkt: [u8; 32] = first_pkt.to_vec().try_into().unwrap();
         if first_pkt != [0; 32] {

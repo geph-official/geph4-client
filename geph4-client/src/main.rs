@@ -4,6 +4,7 @@ use std::{io::Write, path::PathBuf, sync::Arc, time::Duration};
 
 use binder_transport::BinderClient;
 use flexi_logger::{DeferredNow, Record};
+use rustls::ClientConfig;
 use stats::GLOBAL_LOGGER;
 use structopt::StructOpt;
 mod cache;
@@ -92,7 +93,7 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
-    smolscale::permanently_single_threaded();
+    // smolscale::permanently_single_threaded();
     smolscale::block_on(async move {
         match opt {
             Opt::Connect(opt) => loop {
@@ -112,14 +113,14 @@ fn main() -> anyhow::Result<()> {
 pub struct CommonOpt {
     #[structopt(
         long,
-        default_value = "https://www.netlify.com/v4/,https://www.cdn77.com/,https://ajax.aspnetcdn.com/"
+        default_value = "https://www.netlify.com/v4/,https+nosni://www.cdn77.com/,https+nosni://ajax.aspnetcdn.com/,https+nosni://d3dsacqprgcsqh.cloudfront.net/,https://d1hoqe10mv32pv.cloudfront.net"
     )]
     /// HTTP(S) address of the binder, FRONTED
     binder_http_fronts: String,
 
     #[structopt(
         long,
-        default_value = "loving-bell-981479.netlify.app,1049933718.rsc.cdn77.org,gephbinder-4.azureedge.net"
+        default_value = "loving-bell-981479.netlify.app,1049933718.rsc.cdn77.org,gephbinder-4.azureedge.net,dtnins2n354c4.cloudfront.net,dtnins2n354c4.cloudfront.net"
     )]
     /// HTTP(S) actual host of the binder
     binder_http_hosts: String,
@@ -158,11 +159,21 @@ impl CommonOpt {
             .map(|(front, host)| (front.to_string(), host.to_string()))
             .collect();
         let mut toret = binder_transport::MultiBinderClient::empty();
-        for (front, host) in fronts {
+        for (mut front, host) in fronts {
+            let mut tls_config = None;
+            if front.contains("+nosni") {
+                front = front.replace("+nosni", "");
+                let mut cfg = ClientConfig::default();
+                cfg.enable_sni = false;
+                cfg.root_store
+                    .add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
+                tls_config = Some(cfg);
+            }
             toret = toret.add_client(binder_transport::HttpClient::new(
                 self.binder_master,
                 front,
                 &[("Host".to_string(), host.clone())],
+                tls_config,
             ));
         }
         Arc::new(toret)

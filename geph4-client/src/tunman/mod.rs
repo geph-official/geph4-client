@@ -106,9 +106,23 @@ async fn tunnel_actor_once(
     let exit_info = get_closest_exit(cfg.exit_server.clone(), &ccache).await?;
 
     let protosess = if cfg.use_tcp {
-        get_session(&exit_info, &ccache, cfg.use_bridges, true, None).await?
+        get_session(
+            &exit_info,
+            &ccache,
+            cfg.should_use_bridges().await,
+            true,
+            None,
+        )
+        .await?
     } else {
-        get_session(&exit_info, &ccache, cfg.use_bridges, false, None).await?
+        get_session(
+            &exit_info,
+            &ccache,
+            cfg.should_use_bridges().await,
+            false,
+            None,
+        )
+        .await?
     };
 
     let protosess_remaddr = protosess.remote_addr();
@@ -122,9 +136,8 @@ async fn tunnel_actor_once(
         .await
         .ok_or_else(|| anyhow::anyhow!("authentication timed out"))??;
     log::info!(
-        "TUNNEL_MANAGER MAIN LOOP for exit_host={}, use_bridges={}, use_tcp={}",
+        "TUNNEL_MANAGER MAIN LOOP for exit_host={}, use_tcp={}",
         cfg.exit_server,
-        cfg.use_bridges,
         cfg.use_tcp
     );
     *current_state.write() = TunnelState::Connected {
@@ -140,7 +153,7 @@ async fn tunnel_actor_once(
         &exit_info,
         protosess_remaddr,
         &ccache,
-        cfg.use_bridges,
+        cfg.should_use_bridges().await,
         cfg.use_tcp,
     );
 

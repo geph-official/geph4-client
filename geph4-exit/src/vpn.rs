@@ -1,19 +1,19 @@
 use bytes::Bytes;
 use cidr::{Cidr, Ipv4Cidr};
-use dashmap::DashMap;
+
 use futures_util::TryFutureExt;
 use libc::{c_void, SOL_IP, SO_ORIGINAL_DST};
 
 use once_cell::sync::Lazy;
 use os_socketaddr::OsSocketAddr;
-use parking_lot::Mutex;
+use parking_lot::{Mutex, RwLock};
 use pnet_packet::{
     ip::IpNextHeaderProtocols, ipv4::Ipv4Packet, tcp::TcpPacket, udp::UdpPacket, Packet,
 };
 use rand::prelude::*;
 use smol::channel::Sender;
 
-use std::os::unix::io::AsRawFd;
+use std::{collections::BTreeMap, os::unix::io::AsRawFd};
 use std::{
     collections::HashSet,
     net::{Ipv4Addr, SocketAddr},
@@ -88,13 +88,13 @@ pub async fn handle_vpn_session(
     let assigned_ip: Lazy<AssignedIpv4Addr> = Lazy::new(|| IpAddrAssigner::global().assign());
     let addr = assigned_ip.addr();
     scopeguard::defer!({
-        INCOMING_MAP.remove(&addr);
+        INCOMING_MAP.write().remove(&addr);
     });
     let key = format!("exit_usage.{}", exit_hostname.replace(".", "-"));
 
     let (send_down, recv_down) =
         smol::channel::bounded(if rate_limit.is_unlimited() { 4096 } else { 64 });
-    INCOMING_MAP.insert(addr, send_down);
+    INCOMING_MAP.write().insert(addr, send_down);
     let _down_task: smol::Task<anyhow::Result<()>> = {
         let key = key.clone();
         let mux = mux.clone();
@@ -109,8 +109,9 @@ pub async fn handle_vpn_session(
                 let pkt = Ipv4Packet::new(&bts).expect("don't send me invalid IPv4 packets!");
                 assert_eq!(pkt.get_destination(), addr);
                 let msg = Message::Payload(bts);
-                let _ =
-                    smol::future::block_on(mux.send_urel(bincode::serialize(&msg).unwrap().into()));
+                let _ = mux
+                    .send_urel(bincode::serialize(&msg).unwrap().into())
+                    .await;
             }
         })
     };
@@ -175,7 +176,7 @@ pub async fn handle_vpn_session(
 
 /// Mapping for incoming packets
 #[allow(clippy::clippy::type_complexity)]
-static INCOMING_MAP: Lazy<DashMap<Ipv4Addr, Sender<Bytes>>> = Lazy::new(DashMap::new);
+static INCOMING_MAP: Lazy<RwLock<BTreeMap<Ipv4Addr, Sender<Bytes>>>> = Lazy::new(Default::default);
 
 /// Incoming packet handler
 static INCOMING_PKT_HANDLER: Lazy<smol::Task<()>> = Lazy::new(|| {
@@ -188,7 +189,8 @@ static INCOMING_PKT_HANDLER: Lazy<smol::Task<()>> = Lazy::new(|| {
             if rand::random::<f32>() < 0.1 {
                 smol::future::yield_now().await;
             }
-            let dest = Ipv4Packet::new(&pkt).map(|pkt| INCOMING_MAP.get(&pkt.get_destination()));
+            let map = INCOMING_MAP.read();
+            let dest = Ipv4Packet::new(&pkt).map(|pkt| map.get(&pkt.get_destination()));
             if let Some(Some(dest)) = dest {
                 let _ = dest.try_send(pkt);
             }
@@ -256,7 +258,7 @@ pub struct AssignedIpv4Addr {
 impl AssignedIpv4Addr {
     fn new(table: Arc<Mutex<HashSet<Ipv4Addr>>>, addr: Ipv4Addr) -> Self {
         Self {
-            inner: Arc::new(AssignedIpv4AddrInner { table, addr }),
+            inner: Arc::new(AssignedIpv4AddrInner { addr, table }),
         }
     }
     pub fn addr(&self) -> Ipv4Addr {

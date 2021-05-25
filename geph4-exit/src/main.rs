@@ -100,6 +100,7 @@ fn main() -> anyhow::Result<()> {
             bincode::deserialize(&hex::decode(opt.binder_master_pk)?)?,
             &opt.binder_http,
             &[],
+            None,
         ));
         let exits = {
             let resp = binder_client.request(BinderRequestData::GetExits).await?;
