@@ -16,7 +16,7 @@ ed25519-dalek = { version = "1.0.1", features = ["serde"] }
 bincode = "1.3.1"
 blake3 = "0.3.7"
 chacha20poly1305 = "0.7.1"
-surf={version="2.2.0", features=["h1-client-rustls"], default-features=false}
+# surf={version="2.2.0", features=["h1-client-rustls"], default-features=false}
 async-h1 = "2.3.0"
 
 http-types = "2.9.0"
@@ -30,7 +30,8 @@ thiserror= "1.0.23"
 rsa-fdh = "0.5.0"
 async-trait= "0.1.42"
 smol-timeout="0.6"
-
+rustls="0.19"
+webpki-roots="0.21"
 
 [dependencies.async-tls]
 version = "0.11.0"

@@ -39,7 +39,7 @@ pub struct ListenerStats {
     pub packets_replay: AtomicUsize,
     pub injecting: AtomicBool,
     pub handshaking: AtomicBool,
-    pub sessions_queued: AtomicBool,
+    pub sessions_queued: AtomicUsize,
 }
 
 /// A sosistab listener.
@@ -176,6 +176,9 @@ impl ListenerActor {
                 async { Evt::NewRecv(self.socket.recv_from().await.unwrap()) },
                 async { Evt::DeadSess(recv_dead.recv().await.unwrap()) },
             );
+            self.stats
+                .sessions_queued
+                .store(accepted.len(), Ordering::Relaxed);
             match event.await {
                 Evt::DeadSess(resume_token) => {
                     self.session_table.delete(resume_token);
@@ -268,7 +271,9 @@ impl ListenerActor {
                 };
                 let reply = LegacyAead::new(&s2c_key).pad_encrypt_v1(&[reply], 1000);
                 tracing::debug!("GONNA reply to ClientHello from {}", addr);
-                let _ = self.socket.send_to(reply, addr).await;
+                if let Err(err) = self.socket.send_to(reply, addr).await {
+                    tracing::error!("weird socket error {:?}", err);
+                }
                 tracing::debug!("replied to ClientHello from {}", addr);
             }
             ClientResume {

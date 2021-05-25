@@ -38,6 +38,8 @@ pub(crate) fn new_udp_socket_bind(addr: SocketAddr) -> std::io::Result<Async<Udp
     )
     .unwrap();
     drop(socket.set_only_v6(false));
+    socket.set_recv_buffer_size(512 * 1024)?;
+    socket.set_send_buffer_size(512 * 1024)?;
     socket.bind(&addr.into())?;
     Ok(socket.into_udp_socket().try_into().unwrap())
 }

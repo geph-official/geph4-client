@@ -14,11 +14,12 @@ use std::{
 };
 
 /// An HTTP-based BinderClient implementation, driven by ureq.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct HttpClient {
     binder_lpk: x25519_dalek::PublicKey,
     endpoint: String,
     headers: Vec<(String, String)>,
+    tls_config: rustls::ClientConfig,
 }
 
 impl HttpClient {
@@ -27,7 +28,12 @@ impl HttpClient {
         binder_lpk: x25519_dalek::PublicKey,
         endpoint: T,
         headers: &[(T, T)],
+        tls_config: Option<rustls::ClientConfig>,
     ) -> Self {
+        let mut default_tls_config = rustls::ClientConfig::default();
+        default_tls_config
+            .root_store
+            .add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
         HttpClient {
             binder_lpk,
             endpoint: endpoint.to_string(),
@@ -35,6 +41,7 @@ impl HttpClient {
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect(),
+            tls_config: tls_config.unwrap_or(default_tls_config),
         }
     }
 }
@@ -44,7 +51,7 @@ impl BinderClient for HttpClient {
     async fn request(&self, brequest: BinderRequestData) -> BinderResult<BinderResponse> {
         let everything = async move {
             // open connection
-            let conn = endpoint_to_conn(&self.endpoint)
+            let conn = endpoint_to_conn(self.tls_config.clone(), &self.endpoint)
                 .await
                 .map_err(|v| BinderError::Other(v.to_string()))?;
             // send request
@@ -112,7 +119,10 @@ impl HttpServer {
 }
 
 /// Returns a connection, given an endpoint. Implements a happy-eyeballs-style thing.
-async fn endpoint_to_conn(endpoint: &str) -> std::io::Result<aioutils::ConnLike> {
+async fn endpoint_to_conn(
+    tls_config: rustls::ClientConfig,
+    endpoint: &str,
+) -> std::io::Result<aioutils::ConnLike> {
     let url = Url::parse(endpoint).map_err(aioutils::to_ioerror)?;
     let host_string = url
         .host_str()
@@ -136,7 +146,7 @@ async fn endpoint_to_conn(endpoint: &str) -> std::io::Result<aioutils::ConnLike>
     if let Ok(tcp_conn) = recv.recv().await {
         match url.scheme() {
             "https" => {
-                let connector = TlsConnector::default();
+                let connector = TlsConnector::from(tls_config);
                 let tls_conn = connector.connect(host_string, tcp_conn).await?;
                 Ok(aioutils::connify(tls_conn))
             }

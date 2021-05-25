@@ -29,7 +29,7 @@ pub struct ConnectOpt {
 
     #[structopt(long)]
     /// Whether or not to use bridges
-    pub use_bridges: bool,
+    use_bridges: bool,
 
     #[structopt(long, default_value = "127.0.0.1:9910")]
     /// Where to listen for HTTP proxy connections
@@ -78,8 +78,34 @@ pub struct ConnectOpt {
     log_file: Option<PathBuf>,
 }
 
+impl ConnectOpt {
+    /// Should we use bridges?
+
+    pub async fn should_use_bridges(&self) -> bool {
+        // Test china
+        let is_china = test_china().await;
+        match is_china {
+            Err(e) => {
+                log::warn!(
+                    "could not tell whether or not we're in China ({}), so assuming that we are!",
+                    e
+                );
+                true
+            }
+            Ok(true) => {
+                log::info!("we are in CHINA :O");
+                true
+            }
+            _ => {
+                log::info!("not in China :)");
+                self.use_bridges
+            }
+        }
+    }
+}
+
 /// Main function for `connect` subcommand
-pub async fn main_connect(mut opt: ConnectOpt) -> anyhow::Result<()> {
+pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     // Register the logger first
     let _logger = if let Some(log_file) = &opt.log_file {
         let log_file = smol::fs::File::create(log_file)
@@ -93,25 +119,6 @@ pub async fn main_connect(mut opt: ConnectOpt) -> anyhow::Result<()> {
     log::info!("connect mode started");
 
     let _stats = smolscale::spawn(print_stats_loop());
-
-    // Test china
-    let is_china = test_china().await;
-    match is_china {
-        Err(e) => {
-            log::warn!(
-                "could not tell whether or not we're in China ({}), so assuming that we are!",
-                e
-            );
-            opt.use_bridges = true;
-        }
-        Ok(true) => {
-            log::info!("we are in CHINA :O");
-            opt.use_bridges = true;
-        }
-        _ => {
-            log::info!("not in China :)")
-        }
-    }
 
     // Start socks to http
     let _socks2h = smolscale::spawn(Compat::new(socks2http::run_tokio(opt.http_listen, {
@@ -188,6 +195,7 @@ pub async fn main_connect(mut opt: ConnectOpt) -> anyhow::Result<()> {
 }
 
 /// Returns whether or not we're in China.
+#[cached::proc_macro::cached(result = true)]
 async fn test_china() -> http_types::Result<bool> {
     let req = Request::new(
         Method::Get,

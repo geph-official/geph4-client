@@ -52,7 +52,7 @@ im="15"
 smallvec="1.6"
 thiserror = "1.0"
 ordered-float="2"
-
+hex="0.4"
 
 
 [target.'cfg(unix)'.dependencies]
