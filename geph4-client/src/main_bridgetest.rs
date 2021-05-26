@@ -17,8 +17,9 @@ pub struct BridgeTestOpt {
 
 /// Entry point to the bridgetest subcommand, which sweeps through all available bridges and displays their reachability and performance in table.
 pub async fn main_bridgetest(opt: BridgeTestOpt) -> anyhow::Result<()> {
-    let client_cache =
-        ClientCache::from_opts(&opt.common, &opt.auth).context("cannot create ClientCache")?;
+    let client_cache = ClientCache::from_opts(&opt.common, &opt.auth)
+        .await
+        .context("cannot create ClientCache")?;
     let exits = client_cache.get_exits().await?;
     for exit in exits {
         eprintln!(

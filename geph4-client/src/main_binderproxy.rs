@@ -32,7 +32,7 @@ fn dbg_err<T, E: std::fmt::Display>(f: Result<T, E>) -> Result<T, E> {
 
 pub async fn main_binderproxy(opt: BinderProxyOpt) -> anyhow::Result<()> {
     log::info!("binder proxy mode started");
-    let binder_client = opt.common.to_binder_client();
+    let binder_client = opt.common.to_binder_client().await;
     let listener = smol::net::TcpListener::bind(opt.listen).await?;
     loop {
         let (client, _) = listener.accept().await?;

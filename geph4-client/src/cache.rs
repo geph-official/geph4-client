@@ -49,8 +49,8 @@ impl ClientCache {
     }
 
     /// Create from options
-    pub fn from_opts(common: &CommonOpt, auth: &AuthOpt) -> anyhow::Result<Self> {
-        let binder_client = common.to_binder_client();
+    pub async fn from_opts(common: &CommonOpt, auth: &AuthOpt) -> anyhow::Result<Self> {
+        let binder_client = common.to_binder_client().await;
         let mut dbpath = auth.credential_cache.clone();
         std::fs::create_dir_all(&dbpath)?;
         dbpath.push("ngcredentials.json");

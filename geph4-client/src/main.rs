@@ -1,17 +1,21 @@
 #![type_length_limit = "2000000"]
 
-use std::{io::Write, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, io::Write, path::PathBuf, sync::Arc, time::Duration};
 
 use binder_transport::BinderClient;
 use flexi_logger::{DeferredNow, Record};
-use rustls::ClientConfig;
+use fronts::parse_fronts;
+use smol_timeout::TimeoutExt;
 use stats::GLOBAL_LOGGER;
 use structopt::StructOpt;
 mod cache;
+mod fronts;
 mod tunman;
 
 use once_cell::sync::Lazy;
 use prelude::*;
+
+use crate::fronts::fetch_fronts;
 mod dns;
 mod nettest;
 mod prelude;
@@ -127,6 +131,13 @@ pub struct CommonOpt {
 
     #[structopt(
         long,
+        default_value = "https://gitlab.com/bunsim/geph4-additional-fronts/-/raw/main/booboo.json,https://f001.backblazeb2.com/file/geph4-dl/Geph4Releases/booboo.json"
+    )]
+    /// URL to download extra binder front/host pairs
+    binder_extra_url: String,
+
+    #[structopt(
+        long,
         default_value = "124526f4e692b589511369687498cce57492bf4da20f8d26019c1cc0c80b6e4b",
         parse(from_str = str_to_x25519_pk)
     )]
@@ -151,32 +162,32 @@ pub struct CommonOpt {
 }
 
 impl CommonOpt {
-    pub fn to_binder_client(&self) -> Arc<dyn BinderClient> {
-        let fronts: Vec<_> = self
+    pub async fn to_binder_client(&self) -> Arc<dyn BinderClient> {
+        let mut fronts: BTreeMap<String, String> = self
             .binder_http_fronts
             .split(',')
             .zip(self.binder_http_hosts.split(','))
             .map(|(front, host)| (front.to_string(), host.to_string()))
             .collect();
-        let mut toret = binder_transport::MultiBinderClient::empty();
-        for (mut front, host) in fronts {
-            let mut tls_config = None;
-            if front.contains("+nosni") {
-                front = front.replace("+nosni", "");
-                let mut cfg = ClientConfig::default();
-                cfg.enable_sni = false;
-                cfg.root_store
-                    .add_server_trust_anchors(&webpki_roots::TLS_SERVER_ROOTS);
-                tls_config = Some(cfg);
+        for url in self.binder_extra_url.split(',') {
+            log::debug!("getting extra fronts...");
+            match fetch_fronts(url.into())
+                .timeout(Duration::from_secs(5))
+                .await
+            {
+                None => log::debug!("(timed out)"),
+                Some(Ok(val)) => {
+                    log::debug!("inserting extra {} fronts", val.len());
+                    for (k, v) in val {
+                        fronts.insert(k, v);
+                    }
+                }
+                Some(Err(e)) => {
+                    log::warn!("error fetching fronts: {:?}", e)
+                }
             }
-            toret = toret.add_client(binder_transport::HttpClient::new(
-                self.binder_master,
-                front,
-                &[("Host".to_string(), host.clone())],
-                tls_config,
-            ));
         }
-        Arc::new(toret)
+        parse_fronts(self.binder_master, fronts)
     }
 }
 
