@@ -80,7 +80,6 @@ pub struct ConnectOpt {
 
 impl ConnectOpt {
     /// Should we use bridges?
-
     pub async fn should_use_bridges(&self) -> bool {
         // Test china
         let is_china = test_china().await;
@@ -128,8 +127,9 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     })));
 
     // Create a database directory if doesn't exist
-    let client_cache =
-        ClientCache::from_opts(&opt.common, &opt.auth).context("cannot create ClientCache")?;
+    let client_cache = ClientCache::from_opts(&opt.common, &opt.auth)
+        .await
+        .context("cannot create ClientCache")?;
     // Create a tunnel_manager
     let tunnel_manager = TunnelManager::new(opt.clone(), Arc::new(client_cache));
     // Start port forwarders

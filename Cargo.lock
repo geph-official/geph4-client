@@ -224,14 +224,16 @@ dependencies = [
 [[package]]
 name = "async-executor"
 version = "1.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "871f9bb5e0a22eeb7e8cf16641feb87c9dc67032ccf8ff49e772eb9941d3a965"
+source = "git+https://github.com/geph-official/async-executor.git?branch=master#0d6f0aad1f2cd1854a8cf0a6358773fbad01648b"
 dependencies = [
  "async-task",
+ "cache-padded",
  "concurrent-queue",
+ "crossbeam-deque",
  "fastrand",
  "futures-lite",
  "once_cell",
+ "parking_lot",
  "slab",
 ]
 
