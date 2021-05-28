@@ -72,17 +72,12 @@ impl MultiBinderClient {
             let client = &self.clients[curr_idx % self.clients.len()];
             log::trace!("request_one started");
             let res = client.request(request.clone()).timeout(timeout).await;
-            if let Some(res) = res {
-                if res.is_ok() {
-                    log::trace!("request_one succeeded");
-                    self.index.fetch_sub(1, Ordering::Relaxed);
-                }
-                return res;
+            if let Some(Ok(res)) = res {
+                log::trace!("request_one succeeded");
+                self.index.fetch_sub(1, Ordering::Relaxed);
+                return Ok(res);
             } else {
-                log::warn!(
-                    "MultiBinderClient switching backend due to timeout {:?}",
-                    timeout
-                );
+                log::warn!("MultiBinderClient switching backend due to error {:?}", res);
                 timeout += Duration::from_secs(1);
             }
         }

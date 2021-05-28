@@ -1,7 +1,7 @@
 use crate::{
     activity::{notify_activity, wait_activity},
     cache::ClientCache,
-    stats::{global_sosistab_stats, GLOBAL_LOGGER},
+    stats::global_sosistab_stats,
     tunman::{TunnelManager, TunnelState},
     AuthOpt, CommonOpt,
 };
@@ -10,12 +10,14 @@ use anyhow::Context;
 use async_compat::Compat;
 use async_net::IpAddr;
 use china::is_chinese_ip;
+use futures_lite::AsyncBufReadExt;
 use http_types::{Method, Request, Url};
+use once_cell::sync::Lazy;
 use smol::prelude::*;
 
 use std::{
     collections::BTreeMap, net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, path::PathBuf,
-    sync::Arc, time::Duration,
+    process::Stdio, sync::Arc, time::Duration,
 };
 use structopt::StructOpt;
 
@@ -105,15 +107,62 @@ impl ConnectOpt {
 
 /// Main function for `connect` subcommand
 pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
-    // Register the logger first
-    let _logger = if let Some(log_file) = &opt.log_file {
-        let log_file = smol::fs::File::create(log_file)
-            .await
-            .context("cannot create log file")?;
-        Some(smolscale::spawn(run_logger(log_file)))
-    } else {
-        None
-    };
+    // We *recursively* call Geph again if GEPH_RECURSIVE is not set.
+    // This means we start a child process with the same arguments, and pipe its stderr to the log file directly.
+    // This ensures that 1. we can capture *all* stderr no matter what, 2. we can restart the daemon no matter what (even when panics/OOM/etc happen), and keep logs of what happened
+    if std::env::var("GEPH_RECURSIVE").is_err() {
+        static IP_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
+            regex::Regex::new(r#"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"#).unwrap()
+        });
+        std::env::set_var("GEPH_RECURSIVE", "1");
+        let mut log_file = if let Some(path) = opt.log_file.as_ref() {
+            Some(smol::fs::File::create(path).await?)
+        } else {
+            None
+        };
+        // infinitely loop around
+        loop {
+            let args = std::env::args().collect::<Vec<_>>();
+            let mut child = smol::process::Command::new(&args[0])
+                .args(&args[1..])
+                .stderr(Stdio::piped())
+                .stdin(Stdio::inherit())
+                .stdout(Stdio::inherit())
+                .spawn()?;
+
+            let mut stdout = smol::io::BufReader::new(child.stderr.take().unwrap());
+            let mut line = String::new();
+            loop {
+                if stdout.read_line(&mut line).await? == 0 {
+                    // we've gotten to the end
+                    log::debug!("child process ended, checking status code!");
+                    let output = child.output().await?;
+                    let scode = output.status.code().unwrap_or(200);
+                    if scode != 0 {
+                        if let Some(log_file) = log_file.as_mut() {
+                            log_file
+                                .write_all(b"------------------- RESTART -------------------\n")
+                                .await?;
+                        }
+                        log::error!("***** ABNORMAL RESTART (status code {}) *****", scode);
+                        break;
+                    } else {
+                        log::info!("Exiting normally.");
+                        std::process::exit(0);
+                    }
+                } else {
+                    eprint!("{}", line);
+                    if let Some(log_file) = log_file.as_mut() {
+                        let line = IP_REGEX.replace_all(&line, "[redacted]");
+                        let stripped_line =
+                            strip_ansi_escapes::strip(line.as_bytes()).unwrap_or_default();
+                        log_file.write_all(&stripped_line).await?;
+                    }
+                    line.clear();
+                }
+            }
+        }
+    }
 
     log::info!("connect mode started");
 
@@ -255,19 +304,6 @@ async fn port_forwarder(tunnel_manager: TunnelManager, desc: String) {
             .ok()
         })
         .detach();
-    }
-}
-
-/// Runs a logger that writes to a particular file.
-async fn run_logger(mut file: smol::fs::File) {
-    let (send, recv) = smol::channel::unbounded();
-    *GLOBAL_LOGGER.lock() = Some(send);
-    loop {
-        let log_line = recv.recv().await.unwrap();
-        file.write_all(format!("{}\n", log_line).as_bytes())
-            .await
-            .unwrap();
-        file.flush().await.unwrap();
     }
 }
 
