@@ -1,6 +1,6 @@
 [package]
 name = "geph4-client"
-version = "4.4.3"
+version = "4.4.4"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2018"
 
@@ -40,7 +40,6 @@ strsim = "0.10.0"
 structopt = "0.3.21"
 x25519-dalek={ version = "1.1.0", features = ["serde"] }
 chrono = "0.4.19"
-num_cpus= "1.13.0"
 async-net= "1.5.0"
 socket2= "0.3.19"
 aioutils={path="../lib/aioutils"}
@@ -59,6 +58,7 @@ event-listener="2.5.1"
 cached="0.23"
 rustls="0.19"
 webpki-roots="0.21"
+strip-ansi-escapes="0.1"
 
 [dependencies.async-tls]
 version = "0.11.0"

@@ -38,7 +38,6 @@ mod mux;
 pub use mux::*;
 mod tcp;
 use backhaul::*;
-mod batchan;
 mod recfilter;
 mod stats;
 pub use stats::*;

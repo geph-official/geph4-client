@@ -6,13 +6,11 @@ use binder_transport::BinderClient;
 use flexi_logger::{DeferredNow, Record};
 use fronts::parse_fronts;
 use smol_timeout::TimeoutExt;
-use stats::GLOBAL_LOGGER;
 use structopt::StructOpt;
 mod cache;
 mod fronts;
 mod tunman;
 
-use once_cell::sync::Lazy;
 use prelude::*;
 
 use crate::fronts::fetch_fronts;
@@ -40,6 +38,8 @@ enum Opt {
 }
 
 fn main() -> anyhow::Result<()> {
+    // very first thing: if GEPH_RECURSIVE not set, set it and recursively call Geph. this lets us recover from
+
     // fixes timer resolution on Windows
     #[cfg(windows)]
     unsafe {
@@ -52,9 +52,6 @@ fn main() -> anyhow::Result<()> {
         now: &mut DeferredNow,
         record: &Record<'_>,
     ) -> Result<(), std::io::Error> {
-        static IP_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-            regex::Regex::new(r#"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"#).unwrap()
-        });
         use flexi_logger::style;
         let level = record.level();
         let level_str = match level {
@@ -65,26 +62,11 @@ fn main() -> anyhow::Result<()> {
             write,
             "[{}] {} [{}:{}] {}",
             style(level, now.now().naive_utc().format("%Y-%m-%d %H:%M:%S")),
-            style(level, level_str.clone()),
+            style(level, level_str),
             record.file().unwrap_or("<unnamed>"),
             record.line().unwrap_or(0),
             &record.args()
         )?;
-        let detailed_line = format!(
-            "[{}] {} [{}:{}] {}",
-            now.now().naive_utc().format("%Y-%m-%d %H:%M:%S"),
-            level_str,
-            record.file().unwrap_or("<unnamed>"),
-            record.line().unwrap_or(0),
-            &record.args()
-        );
-        if let Some(logger) = GLOBAL_LOGGER.lock().as_ref() {
-            let _ = logger.try_send(
-                IP_REGEX
-                    .replace_all(&detailed_line, "[redacted]")
-                    .to_string(),
-            );
-        }
         Ok(())
     }
 
@@ -117,14 +99,14 @@ fn main() -> anyhow::Result<()> {
 pub struct CommonOpt {
     #[structopt(
         long,
-        default_value = "https://www.netlify.com/v4/,https+nosni://www.cdn77.com/,https+nosni://ajax.aspnetcdn.com/,https+nosni://d3dsacqprgcsqh.cloudfront.net/,https://d1hoqe10mv32pv.cloudfront.net"
+        default_value = "https://www.netlify.com/v4/,https+nosni://www.cdn77.com/,https+nosni://ajax.aspnetcdn.com/,https://d1hoqe10mv32pv.cloudfront.net"
     )]
     /// HTTP(S) address of the binder, FRONTED
     binder_http_fronts: String,
 
     #[structopt(
         long,
-        default_value = "loving-bell-981479.netlify.app,1049933718.rsc.cdn77.org,gephbinder-4.azureedge.net,dtnins2n354c4.cloudfront.net,dtnins2n354c4.cloudfront.net"
+        default_value = "loving-bell-981479.netlify.app,1049933718.rsc.cdn77.org,gephbinder-4.azureedge.net,dtnins2n354c4.cloudfront.net"
     )]
     /// HTTP(S) actual host of the binder
     binder_http_hosts: String,
@@ -183,7 +165,7 @@ impl CommonOpt {
                     }
                 }
                 Some(Err(e)) => {
-                    log::warn!("error fetching fronts: {:?}", e)
+                    log::warn!("error fetching fronts from {}: {:?}", url, e)
                 }
             }
         }
