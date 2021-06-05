@@ -162,8 +162,13 @@ async fn client_backhaul_once(
         let down = {
             let socket = &socket;
             async move {
-                let packets = socket.recv_from_many().await.ok()?;
-                Some(Evt::Incoming(packets.into_iter().map(|v| v.0).collect()))
+                match socket.recv_from_many().await {
+                    Err(err) => {
+                        tracing::error!("error receiving packet: {:?}", err);
+                        smol::future::pending().await
+                    }
+                    Ok(packets) => Some(Evt::Incoming(packets.into_iter().map(|v| v.0).collect())),
+                }
             }
         };
         let up = async {
@@ -227,7 +232,9 @@ async fn client_backhaul_once(
                             .await,
                     );
                 }
-                socket.send_to(bts, cfg.server_addr).await.unwrap();
+                if let Err(err) = socket.send_to(bts, cfg.server_addr).await {
+                    tracing::error!("error sending packet: {:?}", err)
+                }
             }
             None => return None,
         }
