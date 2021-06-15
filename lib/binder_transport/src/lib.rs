@@ -66,7 +66,7 @@ impl MultiBinderClient {
 impl MultiBinderClient {
     // does the request on ONE binder
     async fn request_one(&self, request: BinderRequestData) -> BinderResult<BinderResponse> {
-        let mut timeout = Duration::from_secs(8);
+        let mut timeout = Duration::from_secs(3);
         loop {
             let curr_idx = self.index.fetch_add(1, Ordering::Relaxed);
             let client = &self.clients[curr_idx % self.clients.len()];
@@ -76,8 +76,15 @@ impl MultiBinderClient {
                 log::trace!("request_one succeeded");
                 self.index.fetch_sub(1, Ordering::Relaxed);
                 return Ok(res);
+            } else if let Some(Err(BinderError::Other(other))) = res {
+                log::warn!("MultiBinderClient switching backend due to error {}", other);
+            } else if let Some(e) = res {
+                return e;
             } else {
-                log::warn!("MultiBinderClient switching backend due to error {:?}", res);
+                log::warn!(
+                    "MultiBinderClient switching backend due to timeout {:?}",
+                    timeout
+                );
                 timeout += Duration::from_secs(1);
             }
         }

@@ -2452,11 +2452,18 @@ dependencies = [
 
 [[package]]
 name = "ordered-float"
+<<<<<<< HEAD
 version = "2.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f100fcfb41e5385e0991f74981732049f9b896821542a219420491046baafdc2"
+=======
+version = "2.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "809348965973b261c3e504c8d0434e465274f78c880e10039914f2c5dcf49461"
+>>>>>>> master
 dependencies = [
  "num-traits",
+ "rand 0.8.3",
 ]
 
 [[package]]
@@ -4109,9 +4116,15 @@ dependencies = [
 
 [[package]]
 name = "unicode-normalization"
+<<<<<<< HEAD
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d54590932941a9e9266f0832deed84ebe1bf2e4c9e4a3554d393d18f5e854bf9"
+=======
+version = "0.1.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "33717dca7ac877f497014e10d73f3acf948c342bee31b5ca7892faf94ccc6b49"
+>>>>>>> master
 dependencies = [
  "tinyvec",
 ]

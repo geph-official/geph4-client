@@ -116,6 +116,7 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
             .or(async {
                 if !buff.is_empty() {
                     stdout.write_all(&buff)?;
+                    stdout.flush()?;
                     // log::debug!("VPN flushing {} bytes", buff.len());
                     buff.clear();
                 }
