@@ -27,7 +27,7 @@ mod plots;
 mod china;
 mod main_binderproxy;
 mod main_bridgetest;
-mod main_connect;
+mod main_connect; 
 mod main_sync;
 #[derive(Debug, StructOpt)]
 enum Opt {

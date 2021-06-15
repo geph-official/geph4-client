@@ -130,10 +130,10 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
                 .stdout(Stdio::inherit())
                 .spawn()?;
 
-            let mut stdout = smol::io::BufReader::new(child.stderr.take().unwrap());
+            let mut child_stderr = smol::io::BufReader::new(child.stderr.take().unwrap());
             let mut line = String::new();
             loop {
-                if stdout.read_line(&mut line).await? == 0 {
+                if child_stderr.read_line(&mut line).await? == 0 {
                     // we've gotten to the end
                     log::debug!("child process ended, checking status code!");
                     let output = child.output().await?;

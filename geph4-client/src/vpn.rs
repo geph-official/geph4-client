@@ -144,7 +144,7 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     }
 }
 
-// /// returns ok if it's an ack that needs to be decimated
+// /// Returns ok if it's an ack that needs to be decimated
 fn ack_decimate(bts: &[u8]) -> Option<u16> {
     let parsed = Ipv4Packet::new(bts)?;
     // log::warn!("******** VPN UP: {:?}", parsed);
