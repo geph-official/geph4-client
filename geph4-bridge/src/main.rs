@@ -1,3 +1,5 @@
+mod forward;
+
 use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
@@ -7,9 +9,14 @@ use std::{
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse, ExitDescriptor};
 use env_logger::Env;
 use once_cell::sync::Lazy;
-use smol::prelude::*;
+use smol::{
+    net::{TcpListener, UdpSocket},
+    prelude::*,
+};
 use std::time::Duration;
 use structopt::StructOpt;
+
+use crate::forward::Forwarder;
 
 #[derive(Debug, StructOpt)]
 struct Opt {
@@ -41,7 +48,7 @@ fn main() -> anyhow::Result<()> {
         // --random to not leak origin ports
         run_command("iptables -t nat -A POSTROUTING -j MASQUERADE --random");
         // set TTL to 200 to hide distance of clients
-        run_command("iptables -t mangle -I POSTROUTING -j TTL --ttl-set 200");
+        // run_command("iptables -t mangle -I POSTROUTING -j TTL --ttl-set 200");
         let binder_client = Arc::new(binder_transport::HttpClient::new(
             bincode::deserialize(&hex::decode(opt.binder_master_pk)?)?,
             opt.binder_http,
@@ -61,7 +68,7 @@ async fn bridge_loop<'a>(
     bridge_secret: &'a str,
     bridge_group: &'a str,
 ) {
-    let mut current_exits: HashMap<String, smol::Task<anyhow::Result<()>>> = HashMap::new();
+    let mut current_exits = HashMap::new();
     loop {
         let binder_client = binder_client.clone();
         let exits = binder_client.request(BinderRequestData::GetExits).await;
@@ -70,12 +77,16 @@ async fn bridge_loop<'a>(
             // insert all exits that aren't in current exit
             for exit in exits {
                 if current_exits.get(&exit.hostname).is_none() {
-                    log::info!("{} is a new exit, spawning a manager!", exit.hostname);
-                    let task = smol::spawn(manage_exit(
-                        exit.clone(),
-                        bridge_secret.to_string(),
-                        bridge_group.to_string(),
-                    ));
+                    log::info!("{} is a new exit, spawning 16 new managers!", exit.hostname);
+                    let task = (0..16)
+                        .map(|_| {
+                            smolscale::spawn(manage_exit(
+                                exit.clone(),
+                                bridge_secret.to_string(),
+                                bridge_group.to_string(),
+                            ))
+                        })
+                        .collect::<Vec<_>>();
                     current_exits.insert(exit.hostname, task);
                 }
             }
@@ -90,14 +101,18 @@ async fn manage_exit(
     bridge_secret: String,
     bridge_group: String,
 ) -> anyhow::Result<()> {
-    let free_socket = std::iter::from_fn(|| Some(fastrand::u32(1000..65536)))
-        .find_map(|port| std::net::UdpSocket::bind(format!("[::0]:{}", port)).ok())
+    let (local_udp, local_tcp) = std::iter::from_fn(|| Some(fastrand::u32(1000..65536)))
+        .find_map(|port| {
+            Some((
+                smol::future::block_on(UdpSocket::bind(format!("[::0]:{}", port))).ok()?,
+                smol::future::block_on(TcpListener::bind(format!("[::0]:{}", port))).ok()?,
+            ))
+        })
         .unwrap();
-    let remote_addr = smol::net::resolve(&format!("{}:28080", exit.hostname)).await?[0];
     log::info!(
         "forward to {} from local address {}",
         exit.hostname,
-        free_socket.local_addr().unwrap()
+        local_udp.local_addr().unwrap()
     );
     let (send_routes, recv_routes) = flume::bounded(0);
     let manage_fut = async {
@@ -106,7 +121,7 @@ async fn manage_exit(
                 &exit,
                 &bridge_secret,
                 &bridge_group,
-                free_socket.local_addr().unwrap(),
+                local_udp.local_addr().unwrap(),
                 &send_routes,
             )
             .await
@@ -117,27 +132,20 @@ async fn manage_exit(
     };
     let route_fut = async {
         // command for route delete
-        let mut route_delete: Option<String> = None;
+        let mut forwarder: Option<Forwarder> = None;
         let mut last_remote_port = 0;
         loop {
             let (remote_port, _) = recv_routes.recv_async().await?;
+            let remote_addr =
+                smol::net::resolve(&format!("{}:{}", exit.hostname, remote_port)).await?[0];
             if remote_port != last_remote_port {
-                if let Some(delete_command) = route_delete.take() {
-                    run_command(&delete_command);
-                }
-                run_command(&format!(
-                "iptables -t nat -A PREROUTING -p udp --dport {} -j DNAT --to-destination {}:{};iptables -t nat -A PREROUTING -p tcp --dport {} -j DNAT --to-destination {}:{}; ",
-                free_socket.local_addr().unwrap().port(),
-                remote_addr.ip(), remote_port,                free_socket.local_addr().unwrap().port(),
-                remote_addr.ip(), remote_port
+                last_remote_port = remote_port;
+                forwarder.replace(Forwarder::new(
+                    local_udp.clone(),
+                    local_tcp.clone(),
+                    remote_addr,
+                    true,
                 ));
-                route_delete = Some(format!(
-                "iptables -t nat -D PREROUTING -p udp --dport {} -j DNAT --to-destination {}:{}; iptables -t nat -D PREROUTING -p tcp --dport {} -j DNAT --to-destination {}:{}",
-                free_socket.local_addr().unwrap().port(),
-                remote_addr.ip(), remote_port,                free_socket.local_addr().unwrap().port(),
-                remote_addr.ip(), remote_port
-                 ));
-                last_remote_port = remote_port
             }
         }
     };

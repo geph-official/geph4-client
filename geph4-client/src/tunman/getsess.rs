@@ -1,120 +1,109 @@
-use crate::{cache::ClientCache, stats::global_sosistab_stats};
+use crate::{cache::ClientCache, main_connect::ConnectOpt, stats::global_sosistab_stats};
 use anyhow::Context;
-use async_net::SocketAddr;
+use async_net::{IpAddr, Ipv4Addr, SocketAddr};
 use binder_transport::ExitDescriptor;
+use futures_util::stream::FuturesUnordered;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
 use sosistab::{Multiplex, Session};
 use std::time::{Duration, Instant};
+use tap::Pipe;
+
+use super::tunnelctx::TunnelCtx;
+
+fn sosistab_udp(
+    server_addr: SocketAddr,
+    server_pk: x25519_dalek::PublicKey,
+    shard_count: usize,
+    reset_interval: Duration,
+) -> sosistab::ClientConfig {
+    sosistab::ClientConfig::new(
+        sosistab::Protocol::Udp,
+        server_addr,
+        server_pk,
+        global_sosistab_stats(),
+    )
+    .pipe(|mut cfg| {
+        cfg.shard_count = shard_count;
+        cfg.reset_interval = Some(reset_interval);
+        cfg
+    })
+}
+
+fn sosistab_tcp(
+    server_addr: SocketAddr,
+    server_pk: x25519_dalek::PublicKey,
+) -> sosistab::ClientConfig {
+    sosistab::ClientConfig::new(
+        sosistab::Protocol::Tcp,
+        server_addr,
+        server_pk,
+        global_sosistab_stats(),
+    )
+    .pipe(|mut cfg| {
+        cfg.shard_count = 16;
+        cfg.reset_interval = Some(Duration::from_secs(120));
+        cfg
+    })
+}
+
+/// Gets a session, given a context and a destination
+async fn get_one_sess(
+    ctx: TunnelCtx,
+    addr: SocketAddr,
+    pubkey: x25519_dalek::PublicKey,
+) -> anyhow::Result<Session> {
+    let tcp_fut = sosistab_tcp(addr, pubkey).connect();
+    if !ctx.opt.use_tcp {
+        Ok(aioutils::try_race(
+            sosistab_udp(
+                addr,
+                pubkey,
+                ctx.opt.udp_shard_count,
+                Duration::from_secs(ctx.opt.udp_shard_lifetime),
+            )
+            .connect(),
+            async {
+                smol::Timer::after(Duration::from_secs(2)).await;
+                tcp_fut.await
+            },
+        )
+        .await?)
+    } else {
+        Ok(sosistab_tcp(addr, pubkey).connect().await?)
+    }
+}
 
 /// Obtains a session.
 pub async fn get_session(
-    exit_info: &ExitDescriptor,
-    ccache: &ClientCache,
-    use_bridges: bool,
-    use_tcp: bool,
+    ctx: TunnelCtx,
     privileged: Option<SocketAddr>,
 ) -> anyhow::Result<ProtoSession> {
-    let bridge_sess_async = async {
-        let bridges = ccache
-            .get_bridges(&exit_info.hostname)
-            .await
-            .context("can't get bridges")?;
-        log::debug!("got {} bridges", bridges.len());
-        if bridges.is_empty() {
-            anyhow::bail!("absolutely no bridges found")
-        }
-        let start = Instant::now();
-        // spawn a task for *every* bridge
-        let (send, recv) = smol::channel::unbounded();
-        let _tasks: Vec<_> = bridges
-            .into_iter()
-            .map(|desc| {
-                let send = send.clone();
-                smolscale::spawn(async move {
-                    if let Some(privileged) = privileged {
-                        if desc.endpoint != privileged {
-                            smol::Timer::after(Duration::from_secs(2)).await;
-                        }
-                    }
-                    log::debug!("connecting through {}...", desc.endpoint);
-                    let res = async {
-                        if !use_tcp {
-                            for _ in 0u8..3 {
-                                let _ = sosistab::connect_udp(
-                                    desc.endpoint,
-                                    desc.sosistab_key,
-                                    global_sosistab_stats(),
-                                )
-                                .await;
-                            }
-                            sosistab::connect_udp(
-                                desc.endpoint,
-                                desc.sosistab_key,
-                                global_sosistab_stats(),
-                            )
-                            .await
-                        } else {
-                            sosistab::connect_tcp(
-                                desc.endpoint,
-                                desc.sosistab_key,
-                                global_sosistab_stats(),
-                            )
-                            .await
-                        }
-                    }
-                    .timeout(Duration::from_secs(10))
-                    .await;
-                    if let Some(res) = res {
-                        drop(send.send((desc.endpoint, res)).await)
-                    }
-                })
-            })
-            .collect();
-        // wait for a successful result
-        loop {
-            let (saddr, res) = recv.recv().await.context("ran out of bridges")?;
-            if let Ok(res) = res {
-                log::info!(
-                    "{} is our fastest bridge, latency={}",
-                    saddr,
-                    start.elapsed().as_millis()
-                );
-                break Ok((res, saddr));
-            }
-        }
-    };
+    let use_bridges = ctx.opt.use_bridges || ctx.opt.should_use_bridges().await;
+    let bridge_sess_async = get_through_fastest_bridge(ctx.clone(), privileged);
     let connected_sess_async = async {
         if use_bridges {
             bridge_sess_async.await
         } else {
             aioutils::try_race(
                 async {
-                    let server_addr = aioutils::resolve(&format!("{}:19831", exit_info.hostname))
-                        .await
-                        .context("can't resolve hostname of exit")?
-                        .into_iter()
-                        .find(|v| v.is_ipv4())
-                        .context("can't find ipv4 address for exit")?;
+                    let server_addr =
+                        aioutils::resolve(&format!("{}:19831", ctx.selected_exit.hostname))
+                            .await
+                            .context("can't resolve hostname of exit")?
+                            .into_iter()
+                            .find(|v| v.is_ipv4())
+                            .context("can't find ipv4 address for exit")?;
 
-                    Ok((
-                        if use_tcp {
-                            sosistab::connect_tcp(
-                                server_addr,
-                                exit_info.sosistab_key,
-                                global_sosistab_stats(),
-                            )
-                            .await?
-                        } else {
-                            sosistab::connect_udp(
-                                server_addr,
-                                exit_info.sosistab_key,
-                                global_sosistab_stats(),
-                            )
-                            .await?
-                        },
-                        server_addr,
-                    ))
+                    Ok(ProtoSession {
+                        inner: get_one_sess(
+                            ctx.clone(),
+                            server_addr,
+                            ctx.selected_exit.sosistab_key,
+                        )
+                        .await?,
+                        remote_addr: server_addr,
+                    })
                 },
                 async {
                     smol::Timer::after(Duration::from_secs(1)).await;
@@ -125,17 +114,74 @@ pub async fn get_session(
             .await
         }
     };
-    let (sess, remote_addr) = connected_sess_async
+
+    Ok(connected_sess_async
         .or(async {
             smol::Timer::after(Duration::from_secs(40)).await;
-            ccache.purge_bridges(&exit_info.hostname)?;
+            ctx.ccache.purge_bridges(&ctx.selected_exit.hostname)?;
             anyhow::bail!("initial connection timeout after 40");
         })
-        .await?;
-    Ok(ProtoSession {
-        inner: sess,
-        remote_addr,
-    })
+        .await?)
+}
+
+/// Obtain a session through bridges
+async fn get_through_fastest_bridge(
+    ctx: TunnelCtx,
+    privileged: Option<SocketAddr>,
+) -> anyhow::Result<ProtoSession> {
+    let mut bridges = ctx
+        .ccache
+        .get_bridges(&ctx.selected_exit.hostname)
+        .await
+        .context("can't get bridges")?;
+    log::debug!("got {} bridges", bridges.len());
+    if let Some(force_bridge) = ctx.opt.force_bridge {
+        bridges.retain(|f| f.endpoint.ip() == force_bridge);
+    }
+    if bridges.is_empty() {
+        anyhow::bail!("absolutely no bridges found")
+    }
+    let start = Instant::now();
+    // spawn a task for *every* bridge
+    let mut bridge_futures = FuturesUnordered::new();
+    for bridge in bridges.iter().cloned() {
+        let fut = async {
+            if let Some(privileged) = privileged {
+                if bridge.endpoint != privileged {
+                    smol::Timer::after(Duration::from_secs(5)).await;
+                }
+            }
+            Ok::<_, anyhow::Error>((
+                get_one_sess(ctx.clone(), bridge.endpoint, bridge.sosistab_key)
+                    .timeout(Duration::from_secs(20))
+                    .await
+                    .context(format!("connection timed out for {}", bridge.endpoint))?
+                    .context(format!("connection failed for {}", bridge.endpoint))?,
+                bridge,
+            ))
+        };
+        bridge_futures.push(fut);
+    }
+    // wait for a successful result
+    while let Some(res) = bridge_futures.next().await {
+        match res {
+            Ok((res, bdesc)) => {
+                log::info!(
+                    "found fastest bridge {} in {} ms",
+                    bdesc.endpoint,
+                    start.elapsed().as_millis()
+                );
+                return Ok(ProtoSession {
+                    inner: res,
+                    remote_addr: bdesc.endpoint,
+                });
+            }
+            Err(err) => {
+                log::warn!("a bridge failed: {:?}", err);
+            }
+        }
+    }
+    anyhow::bail!("all bridges failed")
 }
 
 /// A session before it can really be used. It directly wraps a sosistab Session.
