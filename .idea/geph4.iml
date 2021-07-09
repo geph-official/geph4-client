@@ -20,6 +20,7 @@
       <sourceFolder url="file://$MODULE_DIR$/lib/spiderchan/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/lib/vpn_structs/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/lib/warpfront/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/lib/socks2http-rs/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/lib/sosistab/target" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
       <excludeFolder url="file://$MODULE_DIR$/geph4-client/target" />

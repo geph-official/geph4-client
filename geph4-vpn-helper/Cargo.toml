@@ -32,3 +32,5 @@ tundevice={path="../lib/tundevice"}
 [target.'cfg(windows)'.dependencies]
 winapi = { version = "0.3.9", features = ["minwindef", "mmsystem", "timeapi"] }
 governor= "0.3.1"
+sysinfo="0.18"
+cached="0.23"
