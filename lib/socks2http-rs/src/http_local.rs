@@ -150,7 +150,7 @@ async fn server_dispatch(
             }
         });
         let resp = Response::builder().body(Body::empty()).unwrap();
-        return Ok(resp);
+        Ok(resp)
     } else {
         let method = req.method().clone();
         debug!("HTTP {} {}", method, host);

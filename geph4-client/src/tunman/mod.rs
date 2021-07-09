@@ -1,4 +1,7 @@
-use crate::{activity::notify_activity, cache::ClientCache, main_connect::ConnectOpt};
+use crate::{
+    activity::notify_activity, cache::ClientCache, main_connect::ConnectOpt,
+    tunman::tunnelctx::TunnelCtx,
+};
 use crate::{activity::wait_activity, vpn::run_vpn};
 use anyhow::Context;
 use binder_transport::ExitDescriptor;
@@ -15,6 +18,7 @@ use self::reroute::rerouter_loop;
 
 mod getsess;
 mod reroute;
+mod tunnelctx;
 
 /// The state of the tunnel.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -103,59 +107,47 @@ async fn tunnel_actor_once(
 ) -> anyhow::Result<()> {
     *current_state.write() = TunnelState::Connecting;
     notify_activity();
-    let exit_info = get_closest_exit(cfg.exit_server.clone(), &ccache).await?;
-
-    let protosess = if cfg.use_tcp {
-        get_session(
-            &exit_info,
-            &ccache,
-            cfg.should_use_bridges().await,
-            true,
-            None,
-        )
-        .await?
-    } else {
-        get_session(
-            &exit_info,
-            &ccache,
-            cfg.should_use_bridges().await,
-            false,
-            None,
-        )
-        .await?
+    let selected_exit = get_closest_exit(cfg.exit_server.clone(), &ccache).await?;
+    let ctx = TunnelCtx {
+        opt: cfg.clone(),
+        ccache,
+        recv_socks5_conn,
+        current_state,
+        selected_exit,
     };
+
+    let protosess = get_session(ctx.clone(), None).await?;
 
     let protosess_remaddr = protosess.remote_addr();
 
     let tunnel_mux = Arc::new(protosess.multiplex());
 
     // Now let's authenticate
-    let token = ccache.get_auth_token().await?;
+    let token = ctx.ccache.get_auth_token().await?;
     authenticate_session(&tunnel_mux, &token)
         .timeout(Duration::from_secs(15))
         .await
         .ok_or_else(|| anyhow::anyhow!("authentication timed out"))??;
     log::info!(
-        "TUNNEL_MANAGER MAIN LOOP for exit_host={}, use_tcp={}",
+        "TUNNEL_MANAGER MAIN LOOP for exit_host={} through {}",
         cfg.exit_server,
-        cfg.use_tcp
+        protosess_remaddr
     );
-    *current_state.write() = TunnelState::Connected {
-        exit: exit_info.hostname.clone(),
+    *ctx.current_state.write() = TunnelState::Connected {
+        exit: ctx.selected_exit.hostname.clone(),
     };
 
     // Set up a watchdog to keep the connection alive
     let watchdog_fut = smolscale::spawn(watchdog_loop(tunnel_mux.clone()));
 
     // Set up a session rerouter
-    let rerouter_fut = rerouter_loop(
-        &tunnel_mux,
-        &exit_info,
-        protosess_remaddr,
-        &ccache,
-        cfg.should_use_bridges().await,
-        cfg.use_tcp,
-    );
+    let rerouter_fut = async {
+        if cfg.force_bridge.is_none() {
+            rerouter_loop(ctx.clone(), protosess_remaddr, &tunnel_mux).await
+        } else {
+            smol::future::pending().await
+        }
+    };
 
     let (send_death, recv_death) = smol::channel::unbounded::<anyhow::Error>();
 
@@ -172,9 +164,10 @@ async fn tunnel_actor_once(
     }
 
     let mux1 = tunnel_mux.clone();
-    async move {
+    async {
         loop {
-            let (conn_host, conn_reply) = recv_socks5_conn
+            let (conn_host, conn_reply) = ctx
+                .recv_socks5_conn
                 .recv()
                 .await
                 .context("cannot get socks5 connect request")?;

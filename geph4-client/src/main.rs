@@ -1,6 +1,12 @@
 #![type_length_limit = "2000000"]
 
-use std::{collections::BTreeMap, io::Write, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::BTreeMap,
+    io::Write,
+    path::PathBuf,
+    sync::{atomic::AtomicBool, Arc},
+    time::Duration,
+};
 
 use binder_transport::BinderClient;
 use flexi_logger::{DeferredNow, Record};
@@ -38,8 +44,6 @@ enum Opt {
 }
 
 fn main() -> anyhow::Result<()> {
-    // very first thing: if GEPH_RECURSIVE not set, set it and recursively call Geph. this lets us recover from
-
     // fixes timer resolution on Windows
     #[cfg(windows)]
     unsafe {
@@ -154,7 +158,7 @@ impl CommonOpt {
         for url in self.binder_extra_url.split(',') {
             log::debug!("getting extra fronts...");
             match fetch_fronts(url.into())
-                .timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(1))
                 .await
             {
                 None => log::debug!("(timed out)"),

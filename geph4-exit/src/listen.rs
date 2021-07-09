@@ -34,7 +34,6 @@ pub struct RootCtx {
     pub port_whitelist: bool,
 
     pub google_proxy: Option<SocketAddr>,
-    // pub conn_tasks: Mutex<cached::SizedCache<u128, smol::Task<Option<()>>>>,
     pub sess_replacers: DashMap<[u8; 32], Sender<Session>>,
 }
 
@@ -131,7 +130,7 @@ pub struct SessCtx {
 }
 
 /// the main listening loop
-#[allow(clippy::clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 pub async fn main_loop<'a>(
     stat_client: statsd::Client,
     exit_hostname: &'a str,

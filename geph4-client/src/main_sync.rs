@@ -30,7 +30,7 @@ pub async fn main_sync(opt: SyncOpt) -> anyhow::Result<()> {
     Ok(())
 }
 
-#[allow(clippy::clippy::eval_order_dependence)]
+#[allow(clippy::eval_order_dependence)]
 async fn attempt(ccache: &ClientCache) -> anyhow::Result<()> {
     let exec = smol::Executor::new();
     let atok = exec.spawn(ccache.get_auth_token());

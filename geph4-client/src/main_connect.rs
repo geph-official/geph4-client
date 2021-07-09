@@ -10,7 +10,6 @@ use anyhow::Context;
 use async_compat::Compat;
 use async_net::IpAddr;
 use china::is_chinese_ip;
-use futures_lite::AsyncBufReadExt;
 use http_types::{Method, Request, Url};
 use once_cell::sync::Lazy;
 use smol::prelude::*;
@@ -24,28 +23,40 @@ use structopt::StructOpt;
 #[derive(Debug, StructOpt, Clone)]
 pub struct ConnectOpt {
     #[structopt(flatten)]
-    common: CommonOpt,
+    pub common: CommonOpt,
 
     #[structopt(flatten)]
-    auth: AuthOpt,
+    pub auth: AuthOpt,
 
     #[structopt(long)]
     /// Whether or not to use bridges
-    use_bridges: bool,
+    pub use_bridges: bool,
+
+    #[structopt(long)]
+    /// Force a particular bridge
+    pub force_bridge: Option<Ipv4Addr>,
+
+    #[structopt(long, default_value = "8")]
+    /// Number of local UDP ports to use per session. This works around situations where unlucky ECMP routing sends flows down a congested path even when other paths exist, by "averaging out" all the possible routes.
+    pub udp_shard_count: usize,
+
+    #[structopt(long, default_value = "120")]
+    /// Lifetime of a single UDP port. Geph will switch to a different port within this many seconds.
+    pub udp_shard_lifetime: u64,
 
     #[structopt(long, default_value = "127.0.0.1:9910")]
     /// Where to listen for HTTP proxy connections
-    http_listen: SocketAddr,
+    pub http_listen: SocketAddr,
     #[structopt(long, default_value = "127.0.0.1:9909")]
     /// Where to listen for SOCKS5 connections
-    socks5_listen: SocketAddr,
+    pub socks5_listen: SocketAddr,
     #[structopt(long, default_value = "127.0.0.1:9809")]
     /// Where to listen for REST-based local connections
-    stats_listen: SocketAddr,
+    pub stats_listen: SocketAddr,
 
     #[structopt(long)]
     /// Where to listen for proxied DNS requests. Optional.
-    dns_listen: Option<SocketAddr>,
+    pub dns_listen: Option<SocketAddr>,
 
     #[structopt(long, default_value = "us-hio-01.exits.geph.io")]
     /// Which exit server to connect to. If there isn't an exact match, the exit server with the most similar hostname is picked.
@@ -53,7 +64,7 @@ pub struct ConnectOpt {
 
     #[structopt(long)]
     /// Whether or not to exclude PRC domains
-    exclude_prc: bool,
+    pub exclude_prc: bool,
 
     #[structopt(long)]
     /// Whether or not to wait for VPN commands on stdio
@@ -61,11 +72,11 @@ pub struct ConnectOpt {
 
     #[structopt(long)]
     /// An endpoint to send test results. If set, will periodically do network testing.
-    nettest_server: Option<SocketAddr>,
+    pub nettest_server: Option<SocketAddr>,
 
     #[structopt(long)]
     /// A name for this test instance.
-    nettest_name: Option<String>,
+    pub nettest_name: Option<String>,
 
     #[structopt(long)]
     /// Whether or not to force TCP mode.
@@ -73,11 +84,11 @@ pub struct ConnectOpt {
 
     #[structopt(long)]
     /// SSH-style local-remote port forwarding. For example, "0.0.0.0:8888:::example.com:22" will forward local port 8888 to example.com:22. Must be in form host:port:::host:port! May have multiple ones.
-    forward_ports: Vec<String>,
+    pub forward_ports: Vec<String>,
 
     #[structopt(long)]
     /// Where to store a log file.
-    log_file: Option<PathBuf>,
+    pub log_file: Option<PathBuf>,
 }
 
 impl ConnectOpt {
@@ -345,7 +356,7 @@ async fn handle_stats(
         _ => {
             // Serves all the stats as json
             let gather = global_sosistab_stats();
-            if dbg!(tman.current_state()) != TunnelState::Connecting {
+            if tman.current_state() != TunnelState::Connecting {
                 let mut stats: BTreeMap<String, f32> = BTreeMap::new();
                 stats.insert(
                     "total_tx".into(),

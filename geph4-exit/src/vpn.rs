@@ -175,7 +175,7 @@ pub async fn handle_vpn_session(
 }
 
 /// Mapping for incoming packets
-#[allow(clippy::clippy::type_complexity)]
+#[allow(clippy::type_complexity)]
 static INCOMING_MAP: Lazy<RwLock<BTreeMap<Ipv4Addr, Sender<Bytes>>>> = Lazy::new(Default::default);
 
 /// Incoming packet handler

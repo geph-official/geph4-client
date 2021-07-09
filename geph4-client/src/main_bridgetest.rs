@@ -13,6 +13,10 @@ pub struct BridgeTestOpt {
 
     #[structopt(flatten)]
     auth: AuthOpt,
+
+    #[structopt(long)]
+    /// Whether to use TCP
+    use_tcp: bool,
 }
 
 /// Entry point to the bridgetest subcommand, which sweeps through all available bridges and displays their reachability and performance in table.
@@ -28,16 +32,23 @@ pub async fn main_bridgetest(opt: BridgeTestOpt) -> anyhow::Result<()> {
         );
         client_cache.purge_bridges(&exit.hostname)?;
         let bridges = client_cache.get_bridges(&exit.hostname).await?;
+        let proto = if opt.use_tcp {
+            sosistab::Protocol::Tcp
+        } else {
+            sosistab::Protocol::Udp
+        };
         let iter = bridges
             .into_iter()
             .map(|bridge| {
                 smolscale::spawn(async move {
                     let start = Instant::now();
-                    let sess = sosistab::connect_udp(
+                    let sess = sosistab::ClientConfig::new(
+                        proto,
                         bridge.endpoint,
                         bridge.sosistab_key,
                         Default::default(),
                     )
+                    .connect()
                     .timeout(Duration::from_secs(5))
                     .await;
                     match sess {
