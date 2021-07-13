@@ -38,15 +38,26 @@ struct Opt {
     /// bridge group.
     #[structopt(long, default_value = "other")]
     bridge_group: String,
+
+    /// whether or not to use iptables for kernel-level forwarding
+    #[structopt(long)]
+    iptables: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     smol::block_on(async move {
         let opt: Opt = Opt::from_args();
-        env_logger::Builder::from_env(Env::default().default_filter_or("geph4_bridge=info")).init();
-        run_command("iptables -t nat -F");
-        // --random to not leak origin ports
-        run_command("iptables -t nat -A POSTROUTING -j MASQUERADE --random");
+        env_logger::Builder::from_env(Env::default().default_filter_or("geph4_bridge")).init();
+        if opt.iptables {
+            run_command("iptables -t nat -F");
+            // --random to not leak origin ports
+            run_command(
+            "iptables -t nat -A POSTROUTING -j MASQUERADE -p udp --random-fully --to-ports 1000-65000",
+        );
+            run_command(
+            "iptables -t nat -A POSTROUTING -j MASQUERADE -p tcp --random-fully --to-ports 1000-65000",
+        );
+        }
         // set TTL to 200 to hide distance of clients
         // run_command("iptables -t mangle -I POSTROUTING -j TTL --ttl-set 200");
         let binder_client = Arc::new(binder_transport::HttpClient::new(
@@ -77,8 +88,8 @@ async fn bridge_loop<'a>(
             // insert all exits that aren't in current exit
             for exit in exits {
                 if current_exits.get(&exit.hostname).is_none() {
-                    log::info!("{} is a new exit, spawning 16 new managers!", exit.hostname);
-                    let task = (0..16)
+                    log::info!("{} is a new exit, spawning 4 new managers!", exit.hostname);
+                    let task = (0..4)
                         .map(|_| {
                             smolscale::spawn(manage_exit(
                                 exit.clone(),
@@ -153,7 +164,7 @@ async fn manage_exit(
 }
 
 fn run_command(s: &str) {
-    log::info!("running command {}", s);
+    // log::info!("running command {}", s);
     std::process::Command::new("sh")
         .arg("-c")
         .arg(s)
