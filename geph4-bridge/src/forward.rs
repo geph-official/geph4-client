@@ -123,10 +123,7 @@ async fn udp_forward_downstream(
     remote_udp: UdpSocket,
 ) {
     let mut buf = [0u8; 2048];
-    for cnt in 0u64.. {
-        if cnt % 10000 == 0 {
-            log::debug!("sent downstream {} pkts to {}", cnt, client_addr);
-        }
+    loop {
         match remote_udp.recv(&mut buf).await {
             Err(err) => {
                 log::error!("error in downstream {:?}", err)

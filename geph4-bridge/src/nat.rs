@@ -36,6 +36,7 @@ impl<T: Eq + std::hash::Hash + Clone> NatTable<T> {
             let to_del = self.history.pop_front().unwrap();
             self.mapping.remove_by_left(&to_del);
         }
+        log::debug!("{} entries in NAT", self.mapping.len());
         self.mapping.get_by_left(&client_addr).unwrap()
     }
 

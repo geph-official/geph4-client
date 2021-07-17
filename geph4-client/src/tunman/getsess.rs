@@ -7,7 +7,7 @@ use smol::prelude::*;
 use smol_timeout::TimeoutExt;
 use sosistab::{Multiplex, Session};
 use std::time::{Duration, Instant};
-use tap::Pipe;
+use tap::{Pipe, Tap};
 
 use super::tunnelctx::TunnelCtx;
 
@@ -118,10 +118,14 @@ pub async fn get_session(
     Ok(connected_sess_async
         .or(async {
             smol::Timer::after(Duration::from_secs(40)).await;
-            ctx.ccache.purge_bridges(&ctx.selected_exit.hostname)?;
             anyhow::bail!("initial connection timeout after 40");
         })
-        .await?)
+        .await
+        .tap(|x| {
+            if x.is_err() {
+                let _ = ctx.ccache.purge_bridges(&ctx.selected_exit.hostname);
+            }
+        })?)
 }
 
 /// Obtain a session through bridges
