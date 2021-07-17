@@ -1,4 +1,5 @@
 mod forward;
+mod nat;
 
 use std::{
     collections::HashMap,
@@ -66,7 +67,13 @@ fn main() -> anyhow::Result<()> {
             &[],
             None,
         ));
-        bridge_loop(binder_client, &opt.bridge_secret, &opt.bridge_group).await;
+        bridge_loop(
+            binder_client,
+            &opt.bridge_secret,
+            &opt.bridge_group,
+            opt.iptables,
+        )
+        .await;
         Ok(())
     })
 }
@@ -78,6 +85,7 @@ async fn bridge_loop<'a>(
     binder_client: Arc<dyn BinderClient>,
     bridge_secret: &'a str,
     bridge_group: &'a str,
+    iptables: bool,
 ) {
     let mut current_exits = HashMap::new();
     loop {
@@ -88,13 +96,14 @@ async fn bridge_loop<'a>(
             // insert all exits that aren't in current exit
             for exit in exits {
                 if current_exits.get(&exit.hostname).is_none() {
-                    log::info!("{} is a new exit, spawning 4 new managers!", exit.hostname);
-                    let task = (0..4)
+                    log::info!("{} is a new exit, spawning new managers!", exit.hostname);
+                    let task = (0..1)
                         .map(|_| {
                             smolscale::spawn(manage_exit(
                                 exit.clone(),
                                 bridge_secret.to_string(),
                                 bridge_group.to_string(),
+                                iptables,
                             ))
                         })
                         .collect::<Vec<_>>();
@@ -111,6 +120,7 @@ async fn manage_exit(
     exit: ExitDescriptor,
     bridge_secret: String,
     bridge_group: String,
+    iptables: bool,
 ) -> anyhow::Result<()> {
     let (local_udp, local_tcp) = std::iter::from_fn(|| Some(fastrand::u32(1000..65536)))
         .find_map(|port| {
@@ -155,7 +165,7 @@ async fn manage_exit(
                     local_udp.clone(),
                     local_tcp.clone(),
                     remote_addr,
-                    true,
+                    iptables,
                 ));
             }
         }

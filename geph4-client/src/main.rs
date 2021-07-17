@@ -1,12 +1,6 @@
 #![type_length_limit = "2000000"]
 
-use std::{
-    collections::BTreeMap,
-    io::Write,
-    path::PathBuf,
-    sync::{atomic::AtomicBool, Arc},
-    time::Duration,
-};
+use std::{collections::BTreeMap, io::Write, path::PathBuf, sync::Arc, time::Duration};
 
 use binder_transport::BinderClient;
 use flexi_logger::{DeferredNow, Record};
