@@ -1,7 +1,7 @@
-use crate::{cache::ClientCache, main_connect::ConnectOpt, stats::global_sosistab_stats};
+use crate::stats::global_sosistab_stats;
 use anyhow::Context;
-use async_net::{IpAddr, Ipv4Addr, SocketAddr};
-use binder_transport::ExitDescriptor;
+use async_net::SocketAddr;
+
 use futures_util::stream::FuturesUnordered;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
