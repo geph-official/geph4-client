@@ -77,7 +77,10 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
+
+    #[cfg(target_os = "android")]
     smolscale::permanently_single_threaded();
+
     smolscale::block_on(async move {
         match opt {
             Opt::Connect(opt) => loop {
