@@ -3597,6 +3597,8 @@ dependencies = [
 [[package]]
 name = "sosistab"
 version = "0.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "305c8e03cdadf28b6c5e654b5697d049552e2747e311e4f5f6ef097f19e2b510"
 dependencies = [
  "anyhow",
  "arc-swap",

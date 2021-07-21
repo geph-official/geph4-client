@@ -123,6 +123,7 @@ pub async fn get_session(
         .await
         .tap(|x| {
             if x.is_err() {
+                log::warn!("** purging bridges **");
                 let _ = ctx.ccache.purge_bridges(&ctx.selected_exit.hostname);
             }
         })?)

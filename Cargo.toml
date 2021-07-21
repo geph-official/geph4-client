@@ -32,4 +32,4 @@ overflow-checks = true
 
 [patch.crates-io]
 # async-executor={git="https://github.com/geph-official/async-executor.git", branch="master"}
-sosistab={path="../sosistab"}
+# sosistab={path="../sosistab"}
