@@ -1,4 +1,5 @@
 mod forward;
+mod mmsg;
 mod nat;
 
 use std::{
@@ -13,9 +14,11 @@ use once_cell::sync::Lazy;
 use smol::{
     net::{TcpListener, UdpSocket},
     prelude::*,
+    Async,
 };
 use std::time::Duration;
 use structopt::StructOpt;
+type AsyncUdpSocket = async_dup::Arc<Async<std::net::UdpSocket>>;
 
 use crate::forward::Forwarder;
 
@@ -97,7 +100,7 @@ async fn bridge_loop<'a>(
             for exit in exits {
                 if current_exits.get(&exit.hostname).is_none() {
                     log::info!("{} is a new exit, spawning new managers!", exit.hostname);
-                    let task = (0..1)
+                    let task = (0..if iptables { 16 } else { 1 })
                         .map(|_| {
                             smolscale::spawn(manage_exit(
                                 exit.clone(),
@@ -125,7 +128,12 @@ async fn manage_exit(
     let (local_udp, local_tcp) = std::iter::from_fn(|| Some(fastrand::u32(1000..65536)))
         .find_map(|port| {
             Some((
-                smol::future::block_on(UdpSocket::bind(format!("[::0]:{}", port))).ok()?,
+                async_dup::Arc::new(
+                    Async::<std::net::UdpSocket>::bind(
+                        format!("[::0]:{}", port).parse::<SocketAddr>().unwrap(),
+                    )
+                    .ok()?,
+                ),
                 smol::future::block_on(TcpListener::bind(format!("[::0]:{}", port))).ok()?,
             ))
         })
@@ -133,7 +141,7 @@ async fn manage_exit(
     log::info!(
         "forward to {} from local address {}",
         exit.hostname,
-        local_udp.local_addr().unwrap()
+        local_udp.get_ref().local_addr().unwrap()
     );
     let (send_routes, recv_routes) = flume::bounded(0);
     let manage_fut = async {
@@ -142,7 +150,7 @@ async fn manage_exit(
                 &exit,
                 &bridge_secret,
                 &bridge_group,
-                local_udp.local_addr().unwrap(),
+                local_udp.get_ref().local_addr().unwrap(),
                 &send_routes,
             )
             .await
