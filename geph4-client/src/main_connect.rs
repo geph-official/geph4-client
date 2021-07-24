@@ -44,6 +44,14 @@ pub struct ConnectOpt {
     /// Lifetime of a single UDP port. Geph will switch to a different port within this many seconds.
     pub udp_shard_lifetime: u64,
 
+    #[structopt(long, default_value = "4")]
+    /// Number of TCP connections to use per session. This works around lossy links, per-connection rate limiting, etc.
+    pub tcp_shard_count: usize,
+
+    #[structopt(long, default_value = "1000")]
+    /// Lifetime of a single TCP connection. Geph will switch to a different TCP connection within this many seconds.
+    pub tcp_shard_lifetime: u64,
+
     #[structopt(long, default_value = "127.0.0.1:9910")]
     /// Where to listen for HTTP proxy connections
     pub http_listen: SocketAddr,

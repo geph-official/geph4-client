@@ -11,11 +11,7 @@ use std::{
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse, ExitDescriptor};
 use env_logger::Env;
 use once_cell::sync::Lazy;
-use smol::{
-    net::{TcpListener, UdpSocket},
-    prelude::*,
-    Async,
-};
+use smol::{net::TcpListener, prelude::*, Async};
 use std::time::Duration;
 use structopt::StructOpt;
 type AsyncUdpSocket = async_dup::Arc<Async<std::net::UdpSocket>>;

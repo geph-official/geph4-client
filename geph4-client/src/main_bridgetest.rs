@@ -33,13 +33,14 @@ pub async fn main_bridgetest(opt: BridgeTestOpt) -> anyhow::Result<()> {
         client_cache.purge_bridges(&exit.hostname)?;
         let bridges = client_cache.get_bridges(&exit.hostname).await?;
         let proto = if opt.use_tcp {
-            sosistab::Protocol::Tcp
+            sosistab::Protocol::DirectTcp
         } else {
-            sosistab::Protocol::Udp
+            sosistab::Protocol::DirectUdp
         };
         let iter = bridges
             .into_iter()
             .map(|bridge| {
+                let proto = proto.clone();
                 smolscale::spawn(async move {
                     let start = Instant::now();
                     let sess = sosistab::ClientConfig::new(

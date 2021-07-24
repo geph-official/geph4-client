@@ -18,7 +18,7 @@ fn sosistab_udp(
     reset_interval: Duration,
 ) -> sosistab::ClientConfig {
     sosistab::ClientConfig::new(
-        sosistab::Protocol::Udp,
+        sosistab::Protocol::DirectUdp,
         server_addr,
         server_pk,
         global_sosistab_stats(),
@@ -33,16 +33,18 @@ fn sosistab_udp(
 fn sosistab_tcp(
     server_addr: SocketAddr,
     server_pk: x25519_dalek::PublicKey,
+    shard_count: usize,
+    reset_interval: Duration,
 ) -> sosistab::ClientConfig {
     sosistab::ClientConfig::new(
-        sosistab::Protocol::Tcp,
+        sosistab::Protocol::DirectTcp,
         server_addr,
         server_pk,
         global_sosistab_stats(),
     )
     .pipe(|mut cfg| {
-        cfg.shard_count = 16;
-        cfg.reset_interval = Some(Duration::from_secs(120));
+        cfg.shard_count = shard_count;
+        cfg.reset_interval = Some(reset_interval);
         cfg
     })
 }
@@ -53,24 +55,36 @@ async fn get_one_sess(
     addr: SocketAddr,
     pubkey: x25519_dalek::PublicKey,
 ) -> anyhow::Result<Session> {
-    let tcp_fut = sosistab_tcp(addr, pubkey).connect();
+    let tcp_fut = sosistab_tcp(
+        addr,
+        pubkey,
+        ctx.opt.tcp_shard_count,
+        Duration::from_secs(ctx.opt.tcp_shard_lifetime),
+    )
+    .connect();
     if !ctx.opt.use_tcp {
         Ok(aioutils::try_race(
-            sosistab_udp(
-                addr,
-                pubkey,
-                ctx.opt.udp_shard_count,
-                Duration::from_secs(ctx.opt.udp_shard_lifetime),
-            )
-            .connect(),
+            async {
+                let sess = sosistab_udp(
+                    addr,
+                    pubkey,
+                    ctx.opt.udp_shard_count,
+                    Duration::from_secs(ctx.opt.udp_shard_lifetime),
+                )
+                .connect()
+                .await?;
+                log::info!("connected to UDP for {}", addr);
+                Ok(sess)
+            },
             async {
                 smol::Timer::after(Duration::from_secs(2)).await;
+                log::warn!("switching to TCP for {}!", addr);
                 tcp_fut.await
             },
         )
         .await?)
     } else {
-        Ok(sosistab_tcp(addr, pubkey).connect().await?)
+        Ok(tcp_fut.await?)
     }
 }
 
@@ -156,14 +170,12 @@ async fn get_through_fastest_bridge(
                     smol::Timer::after(Duration::from_secs(5)).await;
                 }
             }
-            Ok::<_, anyhow::Error>((
-                get_one_sess(ctx.clone(), bridge.endpoint, bridge.sosistab_key)
-                    .timeout(Duration::from_secs(20))
-                    .await
-                    .context(format!("connection timed out for {}", bridge.endpoint))?
-                    .context(format!("connection failed for {}", bridge.endpoint))?,
-                bridge,
-            ))
+            let conn = get_one_sess(ctx.clone(), bridge.endpoint, bridge.sosistab_key)
+                .timeout(Duration::from_secs(20))
+                .await
+                .context(format!("connection timed out for {}", bridge.endpoint))?
+                .context(format!("connection failed for {}", bridge.endpoint))?;
+            Ok::<_, anyhow::Error>((conn, bridge))
         };
         bridge_futures.push(fut);
     }
