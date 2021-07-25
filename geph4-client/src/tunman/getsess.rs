@@ -229,7 +229,7 @@ impl ProtoSession {
         // Then we repeatedly spam the ID on the inner session until we receive one packet (which we assume to be a data packet from the successfully hijacked multiplex)
         let spam_loop = async {
             loop {
-                self.inner.send_bytes(other_id.to_vec().into()).await?;
+                self.inner.send_bytes(other_id.as_ref()).await?;
                 smol::Timer::after(Duration::from_secs(1)).await;
             }
         };

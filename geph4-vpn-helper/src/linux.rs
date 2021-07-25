@@ -2,6 +2,7 @@ use std::process::Stdio;
 
 use once_cell::sync::Lazy;
 use smol::prelude::*;
+use sosistab::Buff;
 use tundevice::TunDevice;
 use vpn_structs::StdioMsg;
 
@@ -104,8 +105,10 @@ pub fn main() {
         let mut child_input = child.stdin.take().unwrap();
         // two loops
         let read_loop = async {
+            let mut buf = [0; 2048];
             loop {
-                let bts = RAW_TUN.read_raw().await.unwrap();
+                let n = RAW_TUN.read_raw(&mut buf).await.unwrap();
+                let bts = Buff::copy_from_slice(&buf[..n]);
                 StdioMsg { verb: 0, body: bts }
                     .write(&mut child_input)
                     .await
@@ -117,7 +120,7 @@ pub fn main() {
             loop {
                 let msg = StdioMsg::read(&mut child_output).await.unwrap();
                 match msg.verb {
-                    0 => RAW_TUN.write_raw(msg.body).await.unwrap(),
+                    0 => RAW_TUN.write_raw(&msg.body).await.unwrap(),
                     1 => {
                         RAW_TUN.assign_ip(&String::from_utf8_lossy(&msg.body));
                         setup_iptables().await;

@@ -4,6 +4,7 @@ use std::{
     time::Instant,
 };
 
+use sosistab::Buff;
 use vpn_structs::StdioMsg;
 
 fn main() {
@@ -22,7 +23,7 @@ fn main() {
         for count in 1.. {
             let pkt = StdioMsg {
                 verb: 0,
-                body: vec![0u8; 1500].into(),
+                body: Buff::copy_from_slice(&[0u8; 1500]),
             };
             pkt.write_blocking(&mut child_stdin).unwrap();
             StdioMsg::read_blocking(&mut child_stdout).unwrap();

@@ -1757,6 +1757,7 @@ dependencies = [
  "parking_lot",
  "pnet_packet",
  "smol",
+ "sosistab",
  "sysinfo",
  "thiserror",
  "threadpool",
@@ -3602,9 +3603,9 @@ dependencies = [
 
 [[package]]
 name = "sosistab"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "399326a7c042d6ad7fc7d3b9685e6c8f0e5e8aad27d82914e186b8378bdb7056"
+checksum = "203ee01fc478f9791f6eef02ea441ce577d6155ad50656682be769a7807da40a"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3614,7 +3615,6 @@ dependencies = [
  "bincode",
  "blake3",
  "bloomfilter",
- "bytes",
  "c2-chacha",
  "cached",
  "concurrent-queue",
@@ -4345,6 +4345,7 @@ dependencies = [
  "bytes",
  "serde",
  "smol",
+ "sosistab",
 ]
 
 [[package]]
