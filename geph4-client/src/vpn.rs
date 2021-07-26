@@ -1,6 +1,5 @@
 use anyhow::Context;
 use async_net::Ipv4Addr;
-use bytes::Bytes;
 
 use governor::{Quota, RateLimiter};
 use once_cell::sync::Lazy;

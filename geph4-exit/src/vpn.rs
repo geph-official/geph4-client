@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use cidr::{Cidr, Ipv4Cidr};
 
 use futures_util::TryFutureExt;
