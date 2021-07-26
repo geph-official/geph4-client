@@ -27,9 +27,9 @@ panic = "abort"
 opt-level=3
 # debug=2
 overflow-checks = true
-#codegen-units=1
-#lto=true
+codegen-units=1
+lto=true
 
 [patch.crates-io]
 # async-executor={git="https://github.com/geph-official/async-executor.git", branch="master"}
-#sosistab={path="../sosistab"}
+# sosistab={path="../sosistab"}

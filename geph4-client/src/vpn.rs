@@ -1,6 +1,5 @@
 use anyhow::Context;
 use async_net::Ipv4Addr;
-use bytes::Bytes;
 
 use governor::{Quota, RateLimiter};
 use once_cell::sync::Lazy;
@@ -15,11 +14,11 @@ use pnet_packet::{
 };
 use smol::{channel::Receiver, prelude::*};
 use smol_timeout::TimeoutExt;
-use sosistab::Multiplex;
+use sosistab::{Buff, BuffMut, Multiplex};
 use std::{collections::HashMap, io::Stdin, num::NonZeroU32, sync::Arc, time::Duration};
 use vpn_structs::StdioMsg;
 
-use crate::activity::notify_activity;
+use crate::{activity::notify_activity, serialize::serialize};
 use std::io::Write;
 
 #[derive(Clone, Copy)]
@@ -35,7 +34,8 @@ pub async fn run_vpn(mux: Arc<sosistab::Multiplex>) -> anyhow::Result<()> {
     log::info!("negotiating VPN with client id {}...", client_id);
     let client_ip = loop {
         let hello = vpn_structs::Message::ClientHello { client_id };
-        mux.send_urel(bincode::serialize(&hello)?.into()).await?;
+        mux.send_urel(bincode::serialize(&hello)?.as_slice())
+            .await?;
         let resp = mux.recv_urel().timeout(Duration::from_secs(1)).await;
         if let Some(resp) = resp {
             let resp = resp?;
@@ -51,7 +51,7 @@ pub async fn run_vpn(mux: Arc<sosistab::Multiplex>) -> anyhow::Result<()> {
     // Send client ip to the vpn helper
     let msg = StdioMsg {
         verb: 1,
-        body: format!("{}/10", client_ip).as_bytes().to_vec().into(),
+        body: format!("{}/10", client_ip).as_bytes().into(),
     };
     {
         let mut stdout = std::io::stdout();
@@ -87,18 +87,14 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
                 } else {
                     msg.body
                 };
-                Ok::<Option<Bytes>, anyhow::Error>(Some(body))
+                Ok::<Option<Buff>, anyhow::Error>(Some(body))
             }
         };
         let body = stdin_fut.await.context("stdin failed")?;
         if let Some(body) = body {
             notify_activity();
             ctx.mux
-                .send_urel(
-                    bincode::serialize(&vpn_structs::Message::Payload(body))
-                        .unwrap()
-                        .into(),
-                )
+                .send_urel(serialize(&vpn_structs::Message::Payload(body)))
                 .await?
         }
     }
@@ -160,7 +156,7 @@ fn ack_decimate(bts: &[u8]) -> Option<u16> {
 }
 
 /// fixes dns destination
-fn fix_dns_dest(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Bytes> {
+fn fix_dns_dest(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Buff> {
     let dns_src_port = {
         let parsed = Ipv4Packet::new(bts)?;
         if parsed.get_next_level_protocol() == IpNextHeaderProtocols::Udp {
@@ -174,7 +170,7 @@ fn fix_dns_dest(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Byte
             return None;
         }
     };
-    let mut vv = bts.to_vec();
+    let mut vv = BuffMut::copy_from_slice(bts);
     let mut parsed = MutableIpv4Packet::new(&mut vv)?;
     nat.write().insert(dns_src_port, parsed.get_destination());
     parsed.set_destination(Ipv4Addr::new(1, 1, 1, 1));
@@ -200,7 +196,7 @@ fn fix_all_checksums(bts: &mut [u8]) -> Option<()> {
 }
 
 /// fixes dns source
-fn fix_dns_src(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Bytes> {
+fn fix_dns_src(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Buff> {
     let dns_src_port = {
         let parsed = Ipv4Packet::new(bts)?;
         // log::warn!("******** VPN DOWN: {:?}", parsed);
@@ -215,7 +211,7 @@ fn fix_dns_src(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Bytes
             return None;
         }
     };
-    let mut vv = bts.to_vec();
+    let mut vv = BuffMut::copy_from_slice(bts);
     let mut parsed = MutableIpv4Packet::new(&mut vv)?;
     parsed.set_source(*nat.read().get(&dns_src_port)?);
     fix_all_checksums(&mut vv)?;

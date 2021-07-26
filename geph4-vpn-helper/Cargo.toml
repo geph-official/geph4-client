@@ -24,7 +24,7 @@ once_cell= "1.5.2"
 crossbeam-utils= "0.8.1"
 threadpool= "1.8.1"
 flume= "0.10.1"
-
+sosistab="0.4"
 
 [target.'cfg(unix)'.dependencies]
 tundevice={path="../lib/tundevice"}

@@ -6,7 +6,7 @@ use jemallocator::Jemalloc;
 use std::os::unix::fs::PermissionsExt;
 use structopt::StructOpt;
 
-mod asn;
+mod asn; 
 mod connect;
 mod listen;
 mod lists;
@@ -23,7 +23,7 @@ struct Opt {
     /// UDP address of the statsd daemon
     statsd_addr: SocketAddr,
 
-    #[structopt(
+    #[structopt( 
         long,
         default_value = "124526f4e692b589511369687498cce57492bf4da20f8d26019c1cc0c80b6e4b"
     )]
@@ -112,7 +112,7 @@ fn main() -> anyhow::Result<()> {
             match resp {
                 BinderResponse::GetExitsResp(exits) => exits,
                 _ => panic!(),
-            }
+            } 
         };
         // warn if not in exits
         if !exits.iter().any(|e| e.signing_key == signing_sk.public) {

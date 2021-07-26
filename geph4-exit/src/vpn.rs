@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use cidr::{Cidr, Ipv4Cidr};
 
 use futures_util::TryFutureExt;
@@ -12,8 +11,9 @@ use pnet_packet::{
 };
 use rand::prelude::*;
 use smol::channel::Sender;
+use sosistab::{Buff, BuffMut};
 
-use std::{collections::BTreeMap, os::unix::io::AsRawFd};
+use std::{collections::BTreeMap, ops::DerefMut, os::unix::io::AsRawFd};
 use std::{
     collections::HashSet,
     net::{Ipv4Addr, SocketAddr},
@@ -109,9 +109,9 @@ pub async fn handle_vpn_session(
                 let pkt = Ipv4Packet::new(&bts).expect("don't send me invalid IPv4 packets!");
                 assert_eq!(pkt.get_destination(), addr);
                 let msg = Message::Payload(bts);
-                let _ = mux
-                    .send_urel(bincode::serialize(&msg).unwrap().into())
-                    .await;
+                let mut to_send = BuffMut::new();
+                bincode::serialize_into(to_send.deref_mut(), &msg).unwrap();
+                let _ = mux.send_urel(to_send).await;
             }
         })
     };
@@ -127,7 +127,7 @@ pub async fn handle_vpn_session(
                         gateway: "100.64.0.1".parse().unwrap(),
                     })
                     .unwrap()
-                    .into(),
+                    .as_slice(),
                 )
                 .await?;
             }
@@ -166,7 +166,7 @@ pub async fn handle_vpn_session(
                             continue;
                         }
                     }
-                    RAW_TUN.write_raw(bts).await;
+                    RAW_TUN.write_raw(&bts).await;
                 }
             }
             _ => anyhow::bail!("message in invalid context"),
@@ -176,23 +176,25 @@ pub async fn handle_vpn_session(
 
 /// Mapping for incoming packets
 #[allow(clippy::type_complexity)]
-static INCOMING_MAP: Lazy<RwLock<BTreeMap<Ipv4Addr, Sender<Bytes>>>> = Lazy::new(Default::default);
+static INCOMING_MAP: Lazy<RwLock<BTreeMap<Ipv4Addr, Sender<Buff>>>> = Lazy::new(Default::default);
 
 /// Incoming packet handler
 static INCOMING_PKT_HANDLER: Lazy<smol::Task<()>> = Lazy::new(|| {
     smolscale::spawn(async {
+        let mut buf = [0; 2048];
         loop {
-            let pkt = RAW_TUN
-                .read_raw()
+            let n = RAW_TUN
+                .read_raw(&mut buf)
                 .await
                 .expect("cannot read from tun device");
+            let pkt = &buf[..n];
             if rand::random::<f32>() < 0.1 {
                 smol::future::yield_now().await;
             }
             let map = INCOMING_MAP.read();
             let dest = Ipv4Packet::new(&pkt).map(|pkt| map.get(&pkt.get_destination()));
             if let Some(Some(dest)) = dest {
-                let _ = dest.try_send(pkt);
+                let _ = dest.try_send(pkt.into());
             }
         }
     })
@@ -204,7 +206,7 @@ static RAW_TUN: Lazy<TunDevice> = Lazy::new(|| {
     let dev =
         TunDevice::new_from_os("tun-geph").expect("could not initiate 'tun-geph' tun device!");
     dev.assign_ip("100.64.0.1/10");
-    smol::future::block_on(dev.write_raw(Bytes::from_static(b"hello world")));
+    smol::future::block_on(dev.write_raw(b"hello world"));
     dev
 });
 

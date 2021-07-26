@@ -9,6 +9,7 @@ use smol_timeout::TimeoutExt;
 use structopt::StructOpt;
 mod cache;
 mod fronts;
+pub mod serialize;
 mod tunman;
 
 use prelude::*;
@@ -29,6 +30,9 @@ mod main_binderproxy;
 mod main_bridgetest;
 mod main_connect;
 mod main_sync;
+// #[global_allocator]
+// static ALLOC: alloc_geiger::System = alloc_geiger::SYSTEM;
+
 #[derive(Debug, StructOpt)]
 enum Opt {
     Connect(main_connect::ConnectOpt),
@@ -77,7 +81,10 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
+
+    #[cfg(target_os = "android")]
     smolscale::permanently_single_threaded();
+
     smolscale::block_on(async move {
         match opt {
             Opt::Connect(opt) => loop {
