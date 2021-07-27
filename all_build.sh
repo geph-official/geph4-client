@@ -1,13 +1,13 @@
 #!/bin/sh
 sh osx_build.sh
-RUSTFLAGS='-C link-arg=-s' cross build --release --locked --target x86_64-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml
-RUSTFLAGS='-C link-arg=-s' cross build --release --locked --target i686-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml
-RUSTFLAGS='-C link-arg=-s' cross build --release  --locked  --target x86_64-unknown-linux-musl --manifest-path=geph4-client/Cargo.toml
-RUSTFLAGS='-C link-arg=-s' cross build --release --locked  --target x86_64-unknown-linux-gnu --manifest-path=geph4-vpn-helper/Cargo.toml
-RUSTFLAGS='-C link-arg=-s' cross build --release --locked  --target x86_64-unknown-linux-musl --manifest-path=geph4-bridge/Cargo.toml
-RUSTFLAGS='-C link-arg=-s' cross build --release --locked  --target armv7-linux-androideabi --manifest-path=geph4-client/Cargo.toml
-RUSTFLAGS='-C link-arg=-s' cross build --release --locked  --target aarch64-linux-android --manifest-path=geph4-client/Cargo.toml
-RUSTFLAGS='-C link-arg=-s' cross build --release --locked  --target armv7-unknown-linux-musleabihf --manifest-path=geph4-client/Cargo.toml
+cross build --release --frozen --target x86_64-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml
+cross build --release --frozen --target i686-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml
+cross build --release --frozen  --target x86_64-unknown-linux-musl --manifest-path=geph4-client/Cargo.toml
+cross build --release --frozen  --target x86_64-unknown-linux-gnu --manifest-path=geph4-vpn-helper/Cargo.toml
+cross build --release --frozen  --target x86_64-unknown-linux-musl --manifest-path=geph4-bridge/Cargo.toml
+cross build --release --frozen  --target armv7-linux-androideabi --manifest-path=geph4-client/Cargo.toml
+cross build --release --frozen  --target aarch64-linux-android --manifest-path=geph4-client/Cargo.toml
+cross build --release --frozen  --target armv7-unknown-linux-musleabihf --manifest-path=geph4-client/Cargo.toml
 mkdir ./OUTPUT/
 mv ./target/x86_64-unknown-linux-musl/release/geph4-client ./OUTPUT/geph4-client-linux-amd64
 mv ./target/x86_64-unknown-linux-gnu/release/geph4-vpn-helper ./OUTPUT/geph4-vpn-helper-linux-amd64
