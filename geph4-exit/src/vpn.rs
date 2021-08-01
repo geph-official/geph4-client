@@ -95,6 +95,8 @@ pub async fn handle_vpn_session(
     let (send_down, recv_down) =
         smol::channel::bounded(if rate_limit.is_unlimited() { 4096 } else { 64 });
     INCOMING_MAP.write().insert(addr, send_down);
+
+    // downstream loop
     let _down_task: smol::Task<anyhow::Result<()>> = {
         let key = key.clone();
         let mux = mux.clone();
@@ -116,6 +118,7 @@ pub async fn handle_vpn_session(
         })
     };
 
+    // upstream loop
     loop {
         let bts = mux.recv_urel().await?;
         let msg: Message = bincode::deserialize(&bts)?;

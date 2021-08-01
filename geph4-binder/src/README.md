@@ -1,0 +1,2 @@
+## the binder
+instantiates the [binder core](https://github.com/geph-official/geph4/blob/master/geph4-binder/src/bindercore.rs) and listens for HTTP requests. It communicates with the database to [handle requests](https://github.com/geph-official/geph4/blob/master/geph4-binder/src/responder.rs) such as user authentication, captcha requests, password changes, user registration/deletion, and requests for a list of bridges/exits.

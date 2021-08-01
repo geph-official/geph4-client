@@ -211,7 +211,7 @@ impl BinderCore {
         }
     }
 
-    /// Changes the password of the users.
+    /// Changes the password of the user
     pub fn change_password(
         &self,
         username: &str,

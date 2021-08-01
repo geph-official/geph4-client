@@ -1,4 +1,4 @@
-## The client
+## the client
 
 starts logging and executes one of 4 subcommands, depending on the command-line arguments:
 
