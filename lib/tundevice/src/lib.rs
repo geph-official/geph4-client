@@ -1,4 +1,3 @@
-use bytes::Bytes;
 use fs::OpenOptions;
 use smol::prelude::*;
 use std::os::raw::c_char;
@@ -72,18 +71,12 @@ impl TunDevice {
     }
 
     /// Reads raw packet.
-    pub async fn read_raw(&self) -> Option<Bytes> {
-        let mut buf = Vec::with_capacity(2048);
-        unsafe {
-            buf.set_len(2048);
-        }
-        let n = (&self.fd).read(&mut buf).await.ok()?;
-        buf.truncate(n);
-        Some(buf.into())
+    pub async fn read_raw(&self, buf: &mut [u8]) -> Option<usize> {
+        Some((&self.fd).read(buf).await.ok()?)
     }
 
     /// Writes a packet.
-    pub async fn write_raw(&self, to_write: Bytes) -> Option<()> {
+    pub async fn write_raw(&self, to_write: &[u8]) -> Option<()> {
         (&self.fd).write(&to_write).await.ok();
         Some(())
     }

@@ -7,3 +7,6 @@ rustflags = [
   "-C", "link-arg=/SAFESEH:NO",
   "-C", "link-arg=/MANIFESTUAC:level=requireAdministrator"
 ]
+
+[target.armv7-unknown-linux-musleabihf]
+linker = "armv7-unknown-linux-musleabihf-gcc"

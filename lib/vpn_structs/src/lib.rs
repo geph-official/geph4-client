@@ -1,7 +1,7 @@
 use std::net::Ipv4Addr;
 
-use bytes::Bytes;
 use serde::{Deserialize, Serialize};
+use sosistab::{Buff, BuffMut};
 
 /// VPN message
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -13,14 +13,14 @@ pub enum Message {
         client_ip: Ipv4Addr,
         gateway: Ipv4Addr,
     },
-    Payload(Bytes),
+    Payload(Buff),
 }
 
 /// Stdio message
 #[derive(Debug, Clone)]
 pub struct StdioMsg {
     pub verb: u8,
-    pub body: Bytes,
+    pub body: Buff,
 }
 
 impl StdioMsg {
@@ -33,7 +33,8 @@ impl StdioMsg {
         let verb = scratch_space[0];
         reader.read_exact(&mut scratch_space).await?;
         let length = u16::from_le_bytes(scratch_space);
-        let mut bts = vec![0u8; length as usize];
+        let mut bts = BuffMut::new();
+        bts.resize(length as usize, 0);
         reader.read_exact(&mut bts).await?;
         Ok(StdioMsg {
             verb,
@@ -48,7 +49,8 @@ impl StdioMsg {
         let verb = scratch_space[0];
         reader.read_exact(&mut scratch_space)?;
         let length = u16::from_le_bytes(scratch_space);
-        let mut bts = vec![0u8; length as usize];
+        let mut bts = BuffMut::new();
+        bts.resize(length as usize, 0);
         reader.read_exact(&mut bts)?;
         Ok(StdioMsg {
             verb,

@@ -6,7 +6,7 @@ use jemallocator::Jemalloc;
 use std::os::unix::fs::PermissionsExt;
 use structopt::StructOpt;
 
-mod asn;
+mod asn; 
 mod connect;
 mod listen;
 mod lists;
@@ -23,7 +23,7 @@ struct Opt {
     /// UDP address of the statsd daemon
     statsd_addr: SocketAddr,
 
-    #[structopt(
+    #[structopt( 
         long,
         default_value = "124526f4e692b589511369687498cce57492bf4da20f8d26019c1cc0c80b6e4b"
     )]
@@ -53,6 +53,10 @@ struct Opt {
     /// Google proxy server to redirect all port 443 Google requests to.
     #[structopt(long)]
     google_proxy: Option<SocketAddr>,
+
+    /// External interface to run the VPN NAT on.
+    #[structopt(long)]
+    nat_interface: String,
 }
 
 #[global_allocator]
@@ -64,6 +68,7 @@ fn main() -> anyhow::Result<()> {
     let stat_client = statsd::Client::new(opt.statsd_addr, "geph4")?;
     env_logger::Builder::from_env(Env::default().default_filter_or("geph4_exit=debug,warn")).init();
     smol::future::block_on(smolscale::spawn(async move {
+        config_iptables(&opt).await?;
         log::info!("geph4-exit starting...");
         // read or generate key
         let signing_sk = {
@@ -82,7 +87,7 @@ fn main() -> anyhow::Result<()> {
                     } else {
                         let mut perms = std::fs::metadata(&opt.signing_sk)?.permissions();
                         perms.set_readonly(true);
-                        perms.set_mode(600);
+                        perms.set_mode(0o600);
                         std::fs::set_permissions(&opt.signing_sk, perms)?;
                     }
                     new_keypair
@@ -107,14 +112,10 @@ fn main() -> anyhow::Result<()> {
             match resp {
                 BinderResponse::GetExitsResp(exits) => exits,
                 _ => panic!(),
-            }
+            } 
         };
         // warn if not in exits
-        if exits
-            .iter()
-            .find(|e| e.signing_key == signing_sk.public)
-            .is_none()
-        {
+        if !exits.iter().any(|e| e.signing_key == signing_sk.public) {
             log::warn!("this exit is not found at the binder; you should manually add it first")
         }
         // listen
@@ -132,4 +133,31 @@ fn main() -> anyhow::Result<()> {
         .await?;
         Ok(())
     }))
+}
+
+/// Configures iptables.
+async fn config_iptables(opt: &Opt) -> anyhow::Result<()> {
+    let to_run = format!(
+        r#"
+    #!/bin/sh
+export INTERFACE={}
+
+iptables --flush
+iptables -t nat -F
+
+iptables -t nat -A PREROUTING -i tun-geph -p tcp --syn -j REDIRECT --match multiport --dports 80,443,8080 --to-ports 10000
+
+iptables -t nat -A POSTROUTING -o $INTERFACE -j MASQUERADE --random
+iptables -A FORWARD -i $INTERFACE -o tun-geph -m state --state RELATED,ESTABLISHED -j ACCEPT
+iptables -A FORWARD -i tun-geph -o $INTERFACE -j ACCEPT
+iptables -A FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
+"#,
+        opt.nat_interface
+    );
+    let cmd = smol::process::Command::new("sh")
+        .arg("-c")
+        .arg(&to_run)
+        .spawn()?;
+    cmd.output().await?;
+    Ok(())
 }

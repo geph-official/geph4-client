@@ -1,3 +1,7 @@
+mod forward;
+mod mmsg;
+mod nat;
+
 use std::{
     collections::HashMap,
     net::{IpAddr, SocketAddr},
@@ -7,9 +11,12 @@ use std::{
 use binder_transport::{BinderClient, BinderRequestData, BinderResponse, ExitDescriptor};
 use env_logger::Env;
 use once_cell::sync::Lazy;
-use smol::prelude::*;
+use smol::{net::TcpListener, prelude::*, Async};
 use std::time::Duration;
 use structopt::StructOpt;
+type AsyncUdpSocket = async_dup::Arc<Async<std::net::UdpSocket>>;
+
+use crate::forward::Forwarder;
 
 #[derive(Debug, StructOpt)]
 struct Opt {
@@ -31,24 +38,41 @@ struct Opt {
     /// bridge group.
     #[structopt(long, default_value = "other")]
     bridge_group: String,
+
+    /// whether or not to use iptables for kernel-level forwarding
+    #[structopt(long)]
+    iptables: bool,
 }
 
 fn main() -> anyhow::Result<()> {
     smol::block_on(async move {
         let opt: Opt = Opt::from_args();
-        env_logger::Builder::from_env(Env::default().default_filter_or("geph4_bridge=info")).init();
-        run_command("iptables -t nat -F");
-        // --random to not leak origin ports
-        run_command("iptables -t nat -A POSTROUTING -j MASQUERADE --random");
+        env_logger::Builder::from_env(Env::default().default_filter_or("geph4_bridge")).init();
+        if opt.iptables {
+            run_command("iptables -t nat -F");
+            // --random to not leak origin ports
+            run_command(
+            "iptables -t nat -A POSTROUTING -j MASQUERADE -p udp --random-fully --to-ports 1000-65000",
+        );
+            run_command(
+            "iptables -t nat -A POSTROUTING -j MASQUERADE -p tcp --random-fully --to-ports 1000-65000",
+        );
+        }
         // set TTL to 200 to hide distance of clients
-        run_command("iptables -t mangle -I POSTROUTING -j TTL --ttl-set 200");
+        // run_command("iptables -t mangle -I POSTROUTING -j TTL --ttl-set 200");
         let binder_client = Arc::new(binder_transport::HttpClient::new(
             bincode::deserialize(&hex::decode(opt.binder_master_pk)?)?,
             opt.binder_http,
             &[],
             None,
         ));
-        bridge_loop(binder_client, &opt.bridge_secret, &opt.bridge_group).await;
+        bridge_loop(
+            binder_client,
+            &opt.bridge_secret,
+            &opt.bridge_group,
+            opt.iptables,
+        )
+        .await;
         Ok(())
     })
 }
@@ -60,8 +84,9 @@ async fn bridge_loop<'a>(
     binder_client: Arc<dyn BinderClient>,
     bridge_secret: &'a str,
     bridge_group: &'a str,
+    iptables: bool,
 ) {
-    let mut current_exits: HashMap<String, smol::Task<anyhow::Result<()>>> = HashMap::new();
+    let mut current_exits = HashMap::new();
     loop {
         let binder_client = binder_client.clone();
         let exits = binder_client.request(BinderRequestData::GetExits).await;
@@ -70,12 +95,17 @@ async fn bridge_loop<'a>(
             // insert all exits that aren't in current exit
             for exit in exits {
                 if current_exits.get(&exit.hostname).is_none() {
-                    log::info!("{} is a new exit, spawning a manager!", exit.hostname);
-                    let task = smol::spawn(manage_exit(
-                        exit.clone(),
-                        bridge_secret.to_string(),
-                        bridge_group.to_string(),
-                    ));
+                    log::info!("{} is a new exit, spawning new managers!", exit.hostname);
+                    let task = (0..if iptables { 16 } else { 1 })
+                        .map(|_| {
+                            smolscale::spawn(manage_exit(
+                                exit.clone(),
+                                bridge_secret.to_string(),
+                                bridge_group.to_string(),
+                                iptables,
+                            ))
+                        })
+                        .collect::<Vec<_>>();
                     current_exits.insert(exit.hostname, task);
                 }
             }
@@ -89,15 +119,25 @@ async fn manage_exit(
     exit: ExitDescriptor,
     bridge_secret: String,
     bridge_group: String,
+    iptables: bool,
 ) -> anyhow::Result<()> {
-    let free_socket = std::iter::from_fn(|| Some(fastrand::u32(1000..65536)))
-        .find_map(|port| std::net::UdpSocket::bind(format!("[::0]:{}", port)).ok())
+    let (local_udp, local_tcp) = std::iter::from_fn(|| Some(fastrand::u32(1000..65536)))
+        .find_map(|port| {
+            Some((
+                async_dup::Arc::new(
+                    Async::<std::net::UdpSocket>::bind(
+                        format!("[::0]:{}", port).parse::<SocketAddr>().unwrap(),
+                    )
+                    .ok()?,
+                ),
+                smol::future::block_on(TcpListener::bind(format!("[::0]:{}", port))).ok()?,
+            ))
+        })
         .unwrap();
-    let remote_addr = smol::net::resolve(&format!("{}:28080", exit.hostname)).await?[0];
     log::info!(
         "forward to {} from local address {}",
         exit.hostname,
-        free_socket.local_addr().unwrap()
+        local_udp.get_ref().local_addr().unwrap()
     );
     let (send_routes, recv_routes) = flume::bounded(0);
     let manage_fut = async {
@@ -106,7 +146,7 @@ async fn manage_exit(
                 &exit,
                 &bridge_secret,
                 &bridge_group,
-                free_socket.local_addr().unwrap(),
+                local_udp.get_ref().local_addr().unwrap(),
                 &send_routes,
             )
             .await
@@ -117,27 +157,20 @@ async fn manage_exit(
     };
     let route_fut = async {
         // command for route delete
-        let mut route_delete: Option<String> = None;
+        let mut forwarder: Option<Forwarder> = None;
         let mut last_remote_port = 0;
         loop {
             let (remote_port, _) = recv_routes.recv_async().await?;
+            let remote_addr =
+                smol::net::resolve(&format!("{}:{}", exit.hostname, remote_port)).await?[0];
             if remote_port != last_remote_port {
-                if let Some(delete_command) = route_delete.take() {
-                    run_command(&delete_command);
-                }
-                run_command(&format!(
-                "iptables -t nat -A PREROUTING -p udp --dport {} -j DNAT --to-destination {}:{};iptables -t nat -A PREROUTING -p tcp --dport {} -j DNAT --to-destination {}:{}; ",
-                free_socket.local_addr().unwrap().port(),
-                remote_addr.ip(), remote_port,                free_socket.local_addr().unwrap().port(),
-                remote_addr.ip(), remote_port
+                last_remote_port = remote_port;
+                forwarder.replace(Forwarder::new(
+                    local_udp.clone(),
+                    local_tcp.clone(),
+                    remote_addr,
+                    iptables,
                 ));
-                route_delete = Some(format!(
-                "iptables -t nat -D PREROUTING -p udp --dport {} -j DNAT --to-destination {}:{}; iptables -t nat -D PREROUTING -p tcp --dport {} -j DNAT --to-destination {}:{}",
-                free_socket.local_addr().unwrap().port(),
-                remote_addr.ip(), remote_port,                free_socket.local_addr().unwrap().port(),
-                remote_addr.ip(), remote_port
-                 ));
-                last_remote_port = remote_port
             }
         }
     };
@@ -145,7 +178,7 @@ async fn manage_exit(
 }
 
 fn run_command(s: &str) {
-    log::info!("running command {}", s);
+    // log::info!("running command {}", s);
     std::process::Command::new("sh")
         .arg("-c")
         .arg(s)

@@ -9,6 +9,7 @@ use smol_timeout::TimeoutExt;
 use structopt::StructOpt;
 mod cache;
 mod fronts;
+pub mod serialize;
 mod tunman;
 
 use prelude::*;
@@ -29,6 +30,9 @@ mod main_binderproxy;
 mod main_bridgetest;
 mod main_connect;
 mod main_sync;
+// #[global_allocator]
+// static ALLOC: alloc_geiger::System = alloc_geiger::SYSTEM;
+
 #[derive(Debug, StructOpt)]
 enum Opt {
     Connect(main_connect::ConnectOpt),
@@ -38,8 +42,6 @@ enum Opt {
 }
 
 fn main() -> anyhow::Result<()> {
-    // very first thing: if GEPH_RECURSIVE not set, set it and recursively call Geph. this lets us recover from
-
     // fixes timer resolution on Windows
     #[cfg(windows)]
     unsafe {
@@ -79,7 +81,10 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
+
+    #[cfg(target_os = "android")]
     smolscale::permanently_single_threaded();
+
     smolscale::block_on(async move {
         match opt {
             Opt::Connect(opt) => loop {
@@ -154,7 +159,7 @@ impl CommonOpt {
         for url in self.binder_extra_url.split(',') {
             log::debug!("getting extra fronts...");
             match fetch_fronts(url.into())
-                .timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(1))
                 .await
             {
                 None => log::debug!("(timed out)"),

@@ -20,6 +20,7 @@ use std::io::prelude::*;
 use std::io::{BufReader, BufWriter};
 use std::num::NonZeroU32;
 use std::time::{Duration, Instant};
+use sysinfo::{ProcessExt, SystemExt};
 
 /// A log rate limiter
 static LOG_LIMITER: Lazy<Box<dyn Fn() -> bool + 'static + Send + Sync>> = Lazy::new(|| {
@@ -88,7 +89,7 @@ pub fn main() {
     std::thread::spawn(|| download_loop(geph_stdout));
 
     // main loop handles packets
-    upload_loop(geph_pid, child.stdin.unwrap())
+    upload_loop(child.stdin.unwrap())
 }
 
 fn download_loop(mut geph_stdout: ChildStdout) {
@@ -158,7 +159,19 @@ pub(crate) fn thread_sleep(duration: Duration) {
     }
 }
 
-fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
+#[cached::proc_macro::cached(time = 10)]
+fn is_geph_pid(pid: u32) -> bool {
+    static SYSTEM: Lazy<RwLock<sysinfo::System>> = Lazy::new(Default::default);
+    dbg!(pid);
+    SYSTEM.write().refresh_all();
+    SYSTEM
+        .read()
+        .get_process(pid as usize)
+        .map(|proc| dbg!(proc.exe().file_name().unwrap().to_string_lossy()) == "geph4-client.exe")
+        .unwrap_or_default()
+}
+
+fn upload_loop(mut geph_stdin: ChildStdin) {
     let (send, recv) = flume::unbounded::<(Vec<u8>, Instant)>();
     let mut geph_stdin = BufWriter::with_capacity(1024 * 1024, geph_stdin);
     std::thread::spawn(move || {
@@ -187,16 +200,10 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
                         }
                         loop_iter += 1;
                         thread_sleep(Duration::from_millis(1));
-                        if LOG_LIMITER() {
-                            log::debug!("")
-                        }
                     };
                     if let Some(pid) = process_id {
                         let is_dns = pkt_addrs.destination_addr.port() == 53;
-                        if pid == geph_pid || (is_local_dest(&pkt) && !is_dns) {
-                            if LOG_LIMITER() {
-                                log::debug!("bypassing Geph/LAN packet of length {}", pkt.len());
-                            }
+                        if is_geph_pid(pid) || (is_local_dest(&pkt) && !is_dns) {
                             to_inject.push(pkt);
                             continue;
                         }
@@ -244,7 +251,7 @@ fn upload_loop(geph_pid: u32, mut geph_stdin: ChildStdin) {
                     .unwrap();
             }
             Err(InternalError(122)) => eprintln!("dropping way-too-big packet"),
-            Err(e) => panic!(e),
+            Err(e) => panic!("{}", e),
         }
     }
 }
@@ -274,7 +281,7 @@ fn is_local_dest(packet: &[u8]) -> bool {
             return true;
         }
     }
-    return false;
+    false
 }
 
 fn fix_destination(packet: &mut [u8]) -> bool {
