@@ -1,3 +1,4 @@
 target/*
 OUTPUT/*
 osxcross
+Cargo.lock
