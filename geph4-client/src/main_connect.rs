@@ -433,9 +433,12 @@ async fn handle_socks5(
             why_must_direct = "destination is china";
             true
         } else {
-            why_must_direct = "destination is a private network";
+            why_must_direct = "destination is not a public network";
             match v4addr {
-                Some(ip) => { ip.is_private() },
+                Some(ip) => {
+                    // ip.is_private() || ip.is_loopback() || ip.is_unspecified() || ip.is_broadcast() || ip.is_multicast() || ip.is_link_local() || ip.is_documentation()
+                    ! ip.is_global()
+                },
                 None => { false }
             }
         }
