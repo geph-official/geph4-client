@@ -429,11 +429,27 @@ async fn handle_socks5(
         port,
     )
     .await?;
-    let must_direct = exclude_prc
-        && (china::is_chinese_host(addr.split(':').next().unwrap())
-            || v4addr.map(china::is_chinese_ip).unwrap_or(false));
+
+    let mut why_must_direct:&str = "";
+    let must_direct:bool = {
+        if exclude_prc && (china::is_chinese_host(addr.split(':').next().unwrap()) || v4addr.map(china::is_chinese_ip).unwrap_or(false)) {
+            why_must_direct = "destination is china";
+            true
+        } else {
+            why_must_direct = "destination is not public network";
+            match v4addr {
+                Some(ip) => {
+                    // ip.is_private() || ip.is_loopback() || ip.is_unspecified() || ip.is_broadcast() || ip.is_multicast() || ip.is_link_local() || ip.is_documentation()
+                    ! ip.is_global()
+                },
+                None => { false }
+            }
+        }
+    };
+    let why_must_direct = why_must_direct;
+
     if must_direct {
-        log::debug!("bypassing {}", addr);
+        log::debug!("bypassing {} because {}", addr, why_must_direct);
         let conn = smol::net::TcpStream::connect(&addr).await?;
         smol::future::race(
             geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| ()),
