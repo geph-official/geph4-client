@@ -83,7 +83,7 @@ impl DnsPool {
             .timeout(dns_timeout)
             .await?
             .ok()?;
-        conn.write_all(&buff).timeout(dns_timeout).await?.ok()?;
+        conn.write_all(buff).timeout(dns_timeout).await?.ok()?;
         conn.flush().timeout(dns_timeout).await?.ok()?;
         let mut n_buf = [0; 2];
         conn.read_exact(&mut n_buf)

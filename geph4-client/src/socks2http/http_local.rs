@@ -1,7 +1,7 @@
-use crate::address::{host_addr, Address};
-use crate::http_client;
-use crate::socks5;
-use futures::FutureExt;
+use crate::socks2http::address::{host_addr, Address};
+use crate::socks2http::http_client;
+use crate::socks2http::socks5;
+use futures_util::FutureExt;
 use http::{
     uri::{Authority, Scheme, Uri},
     Method,
@@ -176,7 +176,7 @@ async fn server_dispatch(
         Ok(res)
     }
 }
-use futures::future::{self, Either};
+use futures_util::future::{self, Either};
 use hyper::{upgrade::Upgraded, StatusCode};
 use std::io::ErrorKind;
 use tokio::net::TcpStream;

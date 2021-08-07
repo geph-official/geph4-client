@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use binder_transport::ExitDescriptor;
+use geph4_binder_transport::ExitDescriptor;
 use parking_lot::RwLock;
 use smol::channel::{Receiver, Sender};
 

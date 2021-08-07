@@ -1,6 +1,7 @@
 use anyhow::Context;
 use async_net::Ipv4Addr;
 
+use geph4_protocol::VpnStdio;
 use governor::{Quota, RateLimiter};
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
@@ -16,7 +17,6 @@ use smol::{channel::Receiver, prelude::*};
 use smol_timeout::TimeoutExt;
 use sosistab::{Buff, BuffMut, Multiplex};
 use std::{collections::HashMap, io::Stdin, num::NonZeroU32, sync::Arc, time::Duration};
-use vpn_structs::StdioMsg;
 
 use crate::{activity::notify_activity, serialize::serialize};
 use std::io::Write;
@@ -33,15 +33,15 @@ pub async fn run_vpn(mux: Arc<sosistab::Multiplex>) -> anyhow::Result<()> {
     let client_id: u128 = rand::random();
     log::info!("negotiating VPN with client id {}...", client_id);
     let client_ip = loop {
-        let hello = vpn_structs::Message::ClientHello { client_id };
+        let hello = geph4_protocol::VpnMessage::ClientHello { client_id };
         mux.send_urel(bincode::serialize(&hello)?.as_slice())
             .await?;
         let resp = mux.recv_urel().timeout(Duration::from_secs(1)).await;
         if let Some(resp) = resp {
             let resp = resp?;
-            let resp: vpn_structs::Message = bincode::deserialize(&resp)?;
+            let resp: geph4_protocol::VpnMessage = bincode::deserialize(&resp)?;
             match resp {
-                vpn_structs::Message::ServerHello { client_ip, .. } => break client_ip,
+                geph4_protocol::VpnMessage::ServerHello { client_ip, .. } => break client_ip,
                 _ => continue,
             }
         }
@@ -49,7 +49,7 @@ pub async fn run_vpn(mux: Arc<sosistab::Multiplex>) -> anyhow::Result<()> {
     log::info!("negotiated IP address {}!", client_ip);
 
     // Send client ip to the vpn helper
-    let msg = StdioMsg {
+    let msg = VpnStdio {
         verb: 1,
         body: format!("{}/10", client_ip).as_bytes().into(),
     };
@@ -94,7 +94,7 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         if let Some(body) = body {
             notify_activity();
             ctx.mux
-                .send_urel(serialize(&vpn_structs::Message::Payload(body)))
+                .send_urel(serialize(&geph4_protocol::VpnMessage::Payload(body)))
                 .await?
         }
     }
@@ -124,7 +124,7 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         if count % 1000 == 1 {
             log::debug!("VPN received {} pkts ", count);
         }
-        if let vpn_structs::Message::Payload(bts) =
+        if let geph4_protocol::VpnMessage::Payload(bts) =
             bincode::deserialize(&bts).context("invalid downstream data")?
         {
             let bts = if let Some(bts) = fix_dns_src(&bts, ctx.dns_nat) {
@@ -132,7 +132,7 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
             } else {
                 bts
             };
-            let msg = StdioMsg { verb: 0, body: bts };
+            let msg = VpnStdio { verb: 0, body: bts };
             {
                 msg.write_blocking(&mut buff).unwrap();
                 // stdout.flush().unwrap();
@@ -222,7 +222,7 @@ pub static STDIN: Lazy<AtomicStdin> = Lazy::new(AtomicStdin::new);
 
 /// A type that wraps stdin and provides atomic packet recv operations to prevent cancellations from messing things up.
 pub struct AtomicStdin {
-    incoming: Receiver<StdioMsg>,
+    incoming: Receiver<VpnStdio>,
     _task: smol::Task<Option<()>>,
 }
 
@@ -239,14 +239,14 @@ impl AtomicStdin {
         let _task = smolscale::spawn(async move {
             let mut stdin = STDIN.clone();
             loop {
-                let msg = StdioMsg::read(&mut stdin).await.unwrap();
+                let msg = VpnStdio::read(&mut stdin).await.unwrap();
                 let _ = send_incoming.send(msg).await;
             }
         });
         Self { incoming, _task }
     }
 
-    async fn recv(&self) -> StdioMsg {
+    async fn recv(&self) -> VpnStdio {
         self.incoming.recv().await.unwrap()
     }
 }

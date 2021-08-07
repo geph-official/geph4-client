@@ -1,5 +1,5 @@
-use crate::socks5;
-use futures::{future::BoxFuture, FutureExt};
+use crate::socks2http::socks5;
+use futures_util::{future::BoxFuture, FutureExt};
 use hyper::Uri;
 use pin_project::pin_project;
 use std::future::Future;
@@ -27,7 +27,7 @@ impl hyper::service::Service<Uri> for SocksConnector {
         let proxy = self.proxy;
         SocksConnecting {
             fut: async move {
-                match crate::address::host_addr(&dst) {
+                match crate::socks2http::address::host_addr(&dst) {
                     None => {
                         use std::io::{Error, ErrorKind};
                         let err = Error::new(ErrorKind::Other, "URI must be a valid Address");

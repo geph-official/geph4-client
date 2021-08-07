@@ -1,10 +1,10 @@
 use std::process::Stdio;
 
+use geph4_protocol::VpnStdio;
 use once_cell::sync::Lazy;
 use smol::prelude::*;
 use sosistab::Buff;
 use tundevice::TunDevice;
-use vpn_structs::StdioMsg;
 
 /// The raw TUN device.
 static RAW_TUN: Lazy<TunDevice> = Lazy::new(|| {
@@ -109,7 +109,7 @@ pub fn main() {
             loop {
                 let n = RAW_TUN.read_raw(&mut buf).await.unwrap();
                 let bts = Buff::copy_from_slice(&buf[..n]);
-                StdioMsg { verb: 0, body: bts }
+                VpnStdio { verb: 0, body: bts }
                     .write(&mut child_input)
                     .await
                     .unwrap();
@@ -118,7 +118,7 @@ pub fn main() {
         };
         let write_loop = async {
             loop {
-                let msg = StdioMsg::read(&mut child_output).await.unwrap();
+                let msg = VpnStdio::read(&mut child_output).await.unwrap();
                 match msg.verb {
                     0 => RAW_TUN.write_raw(&msg.body).await.unwrap(),
                     1 => {

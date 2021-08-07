@@ -4,7 +4,7 @@ use crate::{
 };
 use crate::{activity::wait_activity, vpn::run_vpn};
 use anyhow::Context;
-use binder_transport::ExitDescriptor;
+use geph4_binder_transport::ExitDescriptor;
 use getsess::get_session;
 use parking_lot::RwLock;
 use smol::channel::{Receiver, Sender};
@@ -248,7 +248,7 @@ async fn authenticate_session(
 ) -> anyhow::Result<()> {
     let mut auth_conn = session.open_conn(None).await?;
     log::debug!("sending auth info...");
-    aioutils::write_pascalish(
+    geph4_aioutils::write_pascalish(
         &mut auth_conn,
         &(
             &token.unblinded_digest,
@@ -258,6 +258,6 @@ async fn authenticate_session(
     )
     .await?;
     log::debug!("sent auth info!");
-    let _: u8 = aioutils::read_pascalish(&mut auth_conn).await?;
+    let _: u8 = geph4_aioutils::read_pascalish(&mut auth_conn).await?;
     Ok(())
 }

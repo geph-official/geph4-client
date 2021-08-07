@@ -1,22 +1,22 @@
 [workspace]
 
 members = [
-    "geph4-binder",
-    "geph4-exit",
-    "lib/tundevice",
-    "lib/mizaru",
-    "lib/binder_transport",
-    "lib/aioutils",
-    "lib/vpn_structs",
-    "lib/socks2http-rs",
-    "lib/spiderchan",
+    # "geph4-binder",
+    # "geph4-exit",
+    # "lib/tundevice",
+    # "lib/mizaru",
+    # "lib/binder_transport",
+    # "lib/aioutils",
+    # "lib/vpn_structs",
+    # "lib/socks2http-rs",
+    # "lib/spiderchan",
     "geph4-vpn-helper",
     "geph4-client",
-    "geph4-bridge"
+    # "geph4-bridge"
 ] 
 
 
-[profile.dev]
+[profile.dev] 
 opt-level=2
 # panic = "abort" 
 # incremental=true
@@ -27,8 +27,8 @@ panic = "abort"
 opt-level=3
 # debug=2
 overflow-checks = true
-codegen-units=1
-lto=true
+# codegen-units=1
+# lto=true
 
 [patch.crates-io]
 # async-executor={git="https://github.com/geph-official/async-executor.git", branch="master"}

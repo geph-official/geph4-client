@@ -2,6 +2,6 @@
 image = "rustembedded/cross:i686-pc-windows-gnu"
 
 [build.env]
-#passthrough = [
-#    "RUSTFLAGS",
-#]
+passthrough = [
+    "CARGO_TARGET_DIR",
+]
