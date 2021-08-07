@@ -1,7 +1,7 @@
 use std::{net::SocketAddr, sync::Arc};
 
 use crate::CommonOpt;
-use binder_transport::{BinderClient, BinderError, BinderRequestData, BinderResponse};
+use geph4_binder_transport::{BinderClient, BinderError, BinderRequestData, BinderResponse};
 use http_types::{Request, Response};
 use serde::{Deserialize, Serialize};
 use smol_timeout::TimeoutExt;

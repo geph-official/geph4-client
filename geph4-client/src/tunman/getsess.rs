@@ -63,7 +63,7 @@ async fn get_one_sess(
     )
     .connect();
     if !ctx.opt.use_tcp {
-        Ok(aioutils::try_race(
+        Ok(geph4_aioutils::try_race(
             async {
                 let sess = sosistab_udp(
                     addr,
@@ -99,10 +99,10 @@ pub async fn get_session(
         if use_bridges {
             bridge_sess_async.await
         } else {
-            aioutils::try_race(
+            geph4_aioutils::try_race(
                 async {
                     let server_addr =
-                        aioutils::resolve(&format!("{}:19831", ctx.selected_exit.hostname))
+                        geph4_aioutils::resolve(&format!("{}:19831", ctx.selected_exit.hostname))
                             .await
                             .context("can't resolve hostname of exit")?
                             .into_iter()

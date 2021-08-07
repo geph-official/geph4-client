@@ -1,6 +1,6 @@
 use crate::{AuthOpt, CommonOpt};
 use acidjson::AcidJson;
-use binder_transport::{
+use geph4_binder_transport::{
     BinderClient, BinderError, BinderRequestData, BinderResponse, BridgeDescriptor, ExitDescriptor,
 };
 
@@ -78,7 +78,7 @@ impl ClientCache {
             .database
             .read()
             .get(&key)
-            .map(|v| bincode::deserialize(&v).unwrap());
+            .map(|v| bincode::deserialize(v).unwrap());
         existing.map(|v| v.0)
     }
 
@@ -117,7 +117,7 @@ impl ClientCache {
             .database
             .read()
             .get(&expanded_key)
-            .map(|v| bincode::deserialize(&v).unwrap());
+            .map(|v| bincode::deserialize(v).unwrap());
         if !self.force_sync {
             if let Some((existing, timeout)) = existing {
                 if SystemTime::now()
@@ -275,7 +275,7 @@ impl ClientCache {
         let binder_client = self.binder_client.clone();
         let res = timeout(binder_client.request(BinderRequestData::GetExits)).await??;
         match res {
-            binder_transport::BinderResponse::GetExitsResp(exits) => Ok(exits),
+            geph4_binder_transport::BinderResponse::GetExitsResp(exits) => Ok(exits),
             other => anyhow::bail!("unexpected response {:?}", other),
         }
     }
@@ -284,7 +284,7 @@ impl ClientCache {
         let binder_client = self.binder_client.clone();
         let res = timeout(binder_client.request(BinderRequestData::GetFreeExits)).await??;
         match res {
-            binder_transport::BinderResponse::GetExitsResp(exits) => Ok(exits),
+            geph4_binder_transport::BinderResponse::GetExitsResp(exits) => Ok(exits),
             other => anyhow::bail!("unexpected response {:?}", other),
         }
     }
@@ -292,7 +292,7 @@ impl ClientCache {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Token {
-    pub user_info: binder_transport::UserInfo,
+    pub user_info: geph4_binder_transport::UserInfo,
     pub level: String,
     pub epoch: u16,
     pub unblinded_digest: Vec<u8>,

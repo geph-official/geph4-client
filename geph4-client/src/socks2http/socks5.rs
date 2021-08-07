@@ -1,5 +1,5 @@
-use crate::address::Address;
-use crate::consts;
+use crate::socks2http::address::Address;
+use crate::socks2http::consts;
 use bytes::{BufMut, BytesMut};
 use std::{
     error,
@@ -124,7 +124,7 @@ impl HandshakeRequest {
     pub fn write_to_buf<B: BufMut>(&self, buf: &mut B) {
         let HandshakeRequest { ref methods } = *self;
         buf.put_slice(&[consts::SOCKS5_VERSION, methods.len() as u8]);
-        buf.put_slice(&methods);
+        buf.put_slice(methods);
     }
 
     /// Get length of bytes
@@ -208,7 +208,7 @@ pub enum Reply {
     CommandNotSupported,
     AddressTypeNotSupported,
 
-    OtherReply(u8),
+    Other(u8),
 }
 impl Reply {
     #[inline]
@@ -224,7 +224,7 @@ impl Reply {
             consts::SOCKS5_REPLY_TTL_EXPIRED                => Reply::TtlExpired,
             consts::SOCKS5_REPLY_COMMAND_NOT_SUPPORTED      => Reply::CommandNotSupported,
             consts::SOCKS5_REPLY_ADDRESS_TYPE_NOT_SUPPORTED => Reply::AddressTypeNotSupported,
-            _                                               => Reply::OtherReply(code),
+            _                                               => Reply::Other(code),
         }
     }
 }
@@ -240,7 +240,7 @@ impl fmt::Display for Reply {
             Reply::GeneralFailure          => write!(f, "General failure"),
             Reply::HostUnreachable         => write!(f, "Host unreachable"),
             Reply::NetworkUnreachable      => write!(f, "Network unreachable"),
-            Reply::OtherReply(u)           => write!(f, "Other reply ({})", u),
+            Reply::Other(u)           => write!(f, "Other reply ({})", u),
             Reply::TtlExpired              => write!(f, "TTL expired"),
         }
     }

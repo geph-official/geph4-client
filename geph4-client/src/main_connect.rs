@@ -198,11 +198,14 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     let _stats = smolscale::spawn(print_stats_loop());
 
     // Start socks to http
-    let _socks2h = smolscale::spawn(Compat::new(socks2http::run_tokio(opt.http_listen, {
-        let mut addr = opt.socks5_listen;
-        addr.set_ip("127.0.0.1".parse().unwrap());
-        addr
-    })));
+    let _socks2h = smolscale::spawn(Compat::new(crate::socks2http::run_tokio(
+        opt.http_listen,
+        {
+            let mut addr = opt.socks5_listen;
+            addr.set_ip("127.0.0.1".parse().unwrap());
+            addr
+        },
+    )));
 
     // Create a database directory if doesn't exist
     let client_cache = ClientCache::from_opts(&opt.common, &opt.auth)
@@ -279,7 +282,7 @@ async fn test_china() -> http_types::Result<bool> {
         Method::Get,
         Url::parse("http://checkip.amazonaws.com").unwrap(),
     );
-    let connect_to = aioutils::resolve("checkip.amazonaws.com:80").await?;
+    let connect_to = geph4_aioutils::resolve("checkip.amazonaws.com:80").await?;
 
     let response = {
         let connection =
@@ -406,8 +409,8 @@ async fn handle_socks5(
     let v4addr: Option<Ipv4Addr>;
     let addr: String = match &request.host {
         SocksV5Host::Domain(dom) => {
-            v4addr = String::from_utf8_lossy(&dom).parse().ok();
-            format!("{}:{}", String::from_utf8_lossy(&dom), request.port)
+            v4addr = String::from_utf8_lossy(dom).parse().ok();
+            format!("{}:{}", String::from_utf8_lossy(dom), request.port)
         }
         SocksV5Host::Ipv4(v4) => SocketAddr::V4(SocketAddrV4::new(
             {
@@ -433,17 +436,17 @@ async fn handle_socks5(
         log::debug!("bypassing {}", addr);
         let conn = smol::net::TcpStream::connect(&addr).await?;
         smol::future::race(
-            aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| ()),
-            aioutils::copy_with_stats(s5client.clone(), conn.clone(), |_| ()),
+            geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| ()),
+            geph4_aioutils::copy_with_stats(s5client.clone(), conn.clone(), |_| ()),
         )
         .await?;
     } else {
         let conn = tunnel_manager.connect(&addr).await?;
         smol::future::race(
-            aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| {
+            geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| {
                 notify_activity();
             }),
-            aioutils::copy_with_stats(s5client, conn, |_| {
+            geph4_aioutils::copy_with_stats(s5client, conn, |_| {
                 notify_activity();
             }),
         )
