@@ -58,7 +58,11 @@ workflows:
   version: 2
   main:
     jobs:
-      - build:
+      - build_cross:
+          filters:
+            branches:
+              only: master
+      - build_osx:
           filters:
             branches:
               only: master
