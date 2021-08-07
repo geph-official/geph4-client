@@ -52,6 +52,8 @@ jobs:
       - run: cross build --release --locked  --target armv7-linux-androideabi --manifest-path=geph4-client/Cargo.toml
       - run: cross build --release --locked  --target aarch64-linux-android --manifest-path=geph4-client/Cargo.toml
       - run: cross build --release --locked  --target armv7-unknown-linux-musleabihf --manifest-path=geph4-client/Cargo.toml
+      - run: cross build --release --locked --target x86_64-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml
+      - run: cross build --release --locked --target i686-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml
       - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
 
 workflows:
