@@ -26,15 +26,15 @@ rand= "0.7.3"
 regex= "1.5.4"
 rsa-fdh = "0.5.0"
 # sled="0.34"
-acidjson= "0.1.0" 
+acidjson= "0.1.0"
 scopeguard = "1.1.0"
 serde = { version = "1.0.127", features = ["derive"] }
 serde_json = "1.0.66"
 sha2 = "0.9.5"
-smol = "1.2.5" 
+smol = "1.2.5"
 smol-timeout = "0.6.0"
 socksv5 = "0.2.0"
-sosistab= "0.4.4"
+sosistab= "0.4.10"
 strsim = "0.10.0"
 structopt = "0.3.22"
 x25519-dalek={ version = "1.1.1", features = ["serde"] }
@@ -46,7 +46,7 @@ treebitmap= "0.4.0"
 pnet_packet= "0.27.2"
 governor= "0.3.2"
 async-dup= "1.2.2"
-bytes= {version = "1.0.1", features=["serde"]}
+bytes= { version = "1.0.1", features = ["serde"] }
 tap= "1.0.1"
 statsd = "0.14.1"
 smolscale= "0.3.11"
@@ -58,14 +58,14 @@ cached= "0.23.0"
 rustls= "0.19.1"
 webpki-roots= "0.21.1"
 strip-ansi-escapes= "0.1.0"
-geph4-binder-transport = "0.1.1"
-mizaru = "0.1.1"
-geph4-aioutils = "0.1.1"
+geph4-binder-transport = "0.1.3"
+mizaru = "0.1.3"
+geph4-aioutils = "0.1.2"
 # alloc_geiger = "0.1"
 
 # socks2http
-tokio = { version = "1.1.0", features = ["rt","net", "io-util"] }
-hyper = {version="0.14.2", features=["http1", "client", "server", "tcp", "stream"]}
+tokio = { version = "1.9.0", features = ["rt","net", "io-util"] }
+hyper = { version = "0.14.11", features = ["http1", "client", "server", "tcp", "stream"] }
 pin-project = "1.0.8"
 http = "0.2.4"
 geph4-protocol = "0.1.0"

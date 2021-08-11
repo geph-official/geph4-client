@@ -324,9 +324,9 @@ dependencies = [
 
 [[package]]
 name = "async-process"
-version = "1.1.0"
+version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8f38756dd9ac84671c428afbf7c9f7495feff9ec5b0710f17100098e5b354ac"
+checksum = "b21b63ab5a0db0369deb913540af2892750e42d949faacc7a61495ac418a1692"
 dependencies = [
  "async-io",
  "blocking",
@@ -470,6 +470,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "bipe"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "097dc3e97acb4c57d9efdafe21b6772d58598eb76efc7e850eaa7e97a479a56d"
+dependencies = [
+ "event-listener",
+ "futures-core",
+ "futures-lite",
+ "rtrb",
 ]
 
 [[package]]
@@ -1078,9 +1090,9 @@ dependencies = [
 
 [[package]]
 name = "filetime"
-version = "0.2.14"
+version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d34cfa13a63ae058bfa601fe9e313bbdb3746427c1459185464ce0fcf62e1e8"
+checksum = "975ccf83d8d9d0d84682850a38c8169027be83368805971cc4f238c2b245bc98"
 dependencies = [
  "cfg-if 1.0.0",
  "libc",
@@ -1106,9 +1118,9 @@ dependencies = [
 
 [[package]]
 name = "flume"
-version = "0.10.7"
+version = "0.10.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ddad16e8529759736a9ce4cdf078ed702e45d3c5b0474a1c65f5149e9fa7f1eb"
+checksum = "2e90cc80fad5bb391b38127896b0fa27d97e7fef74742797f4da518d67e1292f"
 dependencies = [
  "futures-core",
  "futures-sink",
@@ -1283,9 +1295,9 @@ dependencies = [
 
 [[package]]
 name = "geph4-aioutils"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "82403ffd1eb797fc589c3aae71406c81aad1348bb7e516a99f241c2079c14718"
+checksum = "dc5401ddf21025f8c3ae49b6f6dcee799f47670c9f29991ceb0425062cc04207"
 dependencies = [
  "anyhow",
  "async-dup",
@@ -1301,9 +1313,9 @@ dependencies = [
 
 [[package]]
 name = "geph4-binder-transport"
-version = "0.1.1"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8bb91facd63b291718b36497c66861cc19ecf74641d2afdee5fd8796d1167884"
+checksum = "35e9933dc9db563d137ca409dad6559f99b4bad681fcc3fb19b9f52bb06bc7f0"
 dependencies = [
  "async-h1",
  "async-tls",
@@ -1591,9 +1603,9 @@ dependencies = [
 
 [[package]]
 name = "http-body"
-version = "0.4.2"
+version = "0.4.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60daa14be0e0786db0f03a9e57cb404c9d756eed2b6c62b9ea98ec5743ec75a9"
+checksum = "399c583b2979440c60be0821a6199eca73bc3c8dcd9d070d75ac726e2c6186e5"
 dependencies = [
  "bytes",
  "http",
@@ -1860,9 +1872,9 @@ dependencies = [
 
 [[package]]
 name = "mizaru"
-version = "0.1.1"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b1128d3a7378d93afb984901d01508fcaec56f1e92e34a989c6a1bfd54a6804e"
+checksum = "81fab438503fecbfce199df4115d221d548d93ad4d96c27a4137a735abacefc4"
 dependencies = [
  "bincode",
  "hex",
@@ -1877,9 +1889,9 @@ dependencies = [
 
 [[package]]
 name = "nanorand"
-version = "0.5.2"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ac1378b66f7c93a1c0f8464a19bf47df8795083842e5090f4b7305973d5a22d0"
+checksum = "729eb334247daa1803e0a094d0a5c55711b85571179f5ec6e53eccfdf7008958"
 dependencies = [
  "getrandom 0.2.3",
 ]
@@ -2441,9 +2453,9 @@ dependencies = [
 
 [[package]]
 name = "redox_syscall"
-version = "0.2.9"
+version = "0.2.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ab49abadf3f9e1c4bc499e8845e152ad87d2ad2d30371841171169e9d75feee"
+checksum = "8383f39639269cde97d255a32bdb68c047337295414940c68bdd30c2e13203ff"
 dependencies = [
  "bitflags 1.2.1",
 ]
@@ -2784,9 +2796,9 @@ dependencies = [
 
 [[package]]
 name = "slab"
-version = "0.4.3"
+version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f173ac3d1a7e3b28003f40de0b5ce7fe2710f9b9dc3fc38664cebee46b3b6527"
+checksum = "c307a32c1c5c437f38c7fd45d753050587732ba8628319fbdf12a7e289ccc590"
 
 [[package]]
 name = "smallvec"
@@ -2887,9 +2899,9 @@ dependencies = [
 
 [[package]]
 name = "sosistab"
-version = "0.4.4"
+version = "0.4.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dcc48b30c4de04b005ed31a3e8b43d54aea51af09a21b8684a75aafa22e858de"
+checksum = "8a795244cef9e4c02f22b7e033160e046d8b9585715447c97be76ffd24c9226c"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -2899,6 +2911,7 @@ dependencies = [
  "async-dup",
  "async-trait",
  "bincode",
+ "bipe",
  "blake3",
  "bloomfilter",
  "c2-chacha",
@@ -3416,9 +3429,9 @@ checksum = "59547bce71d9c38b83d9c0e92b6066c4253371f15005def0c30d9657f50c7642"
 
 [[package]]
 name = "tundevice"
-version = "0.1.1"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3f6ba0bc19267def2a313dd820706fb9fd1bbe2d7bab0ae98c2150f5cb5e649"
+checksum = "0dde9085e17787b31eb809308405371e39742c3c02a324f2b5a4d15cd75550f8"
 dependencies = [
  "async-dup",
  "blocking",
