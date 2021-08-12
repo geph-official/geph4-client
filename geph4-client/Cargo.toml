@@ -17,8 +17,8 @@ ed25519-dalek={ version = "1.0.1", features = ["serde"] }
 flexi_logger = "0.16.3"
 futures-util= "0.3.16"
 hex = "0.4.3"
-tar= "0.4.35"
-http-types = "2.11.1"
+tar= "0.4.37"
+http-types = "2.12.0"
 log = "0.4.14"
 once_cell= "1.8.0"
 parking_lot = { version = "0.11.1", features = ["serde"] }
@@ -34,7 +34,7 @@ sha2 = "0.9.5"
 smol = "1.2.5"
 smol-timeout = "0.6.0"
 socksv5 = "0.2.0"
-sosistab= "0.4.10"
+sosistab= "0.4.11"
 strsim = "0.10.0"
 structopt = "0.3.22"
 x25519-dalek={ version = "1.1.1", features = ["serde"] }
@@ -49,7 +49,7 @@ async-dup= "1.2.2"
 bytes= { version = "1.0.1", features = ["serde"] }
 tap= "1.0.1"
 statsd = "0.14.1"
-smolscale= "0.3.11"
+smolscale= "0.3.12"
 async-compat= "0.2.1"
 im= "15.0.0"
 # surf={version="2.2.0", features=["h1-client-rustls"], default-features=false}
@@ -64,7 +64,7 @@ geph4-aioutils = "0.1.2"
 # alloc_geiger = "0.1"
 
 # socks2http
-tokio = { version = "1.9.0", features = ["rt","net", "io-util"] }
+tokio = { version = "1.10.0", features = ["rt","net", "io-util"] }
 hyper = { version = "0.14.11", features = ["http1", "client", "server", "tcp", "stream"] }
 pin-project = "1.0.8"
 http = "0.2.4"
