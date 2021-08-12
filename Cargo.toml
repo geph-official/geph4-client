@@ -19,7 +19,7 @@ members = [
 [profile.dev] 
 opt-level=2
 # panic = "abort" 
-# incremental=true
+incremental=true
 lto="off"
 
 [profile.release]

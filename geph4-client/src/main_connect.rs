@@ -408,7 +408,10 @@ async fn handle_socks5(
     let addr: String = match &request.host {
         SocksV5Host::Domain(dom) => {
             v4addr = String::from_utf8_lossy(dom).parse().ok();
-            is_private = psl::List.suffix(dom).is_none();
+            is_private = !psl::List
+                .suffix(dom)
+                .map(|suf| suf.typ() == Some(psl::Type::Icann))
+                .unwrap_or_default();
             format!("{}:{}", String::from_utf8_lossy(dom), request.port)
         }
         SocksV5Host::Ipv4(v4) => {
@@ -425,13 +428,6 @@ async fn handle_socks5(
         }
         _ => anyhow::bail!("not supported"),
     };
-    write_request_status(
-        s5client.clone(),
-        SocksV5RequestStatus::Success,
-        request.host,
-        port,
-    )
-    .await?;
 
     let must_direct = is_private
         || (exclude_prc
@@ -440,6 +436,13 @@ async fn handle_socks5(
     if must_direct {
         log::debug!("bypassing {}", addr);
         let conn = smol::net::TcpStream::connect(&addr).await?;
+        write_request_status(
+            s5client.clone(),
+            SocksV5RequestStatus::Success,
+            request.host,
+            port,
+        )
+        .await?;
         smol::future::race(
             geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| ()),
             geph4_aioutils::copy_with_stats(s5client.clone(), conn.clone(), |_| ()),
@@ -447,6 +450,13 @@ async fn handle_socks5(
         .await?;
     } else {
         let conn = tunnel_manager.connect(&addr).await?;
+        write_request_status(
+            s5client.clone(),
+            SocksV5RequestStatus::Success,
+            request.host,
+            port,
+        )
+        .await?;
         smol::future::race(
             geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| {
                 notify_activity();
