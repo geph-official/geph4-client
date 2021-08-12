@@ -188,11 +188,11 @@ pub struct AuthOpt {
     /// where to store Geph's credential cache. The default value of "auto", meaning a platform-specific path that Geph gets to pick.
     credential_cache: PathBuf,
 
-    #[structopt(long)]
+    #[structopt(long, default_value = "")]
     /// username
     username: String,
 
-    #[structopt(long)]
+    #[structopt(long, default_value = "")]
     /// password
     password: String,
 }
