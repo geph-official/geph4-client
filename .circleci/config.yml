@@ -63,7 +63,11 @@ workflows:
   version: 2
   main:
     jobs:
-      - build_cross:
+      - build_cross_1:
+          filters:
+            branches:
+              only: master
+      - build_cross_2:
           filters:
             branches:
               only: master
