@@ -410,7 +410,7 @@ async fn handle_socks5(
             v4addr = String::from_utf8_lossy(dom).parse().ok();
             is_private = !psl::List
                 .suffix(dom)
-                .map(|suf| suf.typ() == Some(psl::Type::Icann))
+                .map(|suf| suf.typ().is_some())
                 .unwrap_or_default();
             format!("{}:{}", String::from_utf8_lossy(dom), request.port)
         }
