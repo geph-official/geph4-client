@@ -19,24 +19,7 @@ jobs:
       - run: sh osx_build.sh
       - run: sh move_built.sh
       - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
-  build_linux64:
-    working_directory: ~/repo/
-    machine:
-      image: ubuntu-2004:202008-01
-    resource_class: 2xlarge
-    steps:
-      - checkout
-      - run: sudo apt install python3-pip
-      - run: sudo pip3 install --upgrade b2
-      - run: |
-          b2 authorize-account $B2_KEYID $B2_APPKEY
-      - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
-      - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
-      - run: rustup target add x86_64-unknown-linux-musl
-      - run: cargo build --release --locked  --target x86_64-unknown-linux-musl --manifest-path=geph4-client/Cargo.toml
-      - run: sh move_built.sh
-      - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
-  build_cross:
+  build_cross_1:
     working_directory: ~/repo/
     machine:
       image: ubuntu-2004:202008-01
@@ -50,9 +33,26 @@ jobs:
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
       - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       - run: cargo install cross
+      - run: cross build --release --locked  --target x86_64-unknown-linux-musl --manifest-path=geph4-client/Cargo.toml
       - run: cross build --release --locked  --target x86_64-unknown-linux-gnu --manifest-path=geph4-vpn-helper/Cargo.toml
       - run: cross build --release --locked  --target armv7-linux-androideabi --manifest-path=geph4-client/Cargo.toml
       - run: cross build --release --locked  --target aarch64-linux-android --manifest-path=geph4-client/Cargo.toml
+      - run: sh move_built.sh
+      - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
+  build_cross_2:
+    working_directory: ~/repo/
+    machine:
+      image: ubuntu-2004:202008-01
+    resource_class: 2xlarge
+    steps:
+      - checkout
+      - run: sudo apt install python3-pip
+      - run: sudo pip3 install --upgrade b2
+      - run: |
+          b2 authorize-account $B2_KEYID $B2_APPKEY
+      - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
+      - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
+      - run: cargo install cross
       - run: cross build --release --locked  --target armv7-unknown-linux-musleabihf --manifest-path=geph4-client/Cargo.toml
       - run: cross build --release --locked --target x86_64-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml
       - run: cross build --release --locked --target i686-pc-windows-gnu --manifest-path=geph4-client/Cargo.toml
