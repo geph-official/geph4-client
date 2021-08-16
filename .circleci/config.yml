@@ -75,7 +75,3 @@ workflows:
           filters:
             branches:
               only: master
-      - build_linux64:
-          filters:
-            branches:
-              only: master
