@@ -1488,6 +1488,7 @@ dependencies = [
  "parking_lot",
  "pin-project",
  "pnet_packet",
+ "psl",
  "rand 0.7.3",
  "regex",
  "rsa-fdh",
@@ -2374,6 +2375,21 @@ checksum = "5c7ed8b8c7b886ea3ed7dde405212185f423ab44682667c8c6dd14aa1d9f6612"
 dependencies = [
  "unicode-xid 0.2.2",
 ]
+
+[[package]]
+name = "psl"
+version = "2.0.43"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df0844e5ec2ee32393b39f7cd692879ee06cb828044b4c84ddbed85ddc964fe5"
+dependencies = [
+ "psl-types",
+]
+
+[[package]]
+name = "psl-types"
+version = "2.0.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "66b398073e7cdd6f05934389a8f5961e3aabfa66675b6f440df4e2c793d51a4f"
 
 [[package]]
 name = "quanta"
