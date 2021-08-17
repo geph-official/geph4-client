@@ -1,6 +1,6 @@
 [package]
 name = "geph4-vpn-helper"
-version = "0.1.2"
+version = "0.1.3"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2018"
 description="Geph client VPN helper"
