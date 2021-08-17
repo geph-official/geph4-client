@@ -71,6 +71,7 @@ hyper = { version = "0.14.11", features = ["http1", "client", "server", "tcp", "
 pin-project = "1.0.8"
 http = "0.2.4"
 geph4-protocol = "0.1.0"
+psl = "2.0.43"
 
 [dependencies.async-tls]
 version = "0.11.0"
