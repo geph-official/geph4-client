@@ -12,6 +12,7 @@ use async_net::IpAddr;
 use china::is_chinese_ip;
 use http_types::{Method, Request, Url};
 use once_cell::sync::Lazy;
+use psl::Psl;
 use smol::prelude::*;
 
 use std::{
@@ -31,6 +32,10 @@ pub struct ConnectOpt {
     #[structopt(long)]
     /// Whether or not to use bridges
     pub use_bridges: bool,
+
+    #[structopt(long)]
+    /// Overrides everything else, forcing connection to a particular sosistab URL (of the form pk@host:port). This also disables any form of authentication.
+    pub override_connect: Option<String>,
 
     #[structopt(long)]
     /// Force a particular bridge
@@ -77,14 +82,6 @@ pub struct ConnectOpt {
     #[structopt(long)]
     /// Whether or not to wait for VPN commands on stdio
     pub stdio_vpn: bool,
-
-    #[structopt(long)]
-    /// An endpoint to send test results. If set, will periodically do network testing.
-    pub nettest_server: Option<SocketAddr>,
-
-    #[structopt(long)]
-    /// A name for this test instance.
-    pub nettest_name: Option<String>,
 
     #[structopt(long)]
     /// Whether or not to force TCP mode.
@@ -195,6 +192,13 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
 
     log::info!("connect mode started");
 
+    // Make sure that username and password are given
+    if opt.override_connect.is_none()
+        && (opt.auth.username.is_empty() || opt.auth.password.is_empty())
+    {
+        anyhow::bail!("must provide both username and password")
+    }
+
     let _stats = smolscale::spawn(print_stats_loop());
 
     // Start socks to http
@@ -224,15 +228,6 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         log::debug!("starting dns...");
         smolscale::spawn(crate::dns::dns_loop(dns_listen, tunnel_manager.clone())).detach();
     }
-    if let Some(nettest_server) = opt.nettest_server {
-        log::info!("Network testing enabled at {}!", nettest_server);
-        smolscale::spawn(crate::nettest::nettest(
-            opt.nettest_name.unwrap(),
-            nettest_server,
-        ))
-        .detach();
-    }
-
     // Enter the stats loop
     let stat_listener = smol::net::TcpListener::bind(opt.stats_listen)
         .await
@@ -407,34 +402,47 @@ async fn handle_socks5(
     let request = read_request(s5client.clone()).await?;
     let port = request.port;
     let v4addr: Option<Ipv4Addr>;
+
+    let is_private: bool;
+
     let addr: String = match &request.host {
         SocksV5Host::Domain(dom) => {
             v4addr = String::from_utf8_lossy(dom).parse().ok();
+            is_private = !psl::List
+                .suffix(dom)
+                .map(|suf| suf.typ().is_some())
+                .unwrap_or_default();
             format!("{}:{}", String::from_utf8_lossy(dom), request.port)
         }
-        SocksV5Host::Ipv4(v4) => SocketAddr::V4(SocketAddrV4::new(
-            {
-                v4addr = Some(Ipv4Addr::new(v4[0], v4[1], v4[2], v4[3]));
-                v4addr.unwrap()
-            },
-            request.port,
-        ))
-        .to_string(),
+        SocksV5Host::Ipv4(v4) => {
+            let v4addr_inner = Ipv4Addr::new(v4[0], v4[1], v4[2], v4[3]);
+            is_private = v4addr_inner.is_private() || v4addr_inner.is_loopback();
+            SocketAddr::V4(SocketAddrV4::new(
+                {
+                    v4addr = Some(v4addr_inner);
+                    v4addr.unwrap()
+                },
+                request.port,
+            ))
+            .to_string()
+        }
         _ => anyhow::bail!("not supported"),
     };
-    write_request_status(
-        s5client.clone(),
-        SocksV5RequestStatus::Success,
-        request.host,
-        port,
-    )
-    .await?;
-    let must_direct = exclude_prc
-        && (china::is_chinese_host(addr.split(':').next().unwrap())
-            || v4addr.map(china::is_chinese_ip).unwrap_or(false));
+
+    let must_direct = is_private
+        || (exclude_prc
+            && (china::is_chinese_host(addr.split(':').next().unwrap())
+                || v4addr.map(china::is_chinese_ip).unwrap_or(false)));
     if must_direct {
         log::debug!("bypassing {}", addr);
         let conn = smol::net::TcpStream::connect(&addr).await?;
+        write_request_status(
+            s5client.clone(),
+            SocksV5RequestStatus::Success,
+            request.host,
+            port,
+        )
+        .await?;
         smol::future::race(
             geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| ()),
             geph4_aioutils::copy_with_stats(s5client.clone(), conn.clone(), |_| ()),
@@ -442,6 +450,13 @@ async fn handle_socks5(
         .await?;
     } else {
         let conn = tunnel_manager.connect(&addr).await?;
+        write_request_status(
+            s5client.clone(),
+            SocksV5RequestStatus::Success,
+            request.host,
+            port,
+        )
+        .await?;
         smol::future::race(
             geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| {
                 notify_activity();

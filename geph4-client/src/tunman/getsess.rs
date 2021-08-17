@@ -6,7 +6,10 @@ use futures_util::stream::FuturesUnordered;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
 use sosistab::{Multiplex, Session};
-use std::time::{Duration, Instant};
+use std::{
+    convert::TryFrom,
+    time::{Duration, Instant},
+};
 use tap::{Pipe, Tap};
 
 use super::tunnelctx::TunnelCtx;
@@ -91,56 +94,97 @@ async fn get_one_sess(
 /// Obtains a session.
 pub async fn get_session(
     ctx: TunnelCtx,
-    privileged: Option<SocketAddr>,
+    bias_for: Option<SocketAddr>,
 ) -> anyhow::Result<ProtoSession> {
-    let use_bridges = ctx.opt.use_bridges || ctx.opt.should_use_bridges().await;
-    let bridge_sess_async = get_through_fastest_bridge(ctx.clone(), privileged);
-    let connected_sess_async = async {
-        if use_bridges {
-            bridge_sess_async.await
-        } else {
-            geph4_aioutils::try_race(
-                async {
-                    let server_addr =
-                        geph4_aioutils::resolve(&format!("{}:19831", ctx.selected_exit.hostname))
-                            .await
-                            .context("can't resolve hostname of exit")?
-                            .into_iter()
-                            .find(|v| v.is_ipv4())
-                            .context("can't find ipv4 address for exit")?;
-
-                    Ok(ProtoSession {
-                        inner: get_one_sess(
-                            ctx.clone(),
-                            server_addr,
-                            ctx.selected_exit.sosistab_key,
-                        )
-                        .await?,
-                        remote_addr: server_addr,
-                    })
-                },
-                async {
-                    smol::Timer::after(Duration::from_secs(1)).await;
-                    log::warn!("racing with bridges because direct connection took a while");
-                    bridge_sess_async.await
-                },
+    // if we override, we don't bother with any of this cool stuff
+    if let Some(url) = ctx.opt.override_connect.as_ref() {
+        let pk_and_url = url.split('@').collect::<Vec<_>>();
+        let server_pk = x25519_dalek::PublicKey::from(
+            <[u8; 32]>::try_from(
+                hex::decode(&pk_and_url.get(0).context("URL not in form PK@host:port")?)
+                    .context("PK is not hex")?,
             )
-            .await
-        }
-    };
-
-    Ok(connected_sess_async
-        .or(async {
-            smol::Timer::after(Duration::from_secs(40)).await;
-            anyhow::bail!("initial connection timeout after 40");
+            .unwrap(),
+        );
+        let server_addr: SocketAddr = pk_and_url
+            .get(1)
+            .context("URL not in form PK@host:port")?
+            .parse()
+            .context("cannot parse host:port")?;
+        Ok(ProtoSession {
+            inner: if ctx.opt.use_tcp {
+                sosistab_tcp(
+                    server_addr,
+                    server_pk,
+                    ctx.opt.tcp_shard_count,
+                    Duration::from_secs(ctx.opt.tcp_shard_lifetime),
+                )
+                .connect()
+                .await?
+            } else {
+                sosistab_udp(
+                    server_addr,
+                    server_pk,
+                    ctx.opt.udp_shard_count,
+                    Duration::from_secs(ctx.opt.udp_shard_lifetime),
+                )
+                .connect()
+                .await?
+            },
+            remote_addr: server_addr,
         })
-        .await
-        .tap(|x| {
-            if x.is_err() {
-                log::warn!("** purging bridges **");
-                let _ = ctx.ccache.purge_bridges(&ctx.selected_exit.hostname);
+    } else {
+        let use_bridges = ctx.opt.use_bridges || ctx.opt.should_use_bridges().await;
+        let bridge_sess_async = get_through_fastest_bridge(ctx.clone(), bias_for);
+        let connected_sess_async = async {
+            if use_bridges {
+                bridge_sess_async.await
+            } else {
+                geph4_aioutils::try_race(
+                    async {
+                        let server_addr = geph4_aioutils::resolve(&format!(
+                            "{}:19831",
+                            ctx.selected_exit.hostname
+                        ))
+                        .await
+                        .context("can't resolve hostname of exit")?
+                        .into_iter()
+                        .find(|v| v.is_ipv4())
+                        .context("can't find ipv4 address for exit")?;
+
+                        Ok(ProtoSession {
+                            inner: get_one_sess(
+                                ctx.clone(),
+                                server_addr,
+                                ctx.selected_exit.sosistab_key,
+                            )
+                            .await?,
+                            remote_addr: server_addr,
+                        })
+                    },
+                    async {
+                        smol::Timer::after(Duration::from_secs(1)).await;
+                        log::warn!("racing with bridges because direct connection took a while");
+                        bridge_sess_async.await
+                    },
+                )
+                .await
             }
-        })?)
+        };
+
+        Ok(connected_sess_async
+            .or(async {
+                smol::Timer::after(Duration::from_secs(40)).await;
+                anyhow::bail!("initial connection timeout after 40");
+            })
+            .await
+            .tap(|x| {
+                if x.is_err() {
+                    log::warn!("** purging bridges **");
+                    let _ = ctx.ccache.purge_bridges(&ctx.selected_exit.hostname);
+                }
+            })?)
+    }
 }
 
 /// Obtain a session through bridges

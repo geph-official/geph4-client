@@ -123,11 +123,13 @@ async fn tunnel_actor_once(
     let tunnel_mux = Arc::new(protosess.multiplex());
 
     // Now let's authenticate
-    let token = ctx.ccache.get_auth_token().await?;
-    authenticate_session(&tunnel_mux, &token)
-        .timeout(Duration::from_secs(15))
-        .await
-        .ok_or_else(|| anyhow::anyhow!("authentication timed out"))??;
+    if ctx.opt.override_connect.is_none() {
+        let token = ctx.ccache.get_auth_token().await?;
+        authenticate_session(&tunnel_mux, &token)
+            .timeout(Duration::from_secs(15))
+            .await
+            .ok_or_else(|| anyhow::anyhow!("authentication timed out"))??;
+    }
     log::info!(
         "TUNNEL_MANAGER MAIN LOOP for exit_host={} through {}",
         cfg.exit_server,
