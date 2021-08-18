@@ -14,6 +14,7 @@ use http_types::{Method, Request, Url};
 use once_cell::sync::Lazy;
 use psl::Psl;
 use smol::prelude::*;
+use socksv5::v4;
 
 use std::{
     collections::BTreeMap, net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, path::PathBuf,
@@ -402,21 +403,13 @@ async fn handle_socks5(
     let request = read_request(s5client.clone()).await?;
     let port = request.port;
     let v4addr: Option<Ipv4Addr>;
-
-    let is_private: bool;
-
     let addr: String = match &request.host {
         SocksV5Host::Domain(dom) => {
             v4addr = String::from_utf8_lossy(dom).parse().ok();
-            is_private = !psl::List
-                .suffix(dom)
-                .map(|suf| suf.typ().is_some())
-                .unwrap_or_default();
             format!("{}:{}", String::from_utf8_lossy(dom), request.port)
         }
         SocksV5Host::Ipv4(v4) => {
             let v4addr_inner = Ipv4Addr::new(v4[0], v4[1], v4[2], v4[3]);
-            is_private = v4addr_inner.is_private() || v4addr_inner.is_loopback();
             SocketAddr::V4(SocketAddrV4::new(
                 {
                     v4addr = Some(v4addr_inner);
@@ -427,6 +420,15 @@ async fn handle_socks5(
             .to_string()
         }
         _ => anyhow::bail!("not supported"),
+    };
+
+    let is_private = if let Some(v4addr) = v4addr {
+        v4addr.is_private() || v4addr.is_loopback()
+    } else {
+        !psl::List
+            .suffix(addr.split(':').next().unwrap().as_bytes())
+            .map(|suf| suf.typ().is_some())
+            .unwrap_or_default()
     };
 
     let must_direct = is_private
