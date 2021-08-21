@@ -17,7 +17,7 @@ members = [
 
 
 [profile.dev] 
-opt-level=2
+opt-level=1
 # panic = "abort" 
 incremental=true
 lto="off"

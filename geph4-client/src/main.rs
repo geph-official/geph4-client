@@ -9,14 +9,14 @@ use smol_timeout::TimeoutExt;
 use structopt::StructOpt;
 mod cache;
 mod fronts;
+mod lazy_binder_client;
 pub mod serialize;
 mod socks2http;
 mod tunman;
 use prelude::*;
 
-use crate::fronts::fetch_fronts;
+use crate::{fronts::fetch_fronts, lazy_binder_client::LazyBinderClient};
 mod dns;
-mod nettest;
 mod prelude;
 mod stats;
 mod vpn;
@@ -150,31 +150,38 @@ pub struct CommonOpt {
 
 impl CommonOpt {
     pub async fn to_binder_client(&self) -> Arc<dyn BinderClient> {
-        let mut fronts: BTreeMap<String, String> = self
+        let fronts: BTreeMap<String, String> = self
             .binder_http_fronts
             .split(',')
             .zip(self.binder_http_hosts.split(','))
             .map(|(front, host)| (front.to_string(), host.to_string()))
             .collect();
-        for url in self.binder_extra_url.split(',') {
-            log::debug!("getting extra fronts...");
-            match fetch_fronts(url.into())
-                .timeout(Duration::from_secs(1))
-                .await
-            {
-                None => log::debug!("(timed out)"),
-                Some(Ok(val)) => {
-                    log::debug!("inserting extra {} fronts", val.len());
-                    for (k, v) in val {
-                        fronts.insert(k, v);
+        let main_fronts = parse_fronts(self.binder_master, fronts);
+        let binder_extra_url = self.binder_extra_url.clone();
+        let binder_master = self.binder_master;
+        let auxiliary_fronts = LazyBinderClient::new(smolscale::spawn(async move {
+            for url in binder_extra_url.split(',') {
+                log::debug!("getting extra fronts...");
+                match fetch_fronts(url.into())
+                    .timeout(Duration::from_secs(30))
+                    .await
+                {
+                    None => log::debug!("(timed out)"),
+                    Some(Ok(val)) => {
+                        log::debug!("inserting extra {} fronts", val.len());
+                        return Arc::new(parse_fronts(binder_master, val));
+                    }
+                    Some(Err(e)) => {
+                        log::warn!("error fetching fronts from {}: {:?}", url, e)
                     }
                 }
-                Some(Err(e)) => {
-                    log::warn!("error fetching fronts from {}: {:?}", url, e)
-                }
             }
-        }
-        parse_fronts(self.binder_master, fronts)
+            smol::future::pending().await
+        }));
+        let mut toret = geph4_binder_transport::MultiBinderClient::empty();
+        toret = toret.add_client(main_fronts);
+        toret = toret.add_client(auxiliary_fronts);
+        Arc::new(toret)
     }
 }
 

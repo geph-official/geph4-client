@@ -1464,6 +1464,7 @@ dependencies = [
  "async-h1",
  "async-net",
  "async-tls",
+ "async-trait",
  "bincode",
  "bytes",
  "cached",

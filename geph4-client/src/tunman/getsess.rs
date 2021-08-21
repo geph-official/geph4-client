@@ -122,14 +122,30 @@ pub async fn get_session(
                 .connect()
                 .await?
             } else {
-                sosistab_udp(
-                    server_addr,
-                    server_pk,
-                    ctx.opt.udp_shard_count,
-                    Duration::from_secs(ctx.opt.udp_shard_lifetime),
-                )
-                .connect()
-                .await?
+                // We spam this several times in parallel and take the "worst".
+                const TRY_COUNT: usize = 5;
+                let mut racer = FuturesUnordered::new();
+                for _ in 0..TRY_COUNT {
+                    let udp_shard_count = ctx.opt.udp_shard_count;
+                    let udp_shard_lifetime = ctx.opt.udp_shard_lifetime;
+                    racer.push(async move {
+                        Ok::<_, anyhow::Error>(
+                            sosistab_udp(
+                                server_addr,
+                                server_pk,
+                                udp_shard_count,
+                                Duration::from_secs(udp_shard_lifetime),
+                            )
+                            .connect()
+                            .await?,
+                        )
+                    });
+                }
+                for _ in 0..TRY_COUNT - 1 {
+                    // throw away all except one
+                    racer.next().await.expect("racer ran out")?;
+                }
+                racer.next().await.expect("racer ran out")?
             },
             remote_addr: server_addr,
         })

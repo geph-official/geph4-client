@@ -119,19 +119,23 @@ impl ClientCache {
             .get(&expanded_key)
             .map(|v| bincode::deserialize(v).unwrap());
         if !self.force_sync {
-            if let Some((existing, timeout)) = existing {
+            if let Some((existing, create_time)) = existing {
                 if SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
                     .as_secs()
-                    < timeout + ttl.as_secs()
+                    < create_time + ttl.as_secs()
                 {
                     return Ok(existing);
+                } else {
+                    log::warn!("ignore stale value for {} created at {}", key, create_time);
                 }
+            } else {
+                log::warn!("absent key {}", key);
             }
         }
-        let deadline: SystemTime = SystemTime::now();
-        let deadline = deadline
+        let create_time: SystemTime = SystemTime::now();
+        let create_time = create_time
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
@@ -141,7 +145,7 @@ impl ClientCache {
         // save to disk
         self.database.write().insert(
             expanded_key.clone(),
-            bincode::serialize(&(fresh.clone(), deadline))
+            bincode::serialize(&(fresh.clone(), create_time))
                 .unwrap()
                 .into(),
         );

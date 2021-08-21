@@ -8,13 +8,14 @@ use crate::{
 use crate::{china, plots::stat_derive};
 use anyhow::Context;
 use async_compat::Compat;
-use async_net::IpAddr;
+use async_net::{IpAddr, TcpStream};
 use china::is_chinese_ip;
 use http_types::{Method, Request, Url};
 use once_cell::sync::Lazy;
 use psl::Psl;
 use smol::prelude::*;
-use socksv5::v4;
+
+use tap::Tap;
 
 use std::{
     collections::BTreeMap, net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, path::PathBuf,
@@ -169,6 +170,10 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
                                 .await?;
                         }
                         log::error!("***** ABNORMAL RESTART (status code {}) *****", scode);
+
+                        // Attempt to kill any possible other Geph
+                        let res = kill_existing_geph(opt.stats_listen).await;
+                        log::debug!("kill resulted in {:?}", res);
                         break;
                     } else {
                         log::info!("Exiting normally.");
@@ -188,6 +193,7 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
                     line.clear();
                 }
             }
+            smol::Timer::after(Duration::from_secs(1)).await;
         }
     }
 
@@ -269,6 +275,18 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         smolscale::spawn(async move { handle_socks5(s5client, &tunnel_manager, exclude_prc).await })
             .detach()
     }
+}
+
+/// Kills geph at a particular port.
+async fn kill_existing_geph(stats_addr: SocketAddr) -> anyhow::Result<()> {
+    let conn = TcpStream::connect(
+        stats_addr.tap_mut(|addr| addr.set_ip(Ipv4Addr::new(127, 0, 0, 1).into())),
+    )
+    .await?;
+    async_h1::connect(conn, Request::new(Method::Get, "/kill"))
+        .await
+        .map_err(|e| e.into_inner())?;
+    Ok(())
 }
 
 /// Returns whether or not we're in China.

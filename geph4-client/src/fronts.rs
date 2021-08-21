@@ -1,7 +1,7 @@
-use std::{collections::BTreeMap, sync::Arc};
+use std::collections::BTreeMap;
 
 use anyhow::Context;
-use geph4_binder_transport::BinderClient;
+use geph4_binder_transport::MultiBinderClient;
 use http_types::{Method, Request, Url};
 use rustls::ClientConfig;
 
@@ -9,7 +9,7 @@ use rustls::ClientConfig;
 pub fn parse_fronts(
     master_key: x25519_dalek::PublicKey,
     fronts: impl IntoIterator<Item = (String, String)>,
-) -> Arc<dyn BinderClient> {
+) -> MultiBinderClient {
     let mut toret = geph4_binder_transport::MultiBinderClient::empty();
     for (mut front, host) in fronts {
         let mut tls_config = None;
@@ -28,7 +28,7 @@ pub fn parse_fronts(
             tls_config,
         ));
     }
-    Arc::new(toret)
+    toret
 }
 
 /// Obtains a front/host mapping from a URL.
