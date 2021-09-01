@@ -130,11 +130,7 @@ async fn tunnel_actor_once(
             .await
             .ok_or_else(|| anyhow::anyhow!("authentication timed out"))??;
     }
-    log::info!(
-        "TUNNEL_MANAGER MAIN LOOP for exit_host={} through {}",
-        cfg.exit_server,
-        protosess_remaddr
-    );
+    log::info!("TUNNEL_MANAGER MAIN LOOP through {}", protosess_remaddr);
     *ctx.current_state.write() = TunnelState::Connected {
         exit: ctx.selected_exit.hostname.clone(),
     };
