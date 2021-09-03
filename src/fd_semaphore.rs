@@ -11,7 +11,7 @@ static FD_SEMAPHORE: Lazy<Arc<Semaphore>> = Lazy::new(|| Arc::new(Semaphore::new
 pub(crate) async fn acquire_fd() -> anyhow::Result<SemaphoreGuardArc> {
     FD_SEMAPHORE
         .acquire_arc()
-        .timeout(Duration::from_secs(5))
+        .timeout(Duration::from_millis(300))
         .await
         .context("could not acquire")
 }
