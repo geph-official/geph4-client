@@ -1,6 +1,7 @@
 use crate::{
     activity::{notify_activity, wait_activity},
     cache::ClientCache,
+    fd_semaphore::acquire_fd,
     stats::global_sosistab_stats,
     tunman::{TunnelManager, TunnelState},
     AuthOpt, CommonOpt,
@@ -272,8 +273,12 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
             .await
             .context("cannot accept socks5")?;
         let tunnel_manager = tunnel_manager.clone();
-        smolscale::spawn(async move { handle_socks5(s5client, &tunnel_manager, exclude_prc).await })
-            .detach()
+        let _ticket = acquire_fd().await;
+        smolscale::spawn(async move {
+            let _ticket = _ticket;
+            handle_socks5(s5client, &tunnel_manager, exclude_prc).await
+        })
+        .detach()
     }
 }
 
@@ -338,9 +343,11 @@ async fn port_forwarder(tunnel_manager: TunnelManager, desc: String) {
         .expect("could not listen for port forwarding");
     loop {
         let (conn, _) = listener.accept().await.unwrap();
+        let _ticket = acquire_fd().await;
         let tunnel_manager = tunnel_manager.clone();
         let remote_addr = exploded[1].to_owned();
         smolscale::spawn(async move {
+            let _ticket = _ticket;
             let remote = tunnel_manager.connect(&remote_addr).await.ok()?;
             smol::future::race(
                 smol::io::copy(remote.clone(), conn.clone()),

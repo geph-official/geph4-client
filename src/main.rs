@@ -8,6 +8,7 @@ use geph4_binder_transport::BinderClient;
 use smol_timeout::TimeoutExt;
 use structopt::StructOpt;
 mod cache;
+mod fd_semaphore;
 mod fronts;
 mod lazy_binder_client;
 pub mod serialize;

@@ -1,6 +1,7 @@
 use anyhow::Context;
 use async_net::Ipv4Addr;
 
+use bytes::Bytes;
 use geph4_protocol::VpnStdio;
 use governor::{Quota, RateLimiter};
 use once_cell::sync::Lazy;
@@ -15,7 +16,7 @@ use pnet_packet::{
 };
 use smol::{channel::Receiver, prelude::*};
 use smol_timeout::TimeoutExt;
-use sosistab::{Buff, BuffMut, Multiplex};
+use sosistab::Multiplex;
 use std::{collections::HashMap, io::Stdin, num::NonZeroU32, sync::Arc, time::Duration};
 
 use crate::{activity::notify_activity, serialize::serialize};
@@ -51,7 +52,7 @@ pub async fn run_vpn(mux: Arc<sosistab::Multiplex>) -> anyhow::Result<()> {
     // Send client ip to the vpn helper
     let msg = VpnStdio {
         verb: 1,
-        body: format!("{}/10", client_ip).as_bytes().into(),
+        body: format!("{}/10", client_ip).into(),
     };
     {
         let mut stdout = std::io::stdout();
@@ -87,7 +88,7 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
                 } else {
                     msg.body
                 };
-                Ok::<Option<Buff>, anyhow::Error>(Some(body))
+                Ok::<Option<Bytes>, anyhow::Error>(Some(body))
             }
         };
         let body = stdin_fut.await.context("stdin failed")?;
@@ -156,7 +157,7 @@ fn ack_decimate(bts: &[u8]) -> Option<u16> {
 }
 
 /// fixes dns destination
-fn fix_dns_dest(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Buff> {
+fn fix_dns_dest(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Bytes> {
     let dns_src_port = {
         let parsed = Ipv4Packet::new(bts)?;
         if parsed.get_next_level_protocol() == IpNextHeaderProtocols::Udp {
@@ -170,7 +171,7 @@ fn fix_dns_dest(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Buff
             return None;
         }
     };
-    let mut vv = BuffMut::copy_from_slice(bts);
+    let mut vv = bts.to_owned();
     let mut parsed = MutableIpv4Packet::new(&mut vv)?;
     nat.write().insert(dns_src_port, parsed.get_destination());
     parsed.set_destination(Ipv4Addr::new(1, 1, 1, 1));
@@ -196,7 +197,7 @@ fn fix_all_checksums(bts: &mut [u8]) -> Option<()> {
 }
 
 /// fixes dns source
-fn fix_dns_src(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Buff> {
+fn fix_dns_src(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Bytes> {
     let dns_src_port = {
         let parsed = Ipv4Packet::new(bts)?;
         // log::warn!("******** VPN DOWN: {:?}", parsed);
@@ -211,7 +212,7 @@ fn fix_dns_src(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Buff>
             return None;
         }
     };
-    let mut vv = BuffMut::copy_from_slice(bts);
+    let mut vv = bts.to_owned();
     let mut parsed = MutableIpv4Packet::new(&mut vv)?;
     parsed.set_source(*nat.read().get(&dns_src_port)?);
     fix_all_checksums(&mut vv)?;

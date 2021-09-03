@@ -583,12 +583,12 @@ dependencies = [
 
 [[package]]
 name = "bloomfilter"
-version = "1.0.5"
+version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1cffe85a8b173164000edb6570ff7cf429acc9460b41d963e797df413f1765b4"
+checksum = "963b4d38cc968131045c47606ef1be10eae136f4e8232213792041c86d8e316e"
 dependencies = [
  "bit-vec",
- "rand 0.8.4",
+ "getrandom 0.2.3",
  "siphasher",
 ]
 
@@ -1489,13 +1489,13 @@ dependencies = [
 
 [[package]]
 name = "geph4-protocol"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3a3e8c8b8de0b2626056af7b203d79aac645ea9e6c6579e2951b94fa4603504e"
+checksum = "a3f42c9dd845015541a4a465360c8e6e18165aa6eb84738867b9e84db2eb3b99"
 dependencies = [
+ "bytes",
  "serde",
  "smol",
- "sosistab",
 ]
 
 [[package]]
@@ -2840,9 +2840,9 @@ dependencies = [
 
 [[package]]
 name = "siphasher"
-version = "0.3.6"
+version = "0.3.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "729a25c17d72b06c68cb47955d44fda88ad2d3e7d77e025663fdd69b93dd71a1"
+checksum = "533494a8f9b724d33625ab53c6c4800f7cc445895924a8ef649222dcb76e938b"
 
 [[package]]
 name = "sized-chunks"
@@ -2959,9 +2959,7 @@ dependencies = [
 
 [[package]]
 name = "sosistab"
-version = "0.4.22"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5234c45ff0fa3a681627ba5d86d560ae2f46488be1650acbcea9528bfe451cc"
+version = "0.4.25-alpha.0"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3456,9 +3454,9 @@ checksum = "59547bce71d9c38b83d9c0e92b6066c4253371f15005def0c30d9657f50c7642"
 
 [[package]]
 name = "typenum"
-version = "1.13.0"
+version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "879f6906492a7cd215bfa4cf595b600146ccfac0c79bcbd1f3000162af5e8b06"
+checksum = "b63708a265f51345575b27fe43f9500ad611579e764c79edbc2037b1121959ec"
 
 [[package]]
 name = "unicode-bidi"
