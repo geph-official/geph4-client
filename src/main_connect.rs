@@ -273,12 +273,13 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
             .await
             .context("cannot accept socks5")?;
         let tunnel_manager = tunnel_manager.clone();
-        let _ticket = acquire_fd().await;
-        smolscale::spawn(async move {
-            let _ticket = _ticket;
-            handle_socks5(s5client, &tunnel_manager, exclude_prc).await
-        })
-        .detach()
+        if let Ok(_ticket) = acquire_fd().await {
+            smolscale::spawn(async move {
+                let _ticket = _ticket;
+                handle_socks5(s5client, &tunnel_manager, exclude_prc).await
+            })
+            .detach()
+        }
     }
 }
 
@@ -344,19 +345,21 @@ async fn port_forwarder(tunnel_manager: TunnelManager, desc: String) {
     loop {
         let (conn, _) = listener.accept().await.unwrap();
         let _ticket = acquire_fd().await;
-        let tunnel_manager = tunnel_manager.clone();
-        let remote_addr = exploded[1].to_owned();
-        smolscale::spawn(async move {
-            let _ticket = _ticket;
-            let remote = tunnel_manager.connect(&remote_addr).await.ok()?;
-            smol::future::race(
-                smol::io::copy(remote.clone(), conn.clone()),
-                smol::io::copy(conn, remote),
-            )
-            .await
-            .ok()
-        })
-        .detach();
+        if let Ok(_ticket) = _ticket {
+            let tunnel_manager = tunnel_manager.clone();
+            let remote_addr = exploded[1].to_owned();
+            smolscale::spawn(async move {
+                let _ticket = _ticket;
+                let remote = tunnel_manager.connect(&remote_addr).await.ok()?;
+                smol::future::race(
+                    smol::io::copy(remote.clone(), conn.clone()),
+                    smol::io::copy(conn, remote),
+                )
+                .await
+                .ok()
+            })
+            .detach();
+        }
     }
 }
 

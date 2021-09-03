@@ -45,7 +45,9 @@ async fn server_dispatch(
     client_addr: SocketAddr,
     proxy_server: SharedProxyServer,
 ) -> std::io::Result<Response<Body>> {
-    let _ticket = acquire_fd().await;
+    let _ticket = acquire_fd()
+        .await
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
     let host = match host_addr(req.uri()) {
         None => {
             if req.uri().authority().is_some() {
