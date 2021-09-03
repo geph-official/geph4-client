@@ -1,6 +1,6 @@
 [package]
 name = "geph4-client"
-version = "4.4.16"
+version = "4.4.17-alpha.0"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2018"
 description="Geph client"
