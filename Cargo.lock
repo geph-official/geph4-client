@@ -583,9 +583,9 @@ dependencies = [
 
 [[package]]
 name = "bloomfilter"
-version = "1.0.7"
+version = "1.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "963b4d38cc968131045c47606ef1be10eae136f4e8232213792041c86d8e316e"
+checksum = "cf8588271abb26f506ed8138489f31a3a3d60883f1734f241234825eeec82931"
 dependencies = [
  "bit-vec",
  "getrandom 0.2.3",
@@ -1827,7 +1827,7 @@ version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 dependencies = [
- "spin 0.5.2",
+ "spin",
 ]
 
 [[package]]
@@ -2575,7 +2575,7 @@ dependencies = [
  "cc",
  "libc",
  "once_cell",
- "spin 0.5.2",
+ "spin",
  "untrusted",
  "web-sys",
  "winapi 0.3.9",
@@ -2896,9 +2896,9 @@ dependencies = [
 
 [[package]]
 name = "smolscale"
-version = "0.3.13"
+version = "0.3.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5cac73d55124db5479bc4aef402035e5360121b90bbdfca4cf5adbb5612a5492"
+checksum = "ed13f585e320cfdce67c93e181b8fb086d22380569907dc784bc415a7e38680b"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -2909,7 +2909,7 @@ dependencies = [
  "backtrace 0.3.61",
  "cache-padded",
  "concurrent-queue",
- "crossbeam-queue",
+ "crossbeam-deque",
  "event-listener",
  "fastrand",
  "futures-intrusive",
@@ -2921,7 +2921,6 @@ dependencies = [
  "rtrb",
  "scopeguard",
  "slab",
- "spin 0.9.2",
  "thread_local",
 ]
 
@@ -2959,9 +2958,9 @@ dependencies = [
 
 [[package]]
 name = "sosistab"
-version = "0.4.26"
+version = "0.4.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4454aa6630e068b696d6a8c45a2447b5690fe180cb4fa274b30b73cb60105af5"
+checksum = "39ab375b8abe78ab7ec032d53bdcd46743861fdb9b22207acb5df24f11f95b62"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -3027,12 +3026,6 @@ name = "spin"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
-
-[[package]]
-name = "spin"
-version = "0.9.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "511254be0c5bcf062b019a6c89c01a664aa359ded62f78aa72c6fc137c0590e5"
 
 [[package]]
 name = "stable_deref_trait"
@@ -3166,9 +3159,9 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 
 [[package]]
 name = "syn"
-version = "1.0.75"
+version = "1.0.76"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7f58f7e8eaa0009c5fec437aabf511bd9933e4b2d7407bd05273c01a8906ea7"
+checksum = "c6f107db402c2c2055242dbf4d2af0e69197202e9faacbef9571bbe47f5a1b84"
 dependencies = [
  "proc-macro2",
  "quote",
