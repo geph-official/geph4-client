@@ -15,7 +15,7 @@ use hyper::{
     service::{make_service_fn, service_fn},
     Body, Request, Response,
 };
-use log::{debug, trace};
+use log::trace;
 use std::convert::Infallible;
 use std::net::SocketAddr;
 pub async fn run(listen_addr: SocketAddr, proxy_address: SocketAddr) -> std::io::Result<()> {
@@ -96,12 +96,12 @@ async fn server_dispatch(
                                         *req.uri_mut() =
                                             Uri::from_parts(parts).expect("Reassemble URI failed");
 
-                                        debug!("Reassembled URI from \"Host\", {}", req.uri());
+                                        trace!("Reassembled URI from \"Host\", {}", req.uri());
 
                                         host
                                     }
                                     None => {
-                                        debug!(
+                                        trace!(
                                             "HTTP {} URI {} \"Host\" header invalid, value: {}",
                                             req.method(),
                                             req.uri(),
@@ -113,7 +113,7 @@ async fn server_dispatch(
                                 }
                             }
                             Err(..) => {
-                                debug!(
+                                trace!(
                                     "HTTP {} URI {} \"Host\" header is not an Authority, value: {:?}",
                                     req.method(),
                                     req.uri(),
@@ -132,9 +132,11 @@ async fn server_dispatch(
     if Method::CONNECT == req.method() {
         let addr: SocketAddr = proxy_server.addr;
         let stream = socks5::connect(&host, &addr).await?;
-        debug!(
+        trace!(
             "CONNECT relay connected {} <-> {} ({})",
-            client_addr, addr, host
+            client_addr,
+            addr,
+            host
         );
         tokio::spawn(async move {
             let _ticket = _ticket;
@@ -149,9 +151,12 @@ async fn server_dispatch(
                     establish_connect_tunnel(upgraded, stream, &addr, client_addr, host).await
                 }
                 Err(e) => {
-                    debug!(
+                    trace!(
                         "Failed to upgrade TCP tunnel {} <-> {} ({}), error: {}",
-                        client_addr, addr, host, e
+                        client_addr,
+                        addr,
+                        host,
+                        e
                     );
                 }
             }
@@ -160,16 +165,20 @@ async fn server_dispatch(
         Ok(resp)
     } else {
         let method = req.method().clone();
-        debug!("HTTP {} {}", method, host);
+        trace!("HTTP {} {}", method, host);
         let conn_keep_alive = check_keep_alive(req.version(), req.headers(), true);
         clear_hop_headers(req.headers_mut());
         set_conn_keep_alive(req.version(), req.headers_mut(), conn_keep_alive);
         let mut res: Response<Body> = match proxy_server.client.request(req).await {
             Ok(res) => res,
             Err(err) => {
-                debug!(
+                trace!(
                     "HTTP {} {} <-> {} ({}) relay failed, error: {}",
-                    method, client_addr, "127.0.0.1:1080", host, err
+                    method,
+                    client_addr,
+                    "127.0.0.1:1080",
+                    host,
+                    err
                 );
                 let mut resp = Response::new(Body::from(format!("Relay failed to {}", host)));
                 *resp.status_mut() = StatusCode::INTERNAL_SERVER_ERROR;
@@ -202,9 +211,11 @@ async fn establish_connect_tunnel(
     let rhalf = copy(&mut r, &mut svr_w);
     let whalf = copy(&mut svr_r, &mut w);
 
-    debug!(
+    trace!(
         "CONNECT relay established {} <-> {} ({})",
-        client_addr, svr_addr, addr
+        client_addr,
+        svr_addr,
+        addr
     );
 
     match future::select(rhalf.boxed(), whalf.boxed()).await {
@@ -224,9 +235,12 @@ async fn establish_connect_tunnel(
                     err,
                 );
             } else {
-                debug!(
+                trace!(
                     "CONNECT relay {} -> {} ({}) closed with error {}",
-                    client_addr, svr_addr, addr, err,
+                    client_addr,
+                    svr_addr,
+                    addr,
+                    err,
                 );
             }
         }
@@ -246,17 +260,22 @@ async fn establish_connect_tunnel(
                     err,
                 );
             } else {
-                debug!(
+                trace!(
                     "CONNECT relay {} <- {} ({}) closed with error {}",
-                    client_addr, svr_addr, addr, err,
+                    client_addr,
+                    svr_addr,
+                    addr,
+                    err,
                 );
             }
         }
     }
 
-    debug!(
+    trace!(
         "CONNECT relay {} <-> {} ({}) closed",
-        client_addr, svr_addr, addr
+        client_addr,
+        svr_addr,
+        addr
     );
 }
 
