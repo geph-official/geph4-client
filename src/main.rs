@@ -15,6 +15,8 @@ pub mod serialize;
 mod socks2http;
 mod tunman;
 use prelude::*;
+use tracing::Level;
+use tracing_subscriber::FmtSubscriber;
 
 use crate::{fronts::fetch_fronts, lazy_binder_client::LazyBinderClient};
 mod dns;
@@ -42,43 +44,15 @@ enum Opt {
     BinderProxy(main_binderproxy::BinderProxyOpt),
 }
 
+fn config_logging() {
+    env_logger::Builder::from_env(
+        env_logger::Env::default().default_filter_or("geph4_client=debug,warn"),
+    )
+    .init();
+}
+
 fn main() -> anyhow::Result<()> {
-    // fixes timer resolution on Windows
-    #[cfg(windows)]
-    unsafe {
-        winapi::um::timeapi::timeBeginPeriod(1);
-    }
-
-    // the logging function
-    fn logger(
-        write: &mut dyn Write,
-        now: &mut DeferredNow,
-        record: &Record<'_>,
-    ) -> Result<(), std::io::Error> {
-        use flexi_logger::style;
-        let level = record.level();
-        let level_str = match level {
-            flexi_logger::Level::Debug => "DEBG".to_string(),
-            x => x.to_string(),
-        };
-        write!(
-            write,
-            "[{}] {} [{}:{}] {}",
-            style(level, now.now().naive_utc().format("%Y-%m-%d %H:%M:%S")),
-            style(level, level_str),
-            record.file().unwrap_or("<unnamed>"),
-            record.line().unwrap_or(0),
-            &record.args()
-        )?;
-        Ok(())
-    }
-
-    flexi_logger::Logger::with_env_or_str("geph4_client = debug, warn")
-        // .format(flexi_logger::colored_detailed_format)
-        .set_palette("192;208;158;248;240".to_string())
-        .format(logger)
-        .start()
-        .unwrap();
+    config_logging();
     let opt: Opt = Opt::from_args();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);

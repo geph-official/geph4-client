@@ -48,7 +48,7 @@ pub struct ConnectOpt {
     /// Number of local UDP ports to use per session. This works around situations where unlucky ECMP routing sends flows down a congested path even when other paths exist, by "averaging out" all the possible routes.
     pub udp_shard_count: usize,
 
-    #[structopt(long, default_value = "3")]
+    #[structopt(long, default_value = "1")]
     /// Lifetime of a single UDP port. Geph will switch to a different port within this many seconds.
     pub udp_shard_lifetime: u64,
 

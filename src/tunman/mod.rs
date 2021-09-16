@@ -224,7 +224,7 @@ async fn get_closest_exit(
 
 async fn watchdog_loop(tunnel_mux: Arc<Multiplex>) -> anyhow::Result<()> {
     loop {
-        wait_activity(Duration::from_secs(200)).await;
+        wait_activity(Duration::from_secs(600)).await;
         let start = Instant::now();
         if tunnel_mux
             .open_conn(None)
@@ -235,7 +235,7 @@ async fn watchdog_loop(tunnel_mux: Arc<Multiplex>) -> anyhow::Result<()> {
             anyhow::bail!("watchdog conn failed!");
         }
         log::debug!("** watchdog completed in {:?} **", start.elapsed());
-        smol::Timer::after(Duration::from_secs(40)).await;
+        smol::Timer::after(Duration::from_secs(1)).await;
     }
 }
 

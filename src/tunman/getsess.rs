@@ -227,7 +227,7 @@ async fn get_through_fastest_bridge(
         let fut = async {
             if let Some(privileged) = privileged {
                 if bridge.endpoint != privileged {
-                    smol::Timer::after(Duration::from_secs(5)).await;
+                    smol::Timer::after(Duration::from_millis(500)).await;
                 }
             }
             let conn = get_one_sess(ctx.clone(), bridge.endpoint, bridge.sosistab_key)
