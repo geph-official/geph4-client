@@ -16,6 +16,7 @@ use once_cell::sync::Lazy;
 use psl::Psl;
 use smol::prelude::*;
 
+use smol_timeout::TimeoutExt;
 use tap::Tap;
 
 use std::{
@@ -479,7 +480,11 @@ async fn handle_socks5(
         )
         .await?;
     } else {
-        let conn = tunnel_manager.connect(&addr).await?;
+        let conn = tunnel_manager
+            .connect(&addr)
+            .timeout(Duration::from_secs(10))
+            .await
+            .context("open connection timeout")??;
         write_request_status(
             s5client.clone(),
             SocksV5RequestStatus::Success,

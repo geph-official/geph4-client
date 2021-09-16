@@ -1,3 +1,4 @@
+use crate::tunman::reroute::rerouter_once;
 use crate::{
     activity::notify_activity, cache::ClientCache, main_connect::ConnectOpt,
     tunman::tunnelctx::TunnelCtx,
@@ -11,10 +12,9 @@ use smol::channel::{Receiver, Sender};
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
 use sosistab::Multiplex;
+use std::net::SocketAddr;
 use std::time::Duration;
 use std::{sync::Arc, time::Instant};
-
-use self::reroute::rerouter_loop;
 
 mod getsess;
 mod reroute;
@@ -136,16 +136,11 @@ async fn tunnel_actor_once(
     };
 
     // Set up a watchdog to keep the connection alive
-    let watchdog_fut = smolscale::spawn(watchdog_loop(tunnel_mux.clone()));
-
-    // Set up a session rerouter
-    let rerouter_fut = async {
-        if cfg.force_bridge.is_none() {
-            rerouter_loop(ctx.clone(), protosess_remaddr, &tunnel_mux).await
-        } else {
-            smol::future::pending().await
-        }
-    };
+    let watchdog_fut = smolscale::spawn(watchdog_loop(
+        ctx.clone(),
+        protosess_remaddr,
+        tunnel_mux.clone(),
+    ));
 
     let (send_death, recv_death) = smol::channel::unbounded::<anyhow::Error>();
 
@@ -200,7 +195,6 @@ async fn tunnel_actor_once(
         let e = recv_death.recv().await.context("death received")?;
         anyhow::bail!(e)
     })
-    .or(rerouter_fut)
     .or(watchdog_fut)
     .await
 }
@@ -222,20 +216,37 @@ async fn get_closest_exit(
     Ok(exits[0].clone())
 }
 
-async fn watchdog_loop(tunnel_mux: Arc<Multiplex>) -> anyhow::Result<()> {
+async fn watchdog_loop(
+    ctx: TunnelCtx,
+    bridge_addr: SocketAddr,
+    tunnel_mux: Arc<Multiplex>,
+) -> anyhow::Result<()> {
+    // We first request the ID of the other multiplex.
+    let other_id = {
+        let mut conn = tunnel_mux.open_conn(Some("!id".into())).await?;
+        let mut buf = [0u8; 32];
+        conn.read_exact(&mut buf).await.context("!id failed")?;
+        buf
+    };
     loop {
         wait_activity(Duration::from_secs(600)).await;
         let start = Instant::now();
         if tunnel_mux
             .open_conn(None)
-            .timeout(Duration::from_secs(60))
+            .timeout(Duration::from_secs(15))
             .await
             .is_none()
         {
-            anyhow::bail!("watchdog conn failed!");
+            log::warn!("watchdog conn failed! rerouting...");
+            rerouter_once(ctx.clone(), bridge_addr, &tunnel_mux, other_id)
+                .timeout(Duration::from_secs(15))
+                .await
+                .context("rerouter timed out")??;
+            log::warn!("rerouting done.");
+        } else {
+            log::debug!("** watchdog completed in {:?} **", start.elapsed());
+            smol::Timer::after(Duration::from_secs(1)).await;
         }
-        log::debug!("** watchdog completed in {:?} **", start.elapsed());
-        smol::Timer::after(Duration::from_secs(1)).await;
     }
 }
 

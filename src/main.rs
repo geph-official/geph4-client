@@ -1,8 +1,7 @@
 #![type_length_limit = "2000000"]
 
-use std::{collections::BTreeMap, io::Write, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};
 
-use flexi_logger::{DeferredNow, Record};
 use fronts::parse_fronts;
 use geph4_binder_transport::BinderClient;
 use smol_timeout::TimeoutExt;
@@ -15,8 +14,6 @@ pub mod serialize;
 mod socks2http;
 mod tunman;
 use prelude::*;
-use tracing::Level;
-use tracing_subscriber::FmtSubscriber;
 
 use crate::{fronts::fetch_fronts, lazy_binder_client::LazyBinderClient};
 mod dns;
