@@ -13,8 +13,12 @@ anyhow = "1.0.43"
 # geph4_protocol={path="../lib/geph4_protocol"}
 async-h1= "2.3.2"
 bincode = "1.3.3"
-# geph4_binder_transport = {path="../lib/geph4_binder_transport"}
-dirs = "3.0.2"
+
+
+# geph4-binder-transport = {path="../geph4-libs/geph4-binder-transport"}
+geph4-binder-transport = "0.2"
+
+dirs = "3.0.2" 
 ed25519-dalek={ version = "1.0.1", features = ["serde"] }
 flexi_logger = "0.16.3"
 futures-util= "0.3.17"
@@ -61,7 +65,7 @@ cached= "0.23.0"
 rustls= "0.19.1"
 webpki-roots= "0.21.1"
 strip-ansi-escapes= "0.1.1"
-geph4-binder-transport = "0.1.3"
+
 mizaru = "0.1.3"
 geph4-aioutils = "0.1.3"
 # alloc_geiger = "0.1"

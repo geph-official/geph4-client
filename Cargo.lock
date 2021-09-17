@@ -1415,9 +1415,9 @@ dependencies = [
 
 [[package]]
 name = "geph4-binder-transport"
-version = "0.1.3"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35e9933dc9db563d137ca409dad6559f99b4bad681fcc3fb19b9f52bb06bc7f0"
+checksum = "cecf913a03e21b88fe6f89998e4b2a32700241f2c5fe8d9d78da205a5989bb6f"
 dependencies = [
  "async-h1",
  "async-tls",

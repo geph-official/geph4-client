@@ -21,7 +21,6 @@ pub struct ClientCache {
     free_pk: mizaru::PublicKey,
     plus_pk: mizaru::PublicKey,
     database: AcidJson<BTreeMap<String, Bytes>>,
-    pub force_sync: bool,
 }
 
 static NETWORK_TIMEOUT: Duration = Duration::from_secs(120);
@@ -44,7 +43,6 @@ impl ClientCache {
             free_pk,
             plus_pk,
             database,
-            force_sync: false,
         }
     }
 
@@ -70,9 +68,6 @@ impl ClientCache {
     }
 
     fn get_cached_stale<T: DeserializeOwned + Clone + Debug>(&self, key: &str) -> Option<T> {
-        if self.force_sync {
-            return None;
-        }
         let key = self.to_key(key);
         let existing: Option<(T, u64)> = self
             .database
@@ -118,21 +113,19 @@ impl ClientCache {
             .read()
             .get(&expanded_key)
             .map(|v| bincode::deserialize(v).unwrap());
-        if !self.force_sync {
-            if let Some((existing, create_time)) = existing {
-                if SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-                    < create_time + ttl.as_secs()
-                {
-                    return Ok(existing);
-                } else {
-                    log::warn!("ignore stale value for {} created at {}", key, create_time);
-                }
+        if let Some((existing, create_time)) = existing {
+            if SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                < create_time + ttl.as_secs()
+            {
+                return Ok(existing);
             } else {
-                log::warn!("absent key {}", key);
+                log::warn!("ignore stale value for {} created at {}", key, create_time);
             }
+        } else {
+            log::warn!("absent key {}", key);
         }
         let create_time: SystemTime = SystemTime::now();
         let create_time = create_time
@@ -188,6 +181,12 @@ impl ClientCache {
     pub fn purge_bridges(&self, exit_hostname: &str) -> anyhow::Result<()> {
         let key = self.to_key(&format!("cache.bridges.{}", exit_hostname));
         self.database.write().remove(&key);
+        Ok(())
+    }
+
+    /// Clears everything.
+    pub fn purge_all(&self) -> anyhow::Result<()> {
+        self.database.write().clear();
         Ok(())
     }
 
