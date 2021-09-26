@@ -2,7 +2,7 @@ use crate::{
     activity::{notify_activity, wait_activity},
     cache::ClientCache,
     fd_semaphore::acquire_fd,
-    stats::global_sosistab_stats,
+    stats::{global_sosistab_stats, LAST_PING_MS},
     tunman::{TunnelManager, TunnelState},
     AuthOpt, CommonOpt,
 };
@@ -20,8 +20,14 @@ use smol_timeout::TimeoutExt;
 use tap::Tap;
 
 use std::{
-    collections::BTreeMap, net::Ipv4Addr, net::SocketAddr, net::SocketAddrV4, path::PathBuf,
-    process::Stdio, sync::Arc, time::Duration,
+    collections::BTreeMap,
+    net::Ipv4Addr,
+    net::SocketAddr,
+    net::SocketAddrV4,
+    path::PathBuf,
+    process::Stdio,
+    sync::{atomic::Ordering, Arc},
+    time::Duration,
 };
 use structopt::StructOpt;
 
@@ -328,11 +334,10 @@ async fn print_stats_loop() {
     loop {
         wait_activity(Duration::from_secs(200)).await;
         log::info!(
-            "** STATS **: smooth_ping = {:.2}; recv_loss = {:.2}%",
-            gather.get_last("smooth_ping").unwrap_or_default() * 1000.0,
+            "** recv_loss = {:.2}% **",
             gather.get_last("recv_loss").unwrap_or_default() * 100.0
         );
-        smol::Timer::after(Duration::from_secs(3)).await;
+        smol::Timer::after(Duration::from_secs(30)).await;
     }
 }
 
@@ -404,7 +409,7 @@ async fn handle_stats(
                 );
                 stats.insert(
                     "latency".into(),
-                    gather.get_last("smooth_ping").unwrap_or_default(),
+                    LAST_PING_MS.load(Ordering::Relaxed) as f32,
                 );
                 stats.insert(
                     "loss".into(),

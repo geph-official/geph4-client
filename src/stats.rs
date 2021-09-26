@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{atomic::AtomicU32, Arc};
 
 use once_cell::sync::Lazy;
 
@@ -10,3 +10,6 @@ static SOSISTAB_STATS: Lazy<Arc<sosistab::StatsGatherer>> =
 pub fn global_sosistab_stats() -> Arc<sosistab::StatsGatherer> {
     Arc::clone(&SOSISTAB_STATS)
 }
+
+/// Ping gatherer
+pub static LAST_PING_MS: AtomicU32 = AtomicU32::new(0);

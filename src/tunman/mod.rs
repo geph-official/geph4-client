@@ -1,9 +1,9 @@
-use crate::tunman::reroute::rerouter_once;
 use crate::{
     activity::notify_activity, cache::ClientCache, main_connect::ConnectOpt,
     tunman::tunnelctx::TunnelCtx,
 };
 use crate::{activity::wait_activity, vpn::run_vpn};
+use crate::{stats::LAST_PING_MS, tunman::reroute::rerouter_once};
 use anyhow::Context;
 use geph4_binder_transport::ExitDescriptor;
 use getsess::get_session;
@@ -244,8 +244,13 @@ async fn watchdog_loop(
                 .context("rerouter timed out")??;
             log::warn!("rerouting done.");
         } else {
-            log::debug!("** watchdog completed in {:?} **", start.elapsed());
-            smol::Timer::after(Duration::from_secs(1)).await;
+            let ping = start.elapsed();
+            log::debug!("** watchdog completed in {:?} **", ping);
+            LAST_PING_MS.store(
+                ping.as_millis() as u32,
+                std::sync::atomic::Ordering::Relaxed,
+            );
+            smol::Timer::after(Duration::from_secs(3)).await;
         }
     }
 }
