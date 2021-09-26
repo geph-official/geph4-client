@@ -499,6 +499,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "904dfeac50f3cdaba28fc6f57fdcddb75f49ed61346676a78c4ffe55877802fd"
 
 [[package]]
+name = "binary-search"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bea0ab2808834a04d4ae0d831f476217fdbee35cb620bf6b2e5807a4e9435776"
+
+[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1457,6 +1463,7 @@ dependencies = [
  "async-net",
  "async-tls",
  "async-trait",
+ "binary-search",
  "bincode",
  "bytes",
  "cached",
@@ -1485,6 +1492,7 @@ dependencies = [
  "psl",
  "rand 0.7.3",
  "regex",
+ "rlimit",
  "rsa-fdh",
  "rustls",
  "scopeguard",
@@ -2632,6 +2640,15 @@ dependencies = [
  "untrusted",
  "web-sys",
  "winapi 0.3.9",
+]
+
+[[package]]
+name = "rlimit"
+version = "0.6.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc0bf25554376fd362f54332b8410a625c71f15445bca32ffdfdf4ec9ac91726"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
