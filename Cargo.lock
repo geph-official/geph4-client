@@ -1472,6 +1472,7 @@ dependencies = [
  "ed25519-dalek",
  "env_logger 0.9.0",
  "event-listener",
+ "fastrand",
  "flexi_logger",
  "futures-util",
  "geph4-aioutils",
@@ -1522,9 +1523,9 @@ dependencies = [
 
 [[package]]
 name = "geph4-protocol"
-version = "0.1.1"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a3f42c9dd845015541a4a465360c8e6e18165aa6eb84738867b9e84db2eb3b99"
+checksum = "0f3c4d713806b1dfe9797a4abd952ce3af46397ec307ce447f69473c87ea53d5"
 dependencies = [
  "bytes",
  "serde",

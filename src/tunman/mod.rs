@@ -6,6 +6,7 @@ use crate::{activity::wait_activity, vpn::run_vpn};
 use crate::{stats::LAST_PING_MS, tunman::reroute::rerouter_once};
 use anyhow::Context;
 use geph4_binder_transport::ExitDescriptor;
+use geph4_protocol::Telemetry;
 use getsess::get_session;
 use parking_lot::RwLock;
 use smol::channel::{Receiver, Sender};
@@ -228,6 +229,7 @@ async fn watchdog_loop(
         conn.read_exact(&mut buf).await.context("!id failed")?;
         buf
     };
+    let version = env!("CARGO_PKG_VERSION");
     loop {
         wait_activity(Duration::from_secs(600)).await;
         let start = Instant::now();
@@ -250,6 +252,30 @@ async fn watchdog_loop(
                 ping.as_millis() as u32,
                 std::sync::atomic::Ordering::Relaxed,
             );
+            if fastrand::f32() < 0.1 {
+                let tunnel_mux = tunnel_mux.clone();
+                smolscale::spawn(async move {
+                    let telemetry = Telemetry {
+                        watchdog_ping_ms: ping.as_millis() as _,
+                        version: version.replace(".", "-"),
+                    };
+                    log::debug!("** sending telemetry: {:?} **", telemetry);
+                    let mut telemetry_conn = tunnel_mux
+                        .open_conn(Some("!telemetry".into()))
+                        .timeout(Duration::from_secs(10))
+                        .await
+                        .context("wtf")??;
+                    telemetry_conn
+                        .write_all(
+                            format!("{}\n", serde_json::to_string(&telemetry).unwrap()).as_bytes(),
+                        )
+                        .await?;
+                    telemetry_conn.flush().await?;
+                    smol::Timer::after(Duration::from_secs(1)).await;
+                    Ok::<_, anyhow::Error>(())
+                })
+                .detach();
+            }
             smol::Timer::after(Duration::from_secs(3)).await;
         }
     }
