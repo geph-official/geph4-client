@@ -2,7 +2,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use crate::CommonOpt;
 use geph4_binder_transport::{BinderClient, BinderError, BinderRequestData, BinderResponse};
-use http_types::{Request, Response};
+use http_types::{Method, Request, Response};
 use serde::{Deserialize, Serialize};
 use smol_timeout::TimeoutExt;
 use std::time::Duration;
@@ -54,12 +54,22 @@ async fn handle_req(
         "/captcha" => handle_captcha(binder_client, req).await,
         _ => Ok(Response::new(404)),
     }
+    .map(|mut res| {
+        res.insert_header("Access-Control-Allow-Origin", "*");
+        res.insert_header("Access-Control-Allow-Methods", "GET, POST");
+        res.insert_header("Access-Control-Allow-Headers", "Content-Type");
+        res.insert_header("Access-Control-Expose-Headers", "*");
+        res
+    })
 }
 
 async fn handle_register(
     binder_client: Arc<dyn BinderClient>,
     mut req: Request,
 ) -> http_types::Result<Response> {
+    if req.method() != Method::Post {
+        return Ok("".into());
+    }
     #[derive(Serialize, Deserialize, Debug)]
     struct Req {
         #[serde(rename = "Username")]

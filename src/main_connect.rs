@@ -375,6 +375,7 @@ async fn handle_stats(
     req: http_types::Request,
 ) -> http_types::Result<http_types::Response> {
     let mut res = http_types::Response::new(http_types::StatusCode::Ok);
+    res.insert_header("Access-Control-Allow-Origin", "*");
     match req.url().path() {
         "/proxy.pac" => {
             // Serves a Proxy Auto-Configuration file
