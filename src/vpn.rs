@@ -4,7 +4,7 @@ use async_net::Ipv4Addr;
 use bytes::Bytes;
 use geph4_protocol::VpnStdio;
 use governor::{Quota, RateLimiter};
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::RwLock;
 use pnet_packet::{
     ip::IpNextHeaderProtocols,
@@ -17,10 +17,21 @@ use pnet_packet::{
 use smol::{channel::Receiver, prelude::*};
 use smol_timeout::TimeoutExt;
 use sosistab::Multiplex;
-use std::{collections::HashMap, io::Stdin, num::NonZeroU32, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    io::Stdin,
+    num::NonZeroU32,
+    os::unix::{net::UnixStream, prelude::FromRawFd},
+    sync::Arc,
+    time::Duration,
+};
+use uds::UnixStreamExt;
 
 use crate::{activity::notify_activity, serialize::serialize};
 use std::io::Write;
+
+/// The fd passed to us by the helper. This actually does work even though in general Async<File> does not, because tundevice FDs are not like file FDs.
+static VPN_FD: OnceCell<smol::Async<std::fs::File>> = OnceCell::new();
 
 #[derive(Clone, Copy)]
 struct VpnContext<'a> {
@@ -73,22 +84,43 @@ pub async fn run_vpn(mux: Arc<sosistab::Multiplex>) -> anyhow::Result<()> {
 async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     let limiter = RateLimiter::direct(
         Quota::per_second(NonZeroU32::new(5000u32).unwrap())
-            .allow_burst(NonZeroU32::new(10u32).unwrap()),
+            .allow_burst(NonZeroU32::new(100u32).unwrap()),
     );
     loop {
         let stdin_fut = async {
-            let msg = STDIN.recv().await;
+            let bts = if let Some(mut vpnfd) = VPN_FD.get() {
+                let mut buf = [0; 2048];
+                let n = vpnfd.read(&mut buf).await?;
+                log::trace!("pkt of length {} from raw FD!", n);
+                Bytes::copy_from_slice(&buf[..n])
+            } else {
+                let msg = STDIN.recv().await;
+                if msg.verb == 255 {
+                    // we switch to FD mode
+                    let uds_path = String::from_utf8_lossy(&msg.body);
+                    let socket: UnixStream = UnixStream::connect(uds_path.as_ref())
+                        .context("cannot connect to UDS to obtain FD")?;
+                    let mut fds = [0; 1];
+                    socket
+                        .recv_fds(&mut [0; 5], &mut fds)
+                        .context("cannot get FD")?;
+                    log::info!("***** OBTAINED VPN FILE DESCRIPTOR {} *****", fds[0]);
+                    VPN_FD
+                        .set(
+                            smol::Async::new(unsafe { std::fs::File::from_raw_fd(fds[0]) })
+                                .expect("could not create async VPN fd"),
+                        )
+                        .expect("could not set the FD")
+                }
+                msg.body
+            };
             // ACK decimation
-            if ack_decimate(&msg.body).is_some() && limiter.check().is_err() {
+            if ack_decimate(&bts).is_some() && limiter.check().is_err() {
                 Ok(None)
             } else {
-                // fix dns
-                let body = if let Some(body) = fix_dns_dest(&msg.body, ctx.dns_nat) {
-                    body
-                } else {
-                    msg.body
-                };
-                Ok::<Option<Bytes>, anyhow::Error>(Some(body))
+                Ok::<Option<Bytes>, anyhow::Error>(Some(
+                    fix_dns_dest(&bts, ctx.dns_nat).unwrap_or(bts),
+                ))
             }
         };
         let body = stdin_fut.await.context("stdin failed")?;
@@ -128,15 +160,13 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         if let geph4_protocol::VpnMessage::Payload(bts) =
             bincode::deserialize(&bts).context("invalid downstream data")?
         {
-            let bts = if let Some(bts) = fix_dns_src(&bts, ctx.dns_nat) {
-                bts
+            let bts = fix_dns_src(&bts, ctx.dns_nat).unwrap_or(bts);
+            // either write to stdout or the FD
+            if let Some(mut fd) = VPN_FD.get() {
+                fd.write(&bts).await?;
             } else {
-                bts
-            };
-            let msg = VpnStdio { verb: 0, body: bts };
-            {
-                msg.write_blocking(&mut buff).unwrap();
-                // stdout.flush().unwrap();
+                let msg = VpnStdio { verb: 0, body: bts };
+                msg.write_blocking(&mut buff)?;
             }
         }
     }

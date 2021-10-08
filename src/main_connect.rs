@@ -374,6 +374,17 @@ async fn handle_stats(
     tman: TunnelManager,
     req: http_types::Request,
 ) -> http_types::Result<http_types::Response> {
+    // If the GEPH_SECURE_STATS environment variable is set, we must have X-Geph-Stats-Token set to that environment variable.
+    if let Ok(s) = std::env::var("GEPH_SECURE_STATS") {
+        if req
+            .header("X-Geph-Stats-Token")
+            .map(|f| f.as_str().to_string())
+            .unwrap_or_default()
+            != s
+        {
+            return Err(http_types::Error::new(403, anyhow::anyhow!("denied")));
+        }
+    }
     let mut res = http_types::Response::new(http_types::StatusCode::Ok);
     res.insert_header("Access-Control-Allow-Origin", "*");
     match req.url().path() {

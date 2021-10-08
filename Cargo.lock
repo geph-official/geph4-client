@@ -1516,6 +1516,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "treebitmap",
+ "uds",
  "webpki-roots",
  "winapi 0.3.9",
  "x25519-dalek",
@@ -3578,6 +3579,15 @@ name = "typenum"
 version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b63708a265f51345575b27fe43f9500ad611579e764c79edbc2037b1121959ec"
+
+[[package]]
+name = "uds"
+version = "0.2.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "343758ccc8a17c1663182d780f68b52021d68b9a43d4b912b0a01f48b526e4f0"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "unicode-bidi"
