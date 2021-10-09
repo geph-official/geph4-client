@@ -25,7 +25,6 @@ use std::{
     net::Ipv4Addr,
     net::SocketAddr,
     net::SocketAddrV4,
-    os::unix::prelude::FromRawFd,
     path::PathBuf,
     process::Stdio,
     sync::{atomic::Ordering, Arc},
@@ -149,6 +148,7 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     }
     #[cfg(unix)]
     if let Some(fd) = opt.vpn_tun_fd {
+        use std::os::unix::prelude::FromRawFd;
         VPN_FD
             .set(smol::Async::new(unsafe { std::fs::File::from_raw_fd(fd) })?)
             .expect("cannot set VPN file descriptor");
