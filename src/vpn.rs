@@ -1,6 +1,7 @@
 use anyhow::Context;
 use async_net::Ipv4Addr;
 
+use crate::{activity::notify_activity, serialize::serialize};
 use bytes::Bytes;
 use geph4_protocol::VpnStdio;
 use governor::{Quota, RateLimiter};
@@ -9,34 +10,26 @@ use parking_lot::RwLock;
 use pnet_packet::{
     ip::IpNextHeaderProtocols,
     ipv4::{Ipv4Packet, MutableIpv4Packet},
-    tcp::{TcpFlags, TcpPacket},
+    tcp::{MutableTcpPacket, TcpFlags, TcpPacket},
     udp::MutableUdpPacket,
     udp::UdpPacket,
-    Packet,
+    MutablePacket, Packet,
 };
 use smol::{channel::Receiver, prelude::*};
 use smol_timeout::TimeoutExt;
 use sosistab::Multiplex;
-use std::{
-    collections::HashMap,
-    io::Stdin,
-    num::NonZeroU32,
-    os::unix::{net::UnixStream, prelude::FromRawFd},
-    sync::Arc,
-    time::Duration,
-};
-use uds::UnixStreamExt;
-
-use crate::{activity::notify_activity, serialize::serialize};
 use std::io::Write;
+use std::{collections::HashMap, io::Stdin, num::NonZeroU32, sync::Arc, time::Duration};
+use tap::{Pipe, TapOptional};
 
 /// The fd passed to us by the helper. This actually does work even though in general Async<File> does not, because tundevice FDs are not like file FDs.
-static VPN_FD: OnceCell<smol::Async<std::fs::File>> = OnceCell::new();
+pub static VPN_FD: OnceCell<smol::Async<std::fs::File>> = OnceCell::new();
 
 #[derive(Clone, Copy)]
 struct VpnContext<'a> {
     mux: &'a Multiplex,
     dns_nat: &'a RwLock<HashMap<u16, Ipv4Addr>>,
+    client_ip: Ipv4Addr,
 }
 
 /// Runs a vpn session
@@ -76,9 +69,12 @@ pub async fn run_vpn(mux: Arc<sosistab::Multiplex>) -> anyhow::Result<()> {
     let ctx = VpnContext {
         mux: &mux,
         dns_nat: &dns_nat,
+        client_ip,
     };
     vpn_up_loop(ctx).or(vpn_down_loop(ctx)).await
 }
+
+pub static EXTERNAL_FAKE_IP: OnceCell<Ipv4Addr> = OnceCell::new();
 
 /// Up loop for vpn
 async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
@@ -88,36 +84,33 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     );
     loop {
         let stdin_fut = async {
-            let bts = if let Some(mut vpnfd) = VPN_FD.get() {
+            let mut bts = if let Some(mut vpnfd) = VPN_FD.get() {
                 let mut buf = [0; 2048];
                 let n = vpnfd.read(&mut buf).await?;
                 log::trace!("pkt of length {} from raw FD!", n);
                 Bytes::copy_from_slice(&buf[..n])
             } else {
                 let msg = STDIN.recv().await;
-                if msg.verb == 255 {
-                    // we switch to FD mode
-                    let uds_path = String::from_utf8_lossy(&msg.body);
-                    let socket: UnixStream = UnixStream::connect(uds_path.as_ref())
-                        .context("cannot connect to UDS to obtain FD")?;
-                    let mut fds = [0; 1];
-                    socket
-                        .recv_fds(&mut [0; 5], &mut fds)
-                        .context("cannot get FD")?;
-                    log::info!("***** OBTAINED VPN FILE DESCRIPTOR {} *****", fds[0]);
-                    VPN_FD
-                        .set(
-                            smol::Async::new(unsafe { std::fs::File::from_raw_fd(fds[0]) })
-                                .expect("could not create async VPN fd"),
-                        )
-                        .expect("could not set the FD")
-                }
                 msg.body
             };
             // ACK decimation
             if ack_decimate(&bts).is_some() && limiter.check().is_err() {
                 Ok(None)
             } else {
+                // Fix source IP
+                let source_ip_wrong = if let Some(pkt) = Ipv4Packet::new(&bts) {
+                    pkt.get_source() != ctx.client_ip
+                } else {
+                    false
+                };
+                if source_ip_wrong {
+                    let mut mbts = bts.to_vec();
+                    MutableIpv4Packet::new(&mut mbts)
+                        .expect("cannot fail here")
+                        .pipe(|mut pkt| pkt.set_source(ctx.client_ip));
+                    fix_all_checksums(&mut mbts);
+                    bts = mbts.into();
+                }
                 Ok::<Option<Bytes>, anyhow::Error>(Some(
                     fix_dns_dest(&bts, ctx.dns_nat).unwrap_or(bts),
                 ))
@@ -160,6 +153,17 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         if let geph4_protocol::VpnMessage::Payload(bts) =
             bincode::deserialize(&bts).context("invalid downstream data")?
         {
+            let bts = if let Some(fake) = EXTERNAL_FAKE_IP.get() {
+                let mut mbts = bts.to_vec();
+                {
+                    let pkt = MutableIpv4Packet::new(&mut mbts);
+                    pkt.tap_some_mut(|pkt| pkt.set_destination(*fake));
+                }
+                fix_all_checksums(&mut mbts);
+                mbts.into()
+            } else {
+                bts
+            };
             let bts = fix_dns_src(&bts, ctx.dns_nat).unwrap_or(bts);
             // either write to stdout or the FD
             if let Some(mut fd) = VPN_FD.get() {
@@ -172,7 +176,7 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     }
 }
 
-// /// returns ok if it's an ack that needs to be decimated
+/// returns ok if it's an ack that needs to be decimated
 fn ack_decimate(bts: &[u8]) -> Option<u16> {
     let parsed = Ipv4Packet::new(bts)?;
     // log::warn!("******** VPN UP: {:?}", parsed);
@@ -190,6 +194,7 @@ fn ack_decimate(bts: &[u8]) -> Option<u16> {
 fn fix_dns_dest(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Bytes> {
     let dns_src_port = {
         let parsed = Ipv4Packet::new(bts)?;
+        parsed.get_source();
         if parsed.get_next_level_protocol() == IpNextHeaderProtocols::Udp {
             let parsed = UdpPacket::new(parsed.payload())?;
             if parsed.get_destination() == 53 {
@@ -211,16 +216,20 @@ fn fix_dns_dest(bts: &[u8], nat: &RwLock<HashMap<u16, Ipv4Addr>>) -> Option<Byte
 
 fn fix_all_checksums(bts: &mut [u8]) -> Option<()> {
     let mut ip_layer = MutableIpv4Packet::new(bts)?;
-    let mut udp_raw = ip_layer.payload().to_vec();
-    {
-        let mut udp_layer = MutableUdpPacket::new(&mut udp_raw)?;
-        let source = ip_layer.get_source();
-        let dest = ip_layer.get_destination();
+    let source = ip_layer.get_source();
+    let dest = ip_layer.get_destination();
+
+    if ip_layer.get_next_level_protocol() == IpNextHeaderProtocols::Udp {
+        let mut udp_layer = MutableUdpPacket::new(ip_layer.payload_mut())?;
         let udp_checksum =
             pnet_packet::udp::ipv4_checksum(&udp_layer.to_immutable(), &source, &dest);
         udp_layer.set_checksum(udp_checksum);
+    } else if ip_layer.get_next_level_protocol() == IpNextHeaderProtocols::Tcp {
+        let mut tcp_layer = MutableTcpPacket::new(ip_layer.payload_mut())?;
+        let tcp_checksum =
+            pnet_packet::tcp::ipv4_checksum(&tcp_layer.to_immutable(), &source, &dest);
+        tcp_layer.set_checksum(tcp_checksum);
     }
-    ip_layer.set_payload(&udp_raw);
     let ip_checksum = pnet_packet::ipv4::checksum(&ip_layer.to_immutable());
     ip_layer.set_checksum(ip_checksum);
     Some(())

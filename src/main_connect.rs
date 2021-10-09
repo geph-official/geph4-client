@@ -4,6 +4,7 @@ use crate::{
     fd_semaphore::acquire_fd,
     stats::{global_sosistab_stats, LAST_PING_MS},
     tunman::{TunnelManager, TunnelState},
+    vpn::{EXTERNAL_FAKE_IP, VPN_FD},
     AuthOpt, CommonOpt,
 };
 use crate::{china, plots::stat_derive};
@@ -24,6 +25,7 @@ use std::{
     net::Ipv4Addr,
     net::SocketAddr,
     net::SocketAddrV4,
+    os::unix::prelude::FromRawFd,
     path::PathBuf,
     process::Stdio,
     sync::{atomic::Ordering, Arc},
@@ -94,6 +96,14 @@ pub struct ConnectOpt {
     pub stdio_vpn: bool,
 
     #[structopt(long)]
+    /// Use this file descriptor for direct access to the VPN tun device.
+    pub vpn_tun_fd: Option<i32>,
+
+    #[structopt(long)]
+    /// Add an extra layer of NAT to the VPN that lets the TUN interface be set to this hardcoded ip
+    pub external_fake_ip: Option<Ipv4Addr>,
+
+    #[structopt(long)]
     /// Whether or not to force TCP mode.
     pub use_tcp: bool,
 
@@ -133,6 +143,16 @@ impl ConnectOpt {
 
 /// Main function for `connect` subcommand
 pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
+    // Set some globals for VPN mode
+    if let Some(ip) = opt.external_fake_ip {
+        EXTERNAL_FAKE_IP.set(ip).unwrap();
+    }
+    #[cfg(unix)]
+    if let Some(fd) = opt.vpn_tun_fd {
+        VPN_FD
+            .set(smol::Async::new(unsafe { std::fs::File::from_raw_fd(fd) })?)
+            .expect("cannot set VPN file descriptor");
+    }
     // We *recursively* call Geph again if GEPH_RECURSIVE is not set.
     // This means we start a child process with the same arguments, and pipe its stderr to the log file directly.
     // This ensures that 1. we can capture *all* stderr no matter what, 2. we can restart the daemon no matter what (even when panics/OOM/etc happen), and keep logs of what happened
