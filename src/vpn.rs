@@ -79,7 +79,7 @@ pub static EXTERNAL_FAKE_IP: OnceCell<Ipv4Addr> = OnceCell::new();
 /// Up loop for vpn
 async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     let limiter = RateLimiter::direct(
-        Quota::per_second(NonZeroU32::new(5000u32).unwrap())
+        Quota::per_second(NonZeroU32::new(500u32).unwrap())
             .allow_burst(NonZeroU32::new(100u32).unwrap()),
     );
     loop {

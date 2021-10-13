@@ -148,6 +148,7 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     }
     #[cfg(unix)]
     if let Some(fd) = opt.vpn_tun_fd {
+        log::info!("setting VPN file descriptor to {}", fd);
         use std::os::unix::prelude::FromRawFd;
         VPN_FD
             .set(smol::Async::new(unsafe { std::fs::File::from_raw_fd(fd) })?)
