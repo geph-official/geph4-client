@@ -52,7 +52,7 @@ pub struct ConnectOpt {
     /// Force a particular bridge
     pub force_bridge: Option<Ipv4Addr>,
 
-    #[structopt(long, default_value = "8")]
+    #[structopt(long, default_value = "5")]
     /// Number of local UDP ports to use per session. This works around situations where unlucky ECMP routing sends flows down a congested path even when other paths exist, by "averaging out" all the possible routes.
     pub udp_shard_count: usize,
 
@@ -142,6 +142,13 @@ impl ConnectOpt {
 
 /// Main function for `connect` subcommand
 pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
+    // print out config file
+    log::info!(
+        "exit = {}, use_tcp = {}, use_bridges = {}",
+        opt.exit_server,
+        opt.use_tcp,
+        opt.use_bridges
+    );
     // Set some globals for VPN mode
     if let Some(ip) = opt.external_fake_ip {
         EXTERNAL_FAKE_IP.set(ip).unwrap();
