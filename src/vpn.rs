@@ -18,8 +18,17 @@ use pnet_packet::{
 use smol::{channel::Receiver, prelude::*};
 use smol_timeout::TimeoutExt;
 use sosistab::Multiplex;
-use std::io::Write;
-use std::{collections::HashMap, io::Stdin, num::NonZeroU32, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    io::Stdin,
+    num::NonZeroU32,
+    sync::{atomic::Ordering, Arc},
+    time::Duration,
+};
+use std::{
+    io::Write,
+    sync::atomic::{AtomicU32, AtomicUsize},
+};
 use tap::{Pipe, TapOptional};
 
 /// The fd passed to us by the helper. This actually does work even though in general Async<File> does not, because tundevice FDs are not like file FDs.
@@ -74,7 +83,7 @@ pub async fn run_vpn(mux: Arc<sosistab::Multiplex>) -> anyhow::Result<()> {
     vpn_up_loop(ctx).or(vpn_down_loop(ctx)).await
 }
 
-pub static EXTERNAL_FAKE_IP: OnceCell<Ipv4Addr> = OnceCell::new();
+pub static EXTERNAL_FAKE_IP_U32: AtomicU32 = AtomicU32::new(0);
 
 /// Up loop for vpn
 async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
@@ -91,16 +100,20 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
                 Bytes::copy_from_slice(&buf[..n])
             } else {
                 let msg = STDIN.recv().await;
+
                 msg.body
             };
             // ACK decimation
             if ack_decimate(&bts).is_some() && limiter.check().is_err() {
+                eprintln!("SUPPRESSING");
                 Ok(None)
             } else {
                 // Fix source IP
                 let source_ip_wrong = if let Some(pkt) = Ipv4Packet::new(&bts) {
+                    EXTERNAL_FAKE_IP_U32.store(pkt.get_source().into(), Ordering::Relaxed);
                     pkt.get_source() != ctx.client_ip
                 } else {
+                    eprintln!("EY EY EY NOT A PACKET?!");
                     false
                 };
                 if source_ip_wrong {
@@ -153,11 +166,14 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         if let geph4_protocol::VpnMessage::Payload(bts) =
             bincode::deserialize(&bts).context("invalid downstream data")?
         {
-            let bts = if let Some(fake) = EXTERNAL_FAKE_IP.get() {
+            let ip_u32 = EXTERNAL_FAKE_IP_U32.load(Ordering::Relaxed);
+            let bts = if ip_u32 > 0 {
+                let fake = Ipv4Addr::from(ip_u32);
+                dbg!(fake);
                 let mut mbts = bts.to_vec();
                 {
                     let pkt = MutableIpv4Packet::new(&mut mbts);
-                    pkt.tap_some_mut(|pkt| pkt.set_destination(*fake));
+                    pkt.tap_some_mut(|pkt| pkt.set_destination(fake));
                 }
                 fix_all_checksums(&mut mbts);
                 mbts.into()

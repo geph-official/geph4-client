@@ -4,7 +4,7 @@ use crate::{
     fd_semaphore::acquire_fd,
     stats::{global_sosistab_stats, LAST_PING_MS},
     tunman::{TunnelManager, TunnelState},
-    vpn::{EXTERNAL_FAKE_IP, VPN_FD},
+    vpn::VPN_FD,
     AuthOpt, CommonOpt,
 };
 use crate::{china, plots::stat_derive};
@@ -99,10 +99,6 @@ pub struct ConnectOpt {
     pub vpn_tun_fd: Option<i32>,
 
     #[structopt(long)]
-    /// Add an extra layer of NAT to the VPN that lets the TUN interface be set to this hardcoded ip
-    pub external_fake_ip: Option<Ipv4Addr>,
-
-    #[structopt(long)]
     /// Whether or not to force TCP mode.
     pub use_tcp: bool,
 
@@ -149,10 +145,6 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         opt.use_tcp,
         opt.use_bridges
     );
-    // Set some globals for VPN mode
-    if let Some(ip) = opt.external_fake_ip {
-        EXTERNAL_FAKE_IP.set(ip).unwrap();
-    }
     #[cfg(unix)]
     if let Some(fd) = opt.vpn_tun_fd {
         log::info!("setting VPN file descriptor to {}", fd);
