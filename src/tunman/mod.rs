@@ -169,10 +169,14 @@ async fn tunnel_actor_once(
             let send_death = send_death.clone();
             smolscale::spawn(async move {
                 let start = Instant::now();
-                let remote = (&mux).open_conn(Some(conn_host)).await;
+                let remote = (&mux).open_conn(Some(conn_host.clone())).await;
                 match remote {
                     Ok(remote) => {
-                        log::debug!("opened connection in {} ms", start.elapsed().as_millis(),);
+                        log::debug!(
+                            "opened connection to {} in {} ms",
+                            conn_host,
+                            start.elapsed().as_millis(),
+                        );
 
                         conn_reply.send(remote).await.context("conn_reply failed")?;
                         Ok::<(), anyhow::Error>(())
