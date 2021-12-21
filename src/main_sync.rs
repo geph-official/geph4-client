@@ -2,9 +2,10 @@ use std::collections::HashMap;
 
 use crate::cache::ClientCache;
 use crate::{AuthOpt, CommonOpt};
+use serde::Deserialize;
 use structopt::StructOpt;
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, StructOpt, Deserialize)]
 pub struct SyncOpt {
     #[structopt(flatten)]
     common: CommonOpt,

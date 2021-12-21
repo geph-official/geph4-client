@@ -25,10 +25,7 @@ use std::{
     sync::{atomic::Ordering, Arc},
     time::Duration,
 };
-use std::{
-    io::Write,
-    sync::atomic::{AtomicU32, AtomicUsize},
-};
+use std::{io::Write, sync::atomic::AtomicU32};
 use tap::{Pipe, TapOptional};
 
 /// The fd passed to us by the helper. This actually does work even though in general Async<File> does not, because tundevice FDs are not like file FDs.

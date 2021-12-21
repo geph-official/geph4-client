@@ -15,6 +15,7 @@ use china::is_chinese_ip;
 use http_types::{Method, Request, Url};
 use once_cell::sync::Lazy;
 use psl::Psl;
+use serde::Deserialize;
 use smol::prelude::*;
 
 use smol_timeout::TimeoutExt;
@@ -32,7 +33,7 @@ use std::{
 };
 use structopt::StructOpt;
 
-#[derive(Debug, StructOpt, Clone)]
+#[derive(Debug, StructOpt, Clone, Deserialize)]
 pub struct ConnectOpt {
     #[structopt(flatten)]
     pub common: CommonOpt,

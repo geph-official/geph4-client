@@ -10,7 +10,7 @@ use structopt::StructOpt;
 
 const TIMEOUT: Duration = Duration::from_secs(10);
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, StructOpt, Deserialize)]
 pub struct BinderProxyOpt {
     #[structopt(flatten)]
     common: CommonOpt,

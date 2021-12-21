@@ -1,5 +1,5 @@
 [package]
-name = "geph4-client"
+name = "geph-4client"
 version = "4.5.0-beta.1"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2018"
@@ -7,6 +7,10 @@ description="Geph client"
 license="GPL-3.0-only"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+name = "geph4client"
+crate-type = ["staticlib", "cdylib", "lib"]
 
 [dependencies]
 anyhow = "1.0.43"
