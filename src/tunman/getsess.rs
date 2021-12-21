@@ -217,6 +217,9 @@ async fn get_through_fastest_bridge(
     if let Some(force_bridge) = ctx.opt.force_bridge {
         bridges.retain(|f| f.endpoint.ip() == force_bridge);
     }
+    for bridge in bridges.iter() {
+        log::debug!("> {}", bridge.endpoint);
+    }
     if bridges.is_empty() {
         anyhow::bail!("absolutely no bridges found")
     }
