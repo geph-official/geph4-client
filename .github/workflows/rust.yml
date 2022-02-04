@@ -18,8 +18,9 @@ jobs:
     - uses: actions/checkout@v2
     
     - name: Clone sosistab
-      run: cd /home/runner/work/geph4/
-           git clone https://github.com/geph-official/sosistab
+      run: |
+        cd /home/runner/work/geph4/
+        git clone https://github.com/geph-official/sosistab
         
     - name: Build
       run: cargo build --release --verbose
