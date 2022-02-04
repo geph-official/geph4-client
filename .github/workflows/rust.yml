@@ -16,6 +16,11 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    
+    - name: Clone sosistab
+      working-directory: /workdir
+      run: git clone https://github.com/geph-official/sosistab
+        
     - name: Build
       run: cargo build --release --verbose
     - name: Run tests
