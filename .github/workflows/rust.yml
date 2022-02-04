@@ -24,3 +24,10 @@ jobs:
         
     - name: Build
       run: cargo build --release --verbose
+      
+    - name: Compile and release
+      uses: rust-build/rust-build.action@latest
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUSTTARGET: ${{ matrix.target }}
+          EXTRA_FILES: "README.md LICENSE"
