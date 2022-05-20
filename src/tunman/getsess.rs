@@ -2,7 +2,10 @@ use crate::stats::global_sosistab_stats;
 use anyhow::Context;
 use async_net::SocketAddr;
 
+use super::tunnelctx::TunnelCtx;
 use futures_util::stream::FuturesUnordered;
+use geph4_binder_transport::BridgeDescriptor;
+use once_cell::sync::OnceCell;
 use smol::prelude::*;
 use smol_timeout::TimeoutExt;
 use sosistab::{Multiplex, Session};
@@ -12,7 +15,8 @@ use std::{
 };
 use tap::{Pipe, Tap};
 
-use super::tunnelctx::TunnelCtx;
+pub static BRIDGES: OnceCell<Vec<BridgeDescriptor>> = OnceCell::new();
+pub static REMOTE_ADDR: OnceCell<SocketAddr> = OnceCell::new();
 
 fn sosistab_udp(
     server_addr: SocketAddr,
@@ -111,6 +115,9 @@ pub async fn get_session(
             .context("URL not in form PK@host:port")?
             .parse()
             .context("cannot parse host:port")?;
+
+        REMOTE_ADDR.get_or_init(|| server_addr);
+
         Ok(ProtoSession {
             inner: if ctx.opt.use_tcp {
                 sosistab_tcp(
@@ -168,6 +175,8 @@ pub async fn get_session(
                         .find(|v| v.is_ipv4())
                         .context("can't find ipv4 address for exit")?;
 
+                        REMOTE_ADDR.get_or_init(|| server_addr);
+
                         Ok(ProtoSession {
                             inner: get_one_sess(
                                 ctx.clone(),
@@ -208,12 +217,24 @@ async fn get_through_fastest_bridge(
     ctx: TunnelCtx,
     privileged: Option<SocketAddr>,
 ) -> anyhow::Result<ProtoSession> {
-    let mut bridges = ctx
-        .ccache
-        .get_bridges(&ctx.selected_exit.hostname)
-        .await
-        .context("can't get bridges")?;
-    log::debug!("got {} bridges", bridges.len());
+    let mut bridges = {
+        if let Some(existing) = BRIDGES.get() {
+            existing.clone()
+        } else {
+            // eprintln!("BRIDGES is emmpty!");
+            let b = ctx
+                .ccache
+                .get_bridges(&ctx.selected_exit.hostname)
+                .await
+                .context("can't get bridges")?;
+            if ctx.opt.sticky_bridges {
+                let _ = BRIDGES.set(b.clone());
+                // eprintln!("GOT BRIDGES!!! {:?}", b);
+            }
+            b
+        }
+    };
+
     if let Some(force_bridge) = ctx.opt.force_bridge {
         bridges.retain(|f| f.endpoint.ip() == force_bridge);
     }
@@ -242,6 +263,7 @@ async fn get_through_fastest_bridge(
         };
         bridge_futures.push(fut);
     }
+
     // wait for a successful result
     while let Some(res) = bridge_futures.next().await {
         match res {

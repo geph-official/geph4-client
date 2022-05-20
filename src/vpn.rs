@@ -3,6 +3,7 @@ use async_net::Ipv4Addr;
 
 use crate::{activity::notify_activity, serialize::serialize};
 use bytes::Bytes;
+use flume::{self, Sender};
 use geph4_protocol::VpnStdio;
 use governor::{Quota, RateLimiter};
 use once_cell::sync::{Lazy, OnceCell};
@@ -30,6 +31,12 @@ use tap::{Pipe, TapOptional};
 
 /// The fd passed to us by the helper. This actually does work even though in general Async<File> does not, because tundevice FDs are not like file FDs.
 pub static VPN_FD: OnceCell<smol::Async<std::fs::File>> = OnceCell::new();
+
+// Up and down channels for iOS
+pub static UP_CHANNEL: Lazy<(flume::Sender<Bytes>, flume::Receiver<Bytes>)> =
+    Lazy::new(|| flume::bounded(100));
+pub static DOWN_CHANNEL: Lazy<(flume::Sender<Bytes>, flume::Receiver<Bytes>)> =
+    Lazy::new(|| flume::bounded(100));
 
 #[derive(Clone, Copy)]
 struct VpnContext<'a> {
@@ -96,9 +103,13 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
                 log::trace!("pkt of length {} from raw FD!", n);
                 Bytes::copy_from_slice(&buf[..n])
             } else {
-                let msg = STDIN.recv().await;
+                async {
+                    let msg = STDIN.recv().await;
 
-                msg.body
+                    msg.body
+                }
+                .race(async { UP_CHANNEL.1.recv_async().await.unwrap() })
+                .await
             };
             // ACK decimation
             if ack_decimate(&bts).is_some() && limiter.check().is_err() {
@@ -179,6 +190,7 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
             };
             let bts = fix_dns_src(&bts, ctx.dns_nat).unwrap_or(bts);
             // either write to stdout or the FD
+            let _ = DOWN_CHANNEL.0.try_send(bts.clone());
             if let Some(mut fd) = VPN_FD.get() {
                 fd.write(&bts).await?;
             } else {

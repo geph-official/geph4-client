@@ -1,13 +1,13 @@
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use smol_timeout::TimeoutExt;
 use structopt::StructOpt;
 
 use crate::{cache::ClientCache, AuthOpt, CommonOpt};
 
-#[derive(Debug, StructOpt, Clone, Deserialize)]
+#[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
 pub struct BridgeTestOpt {
     #[structopt(flatten)]
     common: CommonOpt,

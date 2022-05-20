@@ -17,7 +17,7 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use std::{sync::Arc, time::Instant};
 
-mod getsess;
+pub mod getsess;
 mod reroute;
 mod tunnelctx;
 

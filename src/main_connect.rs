@@ -4,18 +4,19 @@ use crate::{
     fd_semaphore::acquire_fd,
     stats::{global_sosistab_stats, LAST_PING_MS},
     tunman::{TunnelManager, TunnelState},
-    vpn::VPN_FD,
+    vpn::{DOWN_CHANNEL, UP_CHANNEL, VPN_FD},
     AuthOpt, CommonOpt,
 };
 use crate::{china, plots::stat_derive};
 use anyhow::Context;
 use async_compat::Compat;
 use async_net::{IpAddr, TcpStream};
+use bytes::Bytes;
 use china::is_chinese_ip;
 use http_types::{Method, Request, Url};
 use once_cell::sync::Lazy;
 use psl::Psl;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use smol::prelude::*;
 
 use smol_timeout::TimeoutExt;
@@ -33,7 +34,7 @@ use std::{
 };
 use structopt::StructOpt;
 
-#[derive(Debug, StructOpt, Clone, Deserialize)]
+#[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
 pub struct ConnectOpt {
     #[structopt(flatten)]
     pub common: CommonOpt,
@@ -96,6 +97,10 @@ pub struct ConnectOpt {
     pub stdio_vpn: bool,
 
     #[structopt(long)]
+    /// Whether or not to stick to the same set of bridges
+    pub sticky_bridges: bool,
+
+    #[structopt(long)]
     /// Use this file descriptor for direct access to the VPN tun device.
     pub vpn_tun_fd: Option<i32>,
 
@@ -146,6 +151,7 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         opt.use_tcp,
         opt.use_bridges
     );
+
     #[cfg(unix)]
     if let Some(fd) = opt.vpn_tun_fd {
         log::info!("setting VPN file descriptor to {}", fd);
