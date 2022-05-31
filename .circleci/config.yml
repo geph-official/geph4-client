@@ -6,7 +6,7 @@ jobs:
   build_osx:
     working_directory: ~/repo/
     machine:
-      image: ubuntu-2004:202008-01
+      image: ubuntu-2204:2022.04.1
     resource_class: 2xlarge
     steps:
       - checkout
@@ -22,7 +22,7 @@ jobs:
   build_cross_1:
     working_directory: ~/repo/
     machine:
-      image: ubuntu-2004:202008-01
+      image: ubuntu-2204:2022.04.1
     resource_class: 2xlarge
     steps:
       - checkout
@@ -33,15 +33,15 @@ jobs:
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
       - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       - run: cargo install cross
-      - run: cross build --release --locked  --target x86_64-unknown-linux-musl
       - run: cross build --release --locked  --target armv7-linux-androideabi
+      - run: cross build --release --locked  --target x86_64-unknown-linux-musl
       - run: cross build --release --locked  --target aarch64-linux-android
       - run: sh move_built.sh
       - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
   build_cross_2:
     working_directory: ~/repo/
     machine:
-      image: ubuntu-2004:202008-01
+      image: ubuntu-2204:2022.04.1
     resource_class: 2xlarge
     steps:
       - checkout
