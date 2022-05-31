@@ -52,8 +52,8 @@ fn config_logging() {
 }
 
 #[no_mangle]
-pub extern "C" fn call_from_c(opt: *const c_char) {
-    let c_str = unsafe { CStr::from_ptr(opt) };
+pub unsafe extern "C" fn call_from_c(opt: *const c_char) {
+    let c_str = CStr::from_ptr(opt);
     let opt: Opt = serde_json::from_str(c_str.to_str().unwrap()).unwrap();
     dispatch(opt).unwrap();
 }

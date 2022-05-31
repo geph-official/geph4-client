@@ -106,5 +106,5 @@ opt-level=1
 panic = "abort"
 opt-level=3
 debug=0
-lto=true
-
+# lto=true
+strip="debuginfo"
