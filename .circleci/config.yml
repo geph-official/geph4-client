@@ -75,9 +75,9 @@ workflows:
               ignore: /.*/
             tags:
               only: /.*/
-      # - build_osx:
-      # filters:
-      #   branches:
-      #     ignore: /.*/
-      #   tags:
-      #     only: /.*/
+      - build_osx
+        # filters:
+        #   branches:
+        #     ignore: /.*/
+        #   tags:
+        #     only: /.*/
