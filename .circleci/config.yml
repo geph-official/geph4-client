@@ -24,7 +24,7 @@ jobs:
       # - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       # - run: sh osx_build.sh
       # - run: sh move_built.sh
-      # - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
+      - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
   build_cross_1:
     working_directory: ~/repo/
     machine:
