@@ -2,9 +2,12 @@
 version: 2.1
 # Use a package of configuration called an orb.
 # Orchestrate or schedule a set of jobs
+orbs:
+  python: circleci/python@2.0.3
 jobs:
   build_osx:
     working_directory: ~/repo/
+    executor: python/default
     macos:
       xcode: 12.5.1
     resource_class: macos.x86.medium.gen2
