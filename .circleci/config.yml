@@ -7,7 +7,6 @@ orbs:
 jobs:
   build_osx:
     working_directory: ~/repo/
-    executor: python/default
     macos:
       xcode: 12.5.1
     resource_class: macos.x86.medium.gen2
