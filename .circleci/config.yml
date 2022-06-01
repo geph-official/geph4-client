@@ -7,15 +7,16 @@ jobs:
     working_directory: ~/repo/
     macos:
       xcode: 12.5.1
-    resource_class: 2xlarge
+    resource_class: macos.x86.medium.gen2
     steps:
       - checkout
       # - run: sudo apt install python3-pip
       # - run: sudo pip3 install --upgrade b2
       # - run: |
       #     b2 authorize-account $B2_KEYID $B2_APPKEY
+      - run: sudo pip install --upgrade b2
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
-      - run: cargo build --locked --target x86_64-apple-darwin
+      - run: cargo build --release --locked --target x86_64-apple-darwin
       # - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       # - run: sh osx_build.sh
       # - run: sh move_built.sh
