@@ -68,18 +68,18 @@ workflows:
   version: 2
   main:
     jobs:
-      - build_cross_1:
-          filters:
-            branches:
-              ignore: /.*/
-            tags:
-              only: /.*/
-      - build_cross_2:
-          filters:
-            branches:
-              ignore: /.*/
-            tags:
-              only: /.*/
+      - build_cross_1
+        # filters:
+        #   branches:
+        #     ignore: /.*/
+        #   tags:
+        #     only: /.*/
+      - build_cross_2
+        # filters:
+        #   branches:
+        #     ignore: /.*/
+        #   tags:
+        #     only: /.*/
       - build_osx
         # filters:
         #   branches:
