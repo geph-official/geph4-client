@@ -5,3 +5,4 @@ fn main() -> anyhow::Result<()> {
     let opt: Opt = Opt::from_args();
     dispatch(opt)
 }
+ 

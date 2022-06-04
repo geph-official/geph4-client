@@ -166,7 +166,6 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
             let ip_u32 = EXTERNAL_FAKE_IP_U32.load(Ordering::Relaxed);
             let bts = if ip_u32 > 0 {
                 let fake = Ipv4Addr::from(ip_u32);
-                dbg!(fake);
                 let mut mbts = bts.to_vec();
                 {
                     let pkt = MutableIpv4Packet::new(&mut mbts);

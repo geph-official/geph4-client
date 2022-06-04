@@ -45,7 +45,7 @@ pub enum Opt {
 
 fn config_logging() {
     env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("geph4_client=debug,warn"),
+        env_logger::Env::default().default_filter_or("geph4client=debug,warn"),
     )
     .format_timestamp_millis()
     .init();
