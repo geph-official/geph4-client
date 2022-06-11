@@ -1,10 +1,17 @@
+use std::{
+    collections::HashMap,
+    io::Stdin,
+    io::Write,
+    num::NonZeroU32,
+    sync::atomic::AtomicU32,
+    sync::{atomic::Ordering, Arc},
+};
+
 use anyhow::Context;
 use async_net::Ipv4Addr;
-
-use crate::{activity::notify_activity, serialize::serialize};
 use bytes::Bytes;
-use flume::{self, Sender};
-use geph4_protocol::VpnStdio;
+use flume::{self};
+use geph4_protocol::{activity::notify_activity, ClientTunnel, Vpn, VpnStdio};
 use governor::{Quota, RateLimiter};
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::RwLock;
@@ -17,16 +24,6 @@ use pnet_packet::{
     MutablePacket, Packet,
 };
 use smol::{channel::Receiver, prelude::*};
-use smol_timeout::TimeoutExt;
-use sosistab::Multiplex;
-use std::{
-    collections::HashMap,
-    io::Stdin,
-    num::NonZeroU32,
-    sync::{atomic::Ordering, Arc},
-    time::Duration,
-};
-use std::{io::Write, sync::atomic::AtomicU32};
 use tap::{Pipe, TapOptional};
 
 /// The fd passed to us by the helper. This actually does work even though in general Async<File> does not, because tundevice FDs are not like file FDs.
@@ -38,38 +35,22 @@ pub static UP_CHANNEL: Lazy<(flume::Sender<Bytes>, flume::Receiver<Bytes>)> =
 pub static DOWN_CHANNEL: Lazy<(flume::Sender<Bytes>, flume::Receiver<Bytes>)> =
     Lazy::new(|| flume::bounded(100));
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct VpnContext<'a> {
-    mux: &'a Multiplex,
+    vpn: Arc<Vpn>,
     dns_nat: &'a RwLock<HashMap<u16, Ipv4Addr>>,
     client_ip: Ipv4Addr,
 }
 
 /// Runs a vpn session
-pub async fn run_vpn(mux: Arc<sosistab::Multiplex>) -> anyhow::Result<()> {
-    // First, we negotiate the vpn
-    let client_id: u128 = rand::random();
-    log::info!("negotiating VPN with client id {}...", client_id);
-    let client_ip = loop {
-        let hello = geph4_protocol::VpnMessage::ClientHello { client_id };
-        mux.send_urel(bincode::serialize(&hello)?.as_slice())
-            .await?;
-        let resp = mux.recv_urel().timeout(Duration::from_secs(1)).await;
-        if let Some(resp) = resp {
-            let resp = resp?;
-            let resp: geph4_protocol::VpnMessage = bincode::deserialize(&resp)?;
-            match resp {
-                geph4_protocol::VpnMessage::ServerHello { client_ip, .. } => break client_ip,
-                _ => continue,
-            }
-        }
-    };
-    log::info!("negotiated IP address {}!", client_ip);
+pub async fn run_vpn(tun: Arc<ClientTunnel>) -> anyhow::Result<()> {
+    // negotiate vpn
+    let vpn = Arc::new(tun.start_vpn().await?);
 
-    // Send client ip to the vpn helper
+    // send client ip to the vpn helper
     let msg = VpnStdio {
         verb: 1,
-        body: format!("{}/10", client_ip).into(),
+        body: format!("{}/10", vpn.client_ip).into(),
     };
     {
         let mut stdout = std::io::stdout();
@@ -80,11 +61,11 @@ pub async fn run_vpn(mux: Arc<sosistab::Multiplex>) -> anyhow::Result<()> {
     // A mini-nat for DNS request
     let dns_nat = RwLock::new(HashMap::new());
     let ctx = VpnContext {
-        mux: &mux,
+        vpn: vpn.clone(),
         dns_nat: &dns_nat,
-        client_ip,
+        client_ip: vpn.client_ip,
     };
-    vpn_up_loop(ctx).or(vpn_down_loop(ctx)).await
+    vpn_up_loop(ctx.clone()).or(vpn_down_loop(ctx)).await
 }
 
 pub static EXTERNAL_FAKE_IP_U32: AtomicU32 = AtomicU32::new(0);
@@ -140,9 +121,7 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         let body = stdin_fut.await.context("stdin failed")?;
         if let Some(body) = body {
             notify_activity();
-            ctx.mux
-                .send_urel(serialize(&geph4_protocol::VpnMessage::Payload(body)))
-                .await?
+            ctx.vpn.send_vpn_pkt(body).await?;
         }
     }
 }
@@ -154,8 +133,8 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     let mut buff = vec![];
     loop {
         let bts = ctx
-            .mux
-            .recv_urel()
+            .vpn
+            .recv_vpn_pkt()
             .or(async {
                 if !buff.is_empty() {
                     stdout.write_all(&buff)?;
