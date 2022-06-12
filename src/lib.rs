@@ -16,7 +16,7 @@ use crate::{fronts::fetch_fronts, lazy_binder_client::LazyBinderClient};
 use prelude::*;
 mod china;
 mod dns;
-mod ios;
+pub mod ios;
 mod main_binderproxy;
 mod main_bridgetest;
 mod main_connect;

@@ -128,6 +128,7 @@ pub extern "C" fn check_bridges(buffer: *mut c_char, buflen: c_int) -> c_int {
         let endpoint = tun.get_endpoint();
         match endpoint {
             EndpointSource::Independent { endpoint: _ } => {
+                eprintln!("yo independent~");
                 return -1; // independent exits not supported for iOS
             }
             EndpointSource::Binder(binder_tunnel_params) => {
@@ -161,17 +162,20 @@ pub extern "C" fn check_bridges(buffer: *mut c_char, buflen: c_int) -> c_int {
                         std::slice::from_raw_parts_mut(buffer as *mut u8, buflen as usize);
                     if whitelist.len() < slice.len() {
                         if slice.write_all(whitelist.as_bytes()).is_err() {
+                            log::debug!("check bridges failed: writing to buffer failed");
                             return -1;
                         } else {
                             return whitelist.len() as c_int;
                         }
                     } else {
+                        log::debug!("check bridges failed: buffer not big enough");
                         return -1;
                     }
                 }
             }
         }
     } else {
+        log::debug!("check bridges failed: no tunnel");
         -1
     }
 }
