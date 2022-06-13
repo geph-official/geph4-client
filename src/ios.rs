@@ -80,6 +80,7 @@ pub extern "C" fn call_geph(opt: *const c_char) -> *mut c_char {
         //     anyhow::bail!("lol always fail connects")
         // }
         let args: Vec<&str> = serde_json::from_str(c_str.to_str()?)?;
+        eprintln!("hey hey args got deserialized!");
         std::env::set_var("GEPH_RECURSIVE", "1"); // no forking in iOS
         let opt: Opt = Opt::from_iter_safe(args)?;
         dispatch_ios(opt)
