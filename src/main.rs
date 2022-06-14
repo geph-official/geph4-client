@@ -15,9 +15,13 @@ fn main() -> anyhow::Result<()> {
         let buflen = 2000;
         let mut buf = vec![0; buflen];
         let ret = check_bridges(buf.as_mut_ptr(), buflen as i32);
-        // eprintln!("bridges = {:?}", buf);
+        eprintln!("bridges = {:?}", buf);
         // eprintln!("ret = {}", ret);
-        std::thread::sleep(Duration::from_secs(10));
+        if ret > 2 {
+            return;
+        } else {
+            std::thread::sleep(Duration::from_secs(10));
+        }
     });
 
     // logs loop
@@ -29,7 +33,7 @@ fn main() -> anyhow::Result<()> {
         std::thread::sleep(Duration::from_secs(1));
     });
 
-    let mut args_arr = vec![
+    let args_arr = vec![
         "geph4-client",
         "connect",
         "--username",

@@ -42,15 +42,12 @@ struct VpnContext<'a> {
     client_ip: Ipv4Addr,
 }
 
-/// Runs a vpn session
-pub async fn run_vpn(tun: Arc<ClientTunnel>) -> anyhow::Result<()> {
-    // negotiate vpn
-    let vpn = Arc::new(tun.start_vpn().await?);
-
+/// Vn stdio
+pub async fn stdio_vpn(client_ip: Ipv4Addr) -> anyhow::Result<()> {
     // send client ip to the vpn helper
     let msg = VpnStdio {
         verb: 1,
-        body: format!("{}/10", vpn.client_ip).into(),
+        body: format!("{}/10", client_ip).into(),
     };
     {
         let mut stdout = std::io::stdout();
@@ -58,6 +55,48 @@ pub async fn run_vpn(tun: Arc<ClientTunnel>) -> anyhow::Result<()> {
         stdout.flush().unwrap();
     }
 
+    stdio_vpn_up_loop().or(std_io_vpn_down_loop()).await
+}
+
+async fn std_io_vpn_down_loop() -> anyhow::Result<()> {
+    let mut stdout = std::io::stdout();
+    let mut buff = vec![];
+    loop {
+        if !buff.is_empty() {
+            stdout.write_all(&buff)?;
+            stdout.flush()?;
+            // log::debug!("VPN flushing {} bytes", buff.len());
+            buff.clear();
+        }
+
+        let bts = DOWN_CHANNEL.1.recv()?;
+        if let Some(mut fd) = VPN_FD.get() {
+            fd.write(&bts).await?;
+        } else {
+            let msg = VpnStdio { verb: 0, body: bts };
+            msg.write_blocking(&mut buff)?;
+        }
+    }
+}
+
+async fn stdio_vpn_up_loop() -> anyhow::Result<()> {
+    loop {
+        let bts = if let Some(mut vpnfd) = VPN_FD.get() {
+            let mut buf = [0; 2048];
+            let n = vpnfd.read(&mut buf).await?;
+            log::trace!("pkt of length {} from raw FD!", n);
+            Bytes::copy_from_slice(&buf[..n])
+        } else {
+            let msg = STDIN.recv().await;
+
+            msg.body
+        };
+        UP_CHANNEL.0.send(bts)?
+    }
+}
+
+/// Runs a vpn session
+pub async fn run_vpn(vpn: Arc<Vpn>) -> anyhow::Result<()> {
     // A mini-nat for DNS request
     let dns_nat = RwLock::new(HashMap::new());
     let ctx = VpnContext {
@@ -78,20 +117,7 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     );
     loop {
         let stdin_fut = async {
-            let mut bts = if let Some(mut vpnfd) = VPN_FD.get() {
-                let mut buf = [0; 2048];
-                let n = vpnfd.read(&mut buf).await?;
-                log::trace!("pkt of length {} from raw FD!", n);
-                Bytes::copy_from_slice(&buf[..n])
-            } else {
-                async {
-                    let msg = STDIN.recv().await;
-
-                    msg.body
-                }
-                .race(async { UP_CHANNEL.1.recv_async().await.unwrap() })
-                .await
-            };
+            let mut bts = UP_CHANNEL.1.recv_async().await.unwrap();
             // ACK decimation
             if ack_decimate(&bts).is_some() && limiter.check().is_err() {
                 eprintln!("SUPPRESSING");
@@ -118,7 +144,7 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
                 ))
             }
         };
-        let body = stdin_fut.await.context("stdin failed")?;
+        let body = stdin_fut.await.context("UP_CHANNEL failed")?;
         if let Some(body) = body {
             notify_activity();
             ctx.vpn.send_vpn_pkt(body).await?;
@@ -128,24 +154,10 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
 
 /// Down loop for vpn
 async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
-    let mut stdout = std::io::stdout();
     let mut count = 0u64;
-    let mut buff = vec![];
+    // let mut buff = vec![];
     loop {
-        let bts = ctx
-            .vpn
-            .recv_vpn_pkt()
-            .or(async {
-                if !buff.is_empty() {
-                    stdout.write_all(&buff)?;
-                    stdout.flush()?;
-                    // log::debug!("VPN flushing {} bytes", buff.len());
-                    buff.clear();
-                }
-                smol::future::pending().await
-            })
-            .await
-            .context("downstream failed")?;
+        let bts = ctx.vpn.recv_vpn_pkt().await.context("downstream failed")?;
         count += 1;
         if count % 1000 == 1 {
             log::debug!("VPN received {} pkts ", count);
@@ -170,12 +182,6 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
             let bts = fix_dns_src(&bts, ctx.dns_nat).unwrap_or(bts);
             // either write to stdout or the FD
             let _ = DOWN_CHANNEL.0.try_send(bts.clone());
-            if let Some(mut fd) = VPN_FD.get() {
-                fd.write(&bts).await?;
-            } else {
-                let msg = VpnStdio { verb: 0, body: bts };
-                msg.write_blocking(&mut buff)?;
-            }
         }
     }
 }

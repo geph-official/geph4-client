@@ -18,7 +18,7 @@ use structopt::StructOpt;
 use tap::Tap;
 
 use crate::socks5::socks5_loop;
-use crate::vpn::run_vpn;
+use crate::vpn::{run_vpn, stdio_vpn};
 use crate::{china, port_forwarder::port_forwarder};
 use crate::{stats::print_stats_loop, vpn::VPN_FD, AuthOpt, CommonOpt};
 
@@ -296,10 +296,12 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         smolscale::spawn(smol::future::pending())
     };
     // vpn
+    // negotiate vpn
+    let vpn = Arc::new(tunnel.start_vpn().await?);
     let vpn_fut = if opt.stdio_vpn {
-        smolscale::spawn(run_vpn(tunnel.clone()))
+        smolscale::spawn(run_vpn(vpn.clone()).or(stdio_vpn(vpn.client_ip.clone())))
     } else {
-        smolscale::spawn(smol::future::pending())
+        smolscale::spawn(run_vpn(vpn.clone()))
     };
     // port forwarders
     let port_forwarders: Vec<_> = opt
