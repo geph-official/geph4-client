@@ -24,7 +24,7 @@ static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
     let (read, write) = os_pipe::pipe().unwrap();
 
     let lala = env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("geph4client=debug,warn"),
+        env_logger::Env::default().default_filter_or("geph4client=debug,geph4_protocol=debug,warn"),
     )
     .format_timestamp_millis()
     .target(env_logger::Target::Pipe(Box::new(write)))
@@ -57,7 +57,6 @@ fn dispatch_ios(opt: Opt) -> anyhow::Result<String> {
                     log::error!("Something SERIOUSLY wrong has happened! {:#?}", err);
                     smol::Timer::after(Duration::from_secs(1)).await;
                 };
-                return Ok(String::from(""));
             },
             Opt::Sync(opt) => main_sync::sync_json(opt).await,
             Opt::BinderProxy(opt) => {
@@ -80,7 +79,6 @@ pub extern "C" fn call_geph(opt: *const c_char) -> *mut c_char {
         //     anyhow::bail!("lol always fail connects")
         // }
         let args: Vec<&str> = serde_json::from_str(c_str.to_str()?)?;
-        eprintln!("hey hey args got deserialized!");
         std::env::set_var("GEPH_RECURSIVE", "1"); // no forking in iOS
         let opt: Opt = Opt::from_iter_safe(args)?;
         dispatch_ios(opt)
@@ -129,7 +127,6 @@ pub extern "C" fn check_bridges(buffer: *mut c_char, buflen: c_int) -> c_int {
         let endpoint = tun.get_endpoint();
         match endpoint {
             EndpointSource::Independent { endpoint: _ } => {
-                eprintln!("yo independent~");
                 return -1; // independent exits not supported for iOS
             }
             EndpointSource::Binder(binder_tunnel_params) => {
