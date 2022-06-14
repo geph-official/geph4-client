@@ -22,17 +22,24 @@ use crate::{
 
 static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
     let (read, write) = os_pipe::pipe().unwrap();
-
-    let lala = env_logger::Builder::from_env(
+    let write = Mutex::new(write);
+    env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("geph4client=debug,geph4_protocol=debug,warn"),
     )
     .format_timestamp_millis()
-    .target(env_logger::Target::Pipe(Box::new(write)))
-    .try_init();
-
-    if let Err(e) = lala {
-        eprintln!("{}", e);
-    };
+    // .target(env_logger::Target::Pipe(Box::new(std::io::sink())))
+    .format(move |buf, record| {
+        let line = format!(
+            "[{} {}]: {}",
+            record.level(),
+            record.module_path().unwrap_or("none"),
+            record.args()
+        );
+        let mut write = write.lock();
+        writeln!(buf, "{}", line).unwrap();
+        writeln!(write, "{}", line)
+    })
+    .init();
 
     Mutex::new(BufReader::new(read))
 });
@@ -43,9 +50,9 @@ fn config_logging_ios() {
 }
 
 fn dispatch_ios(opt: Opt) -> anyhow::Result<String> {
-    config_logging_ios();
+    // config_logging_ios();
     let version = env!("CARGO_PKG_VERSION");
-    log::info!("geph4-client v{} starting...", version);
+    log::info!("IOS geph4-client v{} starting...", version);
 
     #[cfg(target_os = "android")]
     smolscale::permanently_single_threaded();
@@ -185,6 +192,8 @@ pub extern "C" fn get_logs(buffer: *mut c_char, buflen: c_int) -> c_int {
     if let Err(_) = LOG_LINES.lock().read_line(&mut line) {
         return -1;
     }
+
+    dbg!(&line);
 
     unsafe {
         let mut slice: &mut [u8] =
