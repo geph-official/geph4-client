@@ -1,5 +1,6 @@
 #![type_length_limit = "2000000"]
 use acidjson::AcidJson;
+use bytes::Bytes;
 use fronts::parse_fronts;
 use geph4_binder_transport::BinderClient;
 use geph4_protocol::{BinderParams, CachedBinderClient};
@@ -181,7 +182,7 @@ pub async fn to_cached_binder_client(
     if std::fs::read(&dbpath).is_err() {
         std::fs::write(&dbpath, b"{}")?;
     }
-    let cache = AcidJson::open(&dbpath)?;
+    let cache: AcidJson<BTreeMap<String, Bytes>> = AcidJson::open(&dbpath)?;
     let cbc = CachedBinderClient::new(BinderParams {
         underlying: common_opt.to_binder_client().await,
         cache: Arc::new(cache),

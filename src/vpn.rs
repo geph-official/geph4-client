@@ -11,7 +11,7 @@ use anyhow::Context;
 use async_net::Ipv4Addr;
 use bytes::Bytes;
 use flume::{self};
-use geph4_protocol::{activity::notify_activity, ClientTunnel, Vpn, VpnStdio};
+use geph4_protocol::{activity::notify_activity, ClientTunnel, Vpn, VpnMessage, VpnStdio};
 use governor::{Quota, RateLimiter};
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::RwLock;
@@ -44,11 +44,14 @@ struct VpnContext<'a> {
 
 /// Vn stdio
 pub async fn stdio_vpn(client_ip: Ipv4Addr) -> anyhow::Result<()> {
+    log::debug!("STARTING VPN STDIO LOOP!");
+    scopeguard::defer!(log::debug!("OH NO THE LOOP HAS DIED"));
     // send client ip to the vpn helper
     let msg = VpnStdio {
         verb: 1,
         body: format!("{}/10", client_ip).into(),
     };
+    log::debug!("msg = {:?}", msg);
     {
         let mut stdout = std::io::stdout();
         msg.write_blocking(&mut stdout).unwrap();
@@ -59,6 +62,7 @@ pub async fn stdio_vpn(client_ip: Ipv4Addr) -> anyhow::Result<()> {
 }
 
 async fn std_io_vpn_down_loop() -> anyhow::Result<()> {
+    log::debug!("STD_IO_VPN DOWN LOOP");
     let mut stdout = std::io::stdout();
     let mut buff = vec![];
     loop {
@@ -68,8 +72,8 @@ async fn std_io_vpn_down_loop() -> anyhow::Result<()> {
             // log::debug!("VPN flushing {} bytes", buff.len());
             buff.clear();
         }
-
-        let bts = DOWN_CHANNEL.1.recv()?;
+        let bts = DOWN_CHANNEL.1.recv_async().await?;
+        log::debug!("down bts = {:?}", bts);
         if let Some(mut fd) = VPN_FD.get() {
             fd.write(&bts).await?;
         } else {
@@ -80,17 +84,20 @@ async fn std_io_vpn_down_loop() -> anyhow::Result<()> {
 }
 
 async fn stdio_vpn_up_loop() -> anyhow::Result<()> {
+    log::debug!("STD_IO_VPN UP LOOP");
     loop {
         let bts = if let Some(mut vpnfd) = VPN_FD.get() {
+            log::debug!("fd");
             let mut buf = [0; 2048];
             let n = vpnfd.read(&mut buf).await?;
-            log::trace!("pkt of length {} from raw FD!", n);
+            log::debug!("pkt of length {} from raw FD!", n);
             Bytes::copy_from_slice(&buf[..n])
         } else {
             let msg = STDIN.recv().await;
-
+            log::debug!("up pkt from stdin!");
             msg.body
         };
+        log::debug!("up bts = {:?}", bts);
         UP_CHANNEL.0.send(bts)?
     }
 }
@@ -147,7 +154,7 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
         let body = stdin_fut.await.context("UP_CHANNEL failed")?;
         if let Some(body) = body {
             notify_activity();
-            ctx.vpn.send_vpn_pkt(body).await?;
+            ctx.vpn.send_vpn(VpnMessage::Payload(body)).await?;
         }
     }
 }
@@ -157,14 +164,12 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     let mut count = 0u64;
     // let mut buff = vec![];
     loop {
-        let bts = ctx.vpn.recv_vpn_pkt().await.context("downstream failed")?;
+        let incoming = ctx.vpn.recv_vpn().await.context("downstream failed")?;
         count += 1;
         if count % 1000 == 1 {
             log::debug!("VPN received {} pkts ", count);
         }
-        if let geph4_protocol::VpnMessage::Payload(bts) =
-            bincode::deserialize(&bts).context("invalid downstream data")?
-        {
+        if let geph4_protocol::VpnMessage::Payload(bts) = incoming {
             let ip_u32 = EXTERNAL_FAKE_IP_U32.load(Ordering::Relaxed);
             let bts = if ip_u32 > 0 {
                 let fake = Ipv4Addr::from(ip_u32);
