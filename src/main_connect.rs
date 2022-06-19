@@ -295,14 +295,16 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     } else {
         smolscale::spawn(smol::future::pending())
     };
-    // vpn
+
     // negotiate vpn
     let vpn = Arc::new(tunnel.start_vpn().await?);
+    // run vpn
     let vpn_fut = if opt.stdio_vpn {
         smolscale::spawn(run_vpn(vpn.clone()).or(stdio_vpn(vpn.client_ip.clone())))
     } else {
         smolscale::spawn(run_vpn(vpn.clone()))
     };
+
     // port forwarders
     let port_forwarders: Vec<_> = opt
         .forward_ports

@@ -50,12 +50,9 @@ fn config_logging_ios() {
 }
 
 fn dispatch_ios(opt: Opt) -> anyhow::Result<String> {
-    // config_logging_ios();
+    config_logging_ios();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("IOS geph4-client v{} starting...", version);
-
-    #[cfg(target_os = "android")]
-    smolscale::permanently_single_threaded();
 
     smolscale::block_on(async move {
         match opt {
