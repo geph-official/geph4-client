@@ -65,11 +65,11 @@ fn dispatch_ios(opt: Opt) -> anyhow::Result<String> {
             Opt::Sync(opt) => main_sync::sync_json(opt).await,
             Opt::BinderProxy(opt) => {
                 main_binderproxy::main_binderproxy(opt).await?;
-                return Ok(String::from(""));
+                Ok(String::from(""))
             }
             Opt::BridgeTest(opt) => {
                 main_bridgetest::main_bridgetest(opt).await?;
-                return Ok(String::from(""));
+                Ok(String::from(""))
             }
         }
     })
@@ -131,7 +131,7 @@ pub extern "C" fn check_bridges(buffer: *mut c_char, buflen: c_int) -> c_int {
         let endpoint = tun.get_endpoint();
         match endpoint {
             EndpointSource::Independent { endpoint: _ } => {
-                return -1; // independent exits not supported for iOS
+                -1 // independent exits not supported for iOS
             }
             EndpointSource::Binder(binder_tunnel_params) => {
                 let cached_binder = binder_tunnel_params.ccache;
@@ -165,13 +165,13 @@ pub extern "C" fn check_bridges(buffer: *mut c_char, buflen: c_int) -> c_int {
                     if whitelist.len() < slice.len() {
                         if slice.write_all(whitelist.as_bytes()).is_err() {
                             log::debug!("check bridges failed: writing to buffer failed");
-                            return -1;
+                            -1
                         } else {
-                            return whitelist.len() as c_int;
+                            whitelist.len() as c_int
                         }
                     } else {
                         log::debug!("check bridges failed: buffer not big enough");
-                        return -1;
+                        -1
                     }
                 }
             }
@@ -186,7 +186,7 @@ pub extern "C" fn check_bridges(buffer: *mut c_char, buflen: c_int) -> c_int {
 // returns one line of logs
 pub extern "C" fn get_logs(buffer: *mut c_char, buflen: c_int) -> c_int {
     let mut line = String::new();
-    if let Err(_) = LOG_LINES.lock().read_line(&mut line) {
+    if LOG_LINES.lock().read_line(&mut line).is_err() {
         return -1;
     }
 
@@ -197,12 +197,12 @@ pub extern "C" fn get_logs(buffer: *mut c_char, buflen: c_int) -> c_int {
             std::slice::from_raw_parts_mut(buffer as *mut u8, buflen as usize);
         if line.len() < slice.len() {
             if slice.write_all(line.as_bytes()).is_err() {
-                return -1;
+                -1
             } else {
-                return line.len() as c_int;
+                line.len() as c_int
             }
         } else {
-            return -1;
+            -1
         }
     }
 }

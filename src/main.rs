@@ -1,10 +1,10 @@
 use geph4client::{
     dispatch,
-    ios::{call_geph, check_bridges, get_logs},
+    // ios::{call_geph, check_bridges, get_logs},
     Opt,
 };
 // use rand::AsByteSliceMut;
-use std::{ffi::CString, time::Duration};
+// use std::{ffi::CString, time::Duration};
 use structopt::StructOpt;
 
 // // ios simulation going on here

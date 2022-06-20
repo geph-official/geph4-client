@@ -244,9 +244,9 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
             EndpointSource::Binder(BinderTunnelParams {
                 ccache: Arc::new(cbc),
                 exit_server: opt.exit_server.clone(),
-                use_bridges: opt.use_bridges.clone(),
-                force_bridge: opt.force_bridge.clone(),
-                sticky_bridges: opt.sticky_bridges.clone(),
+                use_bridges: opt.use_bridges,
+                force_bridge: opt.force_bridge,
+                sticky_bridges: opt.sticky_bridges,
             })
         }
     };
@@ -300,7 +300,7 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     let vpn = Arc::new(tunnel.start_vpn().await?);
     // run vpn
     let vpn_fut = if opt.stdio_vpn {
-        smolscale::spawn(run_vpn(vpn.clone()).or(stdio_vpn(vpn.client_ip.clone())))
+        smolscale::spawn(run_vpn(vpn.clone()).or(stdio_vpn(vpn.client_ip)))
     } else {
         smolscale::spawn(run_vpn(vpn.clone()))
     };

@@ -11,7 +11,7 @@ use anyhow::Context;
 use async_net::Ipv4Addr;
 use bytes::Bytes;
 use flume::{self};
-use geph4_protocol::{activity::notify_activity, ClientTunnel, Vpn, VpnMessage, VpnStdio};
+use geph4_protocol::{activity::notify_activity, Vpn, VpnMessage, VpnStdio};
 use governor::{Quota, RateLimiter};
 use once_cell::sync::{Lazy, OnceCell};
 use parking_lot::RwLock;
