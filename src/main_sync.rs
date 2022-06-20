@@ -18,7 +18,7 @@ pub struct SyncOpt {
 }
 
 pub async fn main_sync(opt: SyncOpt) -> anyhow::Result<()> {
-    println!("{}", sync_json(opt).await?);
+    log::debug!("{}", sync_json(opt).await?);
     Ok(())
 }
 

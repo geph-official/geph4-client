@@ -25,9 +25,11 @@ pub async fn main_bridgetest(opt: BridgeTestOpt) -> anyhow::Result<()> {
 
     let exits = cached_client.get_exits().await?;
     for exit in exits {
-        eprintln!(
+        log::debug!(
             "EXIT: {} ({}-{})",
-            exit.hostname, exit.country_code, exit.city_code
+            exit.hostname,
+            exit.country_code,
+            exit.city_code
         );
         cached_client.purge_bridges(&exit.hostname)?;
         let bridges = cached_client.get_bridges(&exit.hostname, false).await?;
@@ -52,9 +54,11 @@ pub async fn main_bridgetest(opt: BridgeTestOpt) -> anyhow::Result<()> {
                     .timeout(Duration::from_secs(5))
                     .await;
                     match sess {
-                        Some(Ok(_)) => eprintln!(">>> {} ({:?})", bridge.endpoint, start.elapsed()),
-                        Some(Err(e)) => eprintln!(">>> {} (!! ERR: {} !!)", bridge.endpoint, e),
-                        None => eprintln!(">>> {} (!! TIMEOUT !!)", bridge.endpoint),
+                        Some(Ok(_)) => {
+                            log::debug!(">>> {} ({:?})", bridge.endpoint, start.elapsed())
+                        }
+                        Some(Err(e)) => log::debug!(">>> {} (!! ERR: {} !!)", bridge.endpoint, e),
+                        None => log::debug!(">>> {} (!! TIMEOUT !!)", bridge.endpoint),
                     }
                 })
             })

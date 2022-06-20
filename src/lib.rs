@@ -195,13 +195,13 @@ pub async fn to_cached_binder_client(
 }
 
 fn config_logging() {
-    eprintln!("TRYING TO CONFIG LOGGING HERE");
+    log::debug!("TRYING TO CONFIG LOGGING HERE");
     if let Err(e) = env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("geph4client=debug,geph4_protocol=debug,warn"),
     )
     .format_timestamp_millis()
     .try_init()
     {
-        eprintln!("{}", e);
+        log::debug!("{}", e);
     }
 }

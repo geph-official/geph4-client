@@ -11,12 +11,12 @@ use structopt::StructOpt;
 // fn main() -> anyhow::Result<()> {
 //     // check bridges
 //     std::thread::spawn(|| loop {
-//         // eprintln!("yo checking bridges");
+//         // log::debug!("yo checking bridges");
 //         let buflen = 2000;
 //         let mut buf = vec![0; buflen];
 //         let ret = check_bridges(buf.as_mut_ptr(), buflen as i32);
-//         // eprintln!("bridges = {:?}", buf);
-//         // eprintln!("ret = {}", ret);
+//         // log::debug!("bridges = {:?}", buf);
+//         // log::debug!("ret = {}", ret);
 //         if ret > 2 {
 //             return;
 //         } else {
@@ -48,7 +48,7 @@ use structopt::StructOpt;
 //     let ret = call_geph(json.as_ptr() as *const i8);
 
 //     unsafe {
-//         eprintln!("{}", CString::from_raw(ret).into_string()?);
+//         log::debug!("{}", CString::from_raw(ret).into_string()?);
 //     }
 
 //     Ok(())

@@ -45,7 +45,7 @@ static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
 });
 
 fn config_logging_ios() {
-    eprintln!("TRYING TO CONFIG LOGGING HERE");
+    log::debug!("TRYING TO CONFIG LOGGING HERE");
     Lazy::force(&LOG_LINES);
 }
 
@@ -107,18 +107,26 @@ pub extern "C" fn upload_packet(pkt: *const c_uchar, len: c_int) {
 
 #[no_mangle]
 pub extern "C" fn download_packet(buffer: *mut c_uchar, buflen: c_int) -> c_int {
+    log::debug!("from geph: downloading packet!");
     let pkt = DOWN_CHANNEL.1.recv().unwrap();
+    // let pkt = "111111".as_bytes();
+    log::debug!("from geph: downloaded packet!");
     let pkt_ref = pkt.as_ref();
     unsafe {
         let mut slice: &mut [u8] =
             std::slice::from_raw_parts_mut(buffer as *mut u8, buflen as usize);
+        log::debug!("from geph: sliced packet!");
         if pkt.len() < slice.len() {
+            log::debug!("from geph: buffer large enough!");
             if slice.write_all(pkt_ref).is_err() {
+                log::debug!("from geph: error writing to buffer!");
                 -1
             } else {
+                log::debug!("from geph: success writing downloaded packet!");
                 pkt.len() as c_int
             }
         } else {
+            log::debug!("from geph: buffer too small!");
             -1
         }
     }
@@ -153,7 +161,7 @@ pub extern "C" fn check_bridges(buffer: *mut c_char, buflen: c_int) -> c_int {
                     }
                 }
                 let whitelist = serde_json::json!(whitelist).to_string();
-                eprintln!(
+                log::debug!(
                     "whitelist is {}; with length {}",
                     whitelist,
                     whitelist.len()
@@ -189,8 +197,6 @@ pub extern "C" fn get_logs(buffer: *mut c_char, buflen: c_int) -> c_int {
     if LOG_LINES.lock().read_line(&mut line).is_err() {
         return -1;
     }
-
-    dbg!(&line);
 
     unsafe {
         let mut slice: &mut [u8] =

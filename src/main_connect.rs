@@ -207,7 +207,7 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
                         std::process::exit(0);
                     }
                 } else {
-                    eprint!("{}", line);
+                    log::debug!("{}", line);
                     if let Some(log_file) = log_file.as_mut() {
                         let line = IP_REGEX.replace_all(&line, "[redacted]");
                         let stripped_line =
@@ -316,11 +316,11 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     }
 
     // ready, set, go!
-    async { dbg!(stats_fut.await) }
-        .race(async { dbg!(stats_printer_fut.await) })
-        .race(async { dbg!(socks5_fut.await) })
-        .race(async { dbg!(dns_fut.await) })
-        .race(async { dbg!(vpn_fut.await) })
+    async { stats_fut.await }
+        .race(async { stats_printer_fut.await })
+        .race(async { socks5_fut.await })
+        .race(async { dns_fut.await })
+        .race(async { vpn_fut.await })
         .await
 }
 

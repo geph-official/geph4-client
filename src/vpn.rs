@@ -74,6 +74,8 @@ async fn std_io_vpn_down_loop() -> anyhow::Result<()> {
         }
         let bts = DOWN_CHANNEL.1.recv_async().await?;
         log::debug!("down bts = {:?}", bts);
+
+        // either write to stdout or the FD
         if let Some(mut fd) = VPN_FD.get() {
             fd.write(&bts).await?;
         } else {
@@ -127,7 +129,7 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
             let mut bts = UP_CHANNEL.1.recv_async().await.unwrap();
             // ACK decimation
             if ack_decimate(&bts).is_some() && limiter.check().is_err() {
-                eprintln!("SUPPRESSING");
+                log::debug!("SUPPRESSING");
                 Ok(None)
             } else {
                 // Fix source IP
@@ -135,7 +137,7 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
                     EXTERNAL_FAKE_IP_U32.store(pkt.get_source().into(), Ordering::Relaxed);
                     pkt.get_source() != ctx.client_ip
                 } else {
-                    eprintln!("EY EY EY NOT A PACKET?!");
+                    log::debug!("EY EY EY NOT A PACKET?!");
                     false
                 };
                 if source_ip_wrong {
@@ -162,7 +164,6 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
 /// Down loop for vpn
 async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     let mut count = 0u64;
-    // let mut buff = vec![];
     loop {
         let incoming = ctx.vpn.recv_vpn().await.context("downstream failed")?;
         count += 1;
@@ -173,7 +174,7 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
             let ip_u32 = EXTERNAL_FAKE_IP_U32.load(Ordering::Relaxed);
             let bts = if ip_u32 > 0 {
                 let fake = Ipv4Addr::from(ip_u32);
-                dbg!(fake);
+                log::debug!("{:?}", fake);
                 let mut mbts = bts.to_vec();
                 {
                     let pkt = MutableIpv4Packet::new(&mut mbts);
@@ -185,7 +186,6 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
                 bts
             };
             let bts = fix_dns_src(&bts, ctx.dns_nat).unwrap_or(bts);
-            // either write to stdout or the FD
             let _ = DOWN_CHANNEL.0.try_send(bts.clone());
         }
     }
