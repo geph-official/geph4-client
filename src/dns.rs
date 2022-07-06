@@ -49,7 +49,7 @@ pub struct DnsPool {
 impl DnsPool {
     /// Create a new pool based on a Keepalive
     pub fn new(keepalive: Arc<ClientTunnel>) -> Self {
-        let (send_conn, recv_conn) = smol::channel::unbounded();
+        let (send_conn, recv_conn) = smol::channel::bounded(2);
         Self {
             send_conn,
             recv_conn,
@@ -94,7 +94,7 @@ impl DnsPool {
             .timeout(dns_timeout)
             .await?
             .ok()?;
-        self.send_conn.try_send(conn).unwrap();
+        let _ = self.send_conn.try_send(conn);
         Some(true_buf)
     }
 }

@@ -126,14 +126,19 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
             let mut bts = UP_CHANNEL.1.recv_async().await.unwrap();
             // ACK decimation
             if ack_decimate(&bts).is_some() && limiter.check().is_err() {
-                log::debug!("SUPPRESSING");
                 Ok(None)
             } else {
                 // Fix source IP
                 let source_ip_wrong = if let Some(pkt) = Ipv4Packet::new(&bts) {
                     let ip: Ipv4Addr = "123.123.123.123".parse().unwrap();
-                    EXTERNAL_FAKE_IP_U32.store(ip.into(), Ordering::Relaxed);
-                    pkt.get_source() != ctx.client_ip
+                    if pkt.get_source() != ctx.client_ip {
+                        #[cfg(not(target_os = "linux"))]
+                        EXTERNAL_FAKE_IP_U32.store(ip.into(), Ordering::Relaxed);
+
+                        false
+                    } else {
+                        true
+                    }
                 } else {
                     log::debug!("EY EY EY NOT A PACKET?!");
                     false
@@ -186,10 +191,10 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
                 bts
             };
             let bts = fix_dns_src(&bts, ctx.dns_nat).unwrap_or(bts);
-            let success = DOWN_CHANNEL.0.try_send(bts.clone()).is_ok();
-            if !success {
-                log::debug!("sent VPN packet {} into down channel FAILED!!!!", count,);
-            }
+            let _ = DOWN_CHANNEL.0.try_send(bts.clone()).is_ok();
+            // if !success {
+            //     log::debug!("sent VPN packet {} into down channel FAILED!!!!", count,);
+            // }
         }
     }
 }

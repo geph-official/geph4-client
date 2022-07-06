@@ -87,6 +87,7 @@ binary-search = "0.1.2"
 fastrand = "1.5.0"
 backtrace-on-stack-overflow = "0.1.1"
 cap = "0.1.0"
+# wee_alloc = {version="0.4.5", default-features=false}
 
 [dependencies.async-tls]
 version = "0.11.0"
@@ -108,6 +109,6 @@ opt-level=0
 [profile.release]
 panic = "abort"
 opt-level=3
-debug=0
+debug=2
 #lto=true
 
