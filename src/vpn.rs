@@ -23,7 +23,9 @@ use pnet_packet::{
     udp::UdpPacket,
     MutablePacket, Packet,
 };
+use smol::Timer;
 use smol::{channel::Receiver, prelude::*};
+use std::time::Duration;
 use tap::{Pipe, TapOptional};
 
 /// The fd passed to us by the helper. This actually does work even though in general Async<File> does not, because tundevice FDs are not like file FDs.
@@ -134,7 +136,8 @@ async fn vpn_up_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
             } else {
                 // Fix source IP
                 let source_ip_wrong = if let Some(pkt) = Ipv4Packet::new(&bts) {
-                    EXTERNAL_FAKE_IP_U32.store(pkt.get_source().into(), Ordering::Relaxed);
+                    let ip: Ipv4Addr = "123.123.123.123".parse().unwrap();
+                    EXTERNAL_FAKE_IP_U32.store(ip.into(), Ordering::Relaxed);
                     pkt.get_source() != ctx.client_ip
                 } else {
                     log::debug!("EY EY EY NOT A PACKET?!");
@@ -166,6 +169,8 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
     let mut count = 0u64;
     loop {
         let incoming = ctx.vpn.recv_vpn().await.context("downstream failed")?;
+        // Timer::after(Duration::from_secs(1)).await;
+        // let incoming = VpnMessage::Payload("labooooooooyah".as_bytes().into());
         count += 1;
         if count % 1000 == 1 {
             log::debug!("VPN received {} pkts ", count);
@@ -174,7 +179,7 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
             let ip_u32 = EXTERNAL_FAKE_IP_U32.load(Ordering::Relaxed);
             let bts = if ip_u32 > 0 {
                 let fake = Ipv4Addr::from(ip_u32);
-                log::debug!("{:?}", fake);
+                // log::debug!("{:?}", fake);
                 let mut mbts = bts.to_vec();
                 {
                     let pkt = MutableIpv4Packet::new(&mut mbts);
@@ -186,7 +191,10 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
                 bts
             };
             let bts = fix_dns_src(&bts, ctx.dns_nat).unwrap_or(bts);
-            let _ = DOWN_CHANNEL.0.try_send(bts.clone());
+            let success = DOWN_CHANNEL.0.try_send(bts.clone()).is_ok();
+            if !success {
+                log::debug!("sent VPN packet {} into down channel FAILED!!!!", count,);
+            }
         }
     }
 }

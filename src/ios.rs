@@ -4,10 +4,12 @@ use std::{
     io::{BufRead, BufReader, Write},
     net::IpAddr,
     os::raw::{c_char, c_int, c_uchar},
+    sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
 
 use bytes::Bytes;
+use cap::Cap;
 use geph4_protocol::EndpointSource;
 use once_cell::sync::Lazy;
 use os_pipe::PipeReader;
@@ -19,6 +21,9 @@ use crate::{
     vpn::{DOWN_CHANNEL, UP_CHANNEL},
     Opt,
 };
+
+#[global_allocator]
+static ALLOCATOR: Cap<std::alloc::System> = Cap::new(std::alloc::System, usize::max_value());
 
 static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
     let (read, write) = os_pipe::pipe().unwrap();
@@ -53,7 +58,14 @@ fn dispatch_ios(opt: Opt) -> anyhow::Result<String> {
     config_logging_ios();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("IOS geph4-client v{} starting...", version);
-
+    smolscale::permanently_single_threaded();
+    std::thread::spawn(|| loop {
+        std::thread::sleep(Duration::from_secs(1));
+        log::debug!(
+            "*** MEMORY USAGE: {:.2} MB ***",
+            ALLOCATOR.allocated() as f64 / 1_000_000.0
+        )
+    });
     smolscale::block_on(async move {
         match opt {
             Opt::Connect(opt) => loop {
@@ -107,28 +119,38 @@ pub extern "C" fn upload_packet(pkt: *const c_uchar, len: c_int) {
 
 #[no_mangle]
 pub extern "C" fn download_packet(buffer: *mut c_uchar, buflen: c_int) -> c_int {
-    log::debug!("from geph: downloading packet!");
+    // log::debug!("from geph: downloading packet!");
+    static DOWN_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    let count = DOWN_COUNT.fetch_add(1, Ordering::Relaxed);
     let pkt = DOWN_CHANNEL.1.recv().unwrap();
-    // let pkt = "111111".as_bytes();
-    log::debug!("from geph: downloaded packet!");
-    let pkt_ref = pkt.as_ref();
+    download_packet_helper(buffer, buflen, &pkt)
+}
+
+fn download_packet_helper(buffer: *mut c_uchar, buflen: c_int, pkt: &[u8]) -> c_int {
     unsafe {
         let mut slice: &mut [u8] =
             std::slice::from_raw_parts_mut(buffer as *mut u8, buflen as usize);
-        log::debug!("from geph: sliced packet!");
         if pkt.len() < slice.len() {
-            log::debug!("from geph: buffer large enough!");
-            if slice.write_all(pkt_ref).is_err() {
-                log::debug!("from geph: error writing to buffer!");
+            if slice.write_all(pkt).is_err() {
                 -1
             } else {
-                log::debug!("from geph: success writing downloaded packet!");
                 pkt.len() as c_int
             }
         } else {
             log::debug!("from geph: buffer too small!");
             -1
         }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn try_download_packet(buffer: *mut c_uchar, buflen: c_int) -> c_int {
+    let pkt = DOWN_CHANNEL.1.try_recv();
+    if let Ok(pkt) = pkt {
+        download_packet_helper(buffer, buflen, &pkt)
+    } else {
+        -1
     }
 }
 
