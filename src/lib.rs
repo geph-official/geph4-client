@@ -1,6 +1,7 @@
 #![type_length_limit = "2000000"]
 use acidjson::AcidJson;
 use bytes::Bytes;
+use cap::Cap;
 use fronts::parse_fronts;
 use geph4_binder_transport::BinderClient;
 use geph4_protocol::{BinderParams, CachedBinderClient};
@@ -149,6 +150,19 @@ pub struct AuthOpt {
 //     dispatch(opt)
 // }
 
+#[global_allocator]
+static ALLOCATOR: Cap<std::alloc::System> = Cap::new(std::alloc::System, usize::max_value());
+
+fn start_mem_debug() {
+    std::thread::spawn(|| loop {
+        std::thread::sleep(Duration::from_secs(1));
+        log::debug!(
+            "*** MEMORY USAGE: {:.2} MB ***",
+            ALLOCATOR.allocated() as f64 / 1_000_000.0
+        )
+    });
+}
+
 pub fn dispatch(opt: Opt) -> anyhow::Result<()> {
     config_logging();
     let version = env!("CARGO_PKG_VERSION");
@@ -156,7 +170,7 @@ pub fn dispatch(opt: Opt) -> anyhow::Result<()> {
 
     #[cfg(target_os = "android")]
     smolscale::permanently_single_threaded();
-
+    start_mem_debug();
     smolscale::block_on(async move {
         match opt {
             Opt::Connect(opt) => loop {

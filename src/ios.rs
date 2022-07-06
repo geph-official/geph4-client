@@ -22,9 +22,6 @@ use crate::{
     Opt,
 };
 
-#[global_allocator]
-static ALLOCATOR: Cap<std::alloc::System> = Cap::new(std::alloc::System, usize::max_value());
-
 static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
     let (read, write) = os_pipe::pipe().unwrap();
     let write = Mutex::new(write);
@@ -59,13 +56,6 @@ fn dispatch_ios(opt: Opt) -> anyhow::Result<String> {
     let version = env!("CARGO_PKG_VERSION");
     log::info!("IOS geph4-client v{} starting...", version);
     smolscale::permanently_single_threaded();
-    std::thread::spawn(|| loop {
-        std::thread::sleep(Duration::from_secs(1));
-        log::debug!(
-            "*** MEMORY USAGE: {:.2} MB ***",
-            ALLOCATOR.allocated() as f64 / 1_000_000.0
-        )
-    });
     smolscale::block_on(async move {
         match opt {
             Opt::Connect(opt) => loop {

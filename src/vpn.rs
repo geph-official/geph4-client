@@ -75,7 +75,6 @@ async fn std_io_vpn_down_loop() -> anyhow::Result<()> {
             buff.clear();
         }
         let bts = DOWN_CHANNEL.1.recv_async().await?;
-        log::debug!("down bts = {:?}", bts);
 
         // either write to stdout or the FD
         if let Some(mut fd) = VPN_FD.get() {
@@ -91,17 +90,13 @@ async fn stdio_vpn_up_loop() -> anyhow::Result<()> {
     log::debug!("STD_IO_VPN UP LOOP");
     loop {
         let bts = if let Some(mut vpnfd) = VPN_FD.get() {
-            log::debug!("fd");
             let mut buf = [0; 2048];
             let n = vpnfd.read(&mut buf).await?;
-            log::debug!("pkt of length {} from raw FD!", n);
             Bytes::copy_from_slice(&buf[..n])
         } else {
             let msg = STDIN.recv().await;
-            log::debug!("up pkt from stdin!");
             msg.body
         };
-        log::debug!("up bts = {:?}", bts);
         UP_CHANNEL.0.send(bts)?
     }
 }
