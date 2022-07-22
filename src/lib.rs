@@ -22,6 +22,7 @@ mod main_binderproxy;
 mod main_bridgetest;
 mod main_connect;
 mod main_sync;
+mod nat;
 mod plots;
 mod port_forwarder;
 mod prelude;

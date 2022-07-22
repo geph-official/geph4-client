@@ -171,6 +171,7 @@ async fn vpn_down_loop(ctx: VpnContext<'_>) -> anyhow::Result<()> {
             log::debug!("VPN received {} pkts ", count);
         }
         if let geph4_protocol::VpnMessage::Payload(bts) = incoming {
+            // Fix dest IP
             let ip_u32 = EXTERNAL_FAKE_IP_U32.load(Ordering::Relaxed);
             let bts = if ip_u32 > 0 {
                 let fake = Ipv4Addr::from(ip_u32);
