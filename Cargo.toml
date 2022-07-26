@@ -44,7 +44,7 @@ smol = "1.2.5"
 smol-timeout = "0.6.0"
 socksv5 = "0.2.0"
 # sosistab= "0.4.38"
-sosistab={path="../sosistab"}
+sosistab={path="/home/thisbefruit/sosistab"}
 strsim = "0.10.0"
 structopt = "0.3.23"
 x25519-dalek={ version = "1.1.1", features = ["serde"] }
@@ -68,6 +68,7 @@ rustls= "0.19.1"
 webpki-roots= "0.21.1"
 strip-ansi-escapes= "0.1.1"
 
+geph-nat ={path="../geph-nat"}
 mizaru = "0.1.3"
 geph4-aioutils = "0.1.3"
 # alloc_geiger = "0.1"

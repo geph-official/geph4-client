@@ -22,7 +22,6 @@ mod main_binderproxy;
 mod main_bridgetest;
 mod main_connect;
 mod main_sync;
-mod nat;
 mod plots;
 mod port_forwarder;
 mod prelude;
@@ -198,7 +197,8 @@ pub async fn to_cached_binder_client(
 fn config_logging() {
     log::debug!("TRYING TO CONFIG LOGGING HERE");
     if let Err(e) = env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("geph4client=debug,geph4_protocol=debug,warn"),
+        env_logger::Env::default()
+            .default_filter_or("geph4client=debug,geph4_protocol=debug,warn,geph_nat=debug"),
     )
     .format_timestamp_millis()
     .try_init()
