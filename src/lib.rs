@@ -1,41 +1,38 @@
 #![type_length_limit = "2000000"]
+use acidjson::AcidJson;
+use bytes::Bytes;
 use fronts::parse_fronts;
 use geph4_binder_transport::BinderClient;
-use serde::{self, Deserialize};
-use serde_json;
+use geph4_protocol::{BinderParams, CachedBinderClient};
+use serde::{self, Deserialize, Serialize};
 use smol_timeout::TimeoutExt;
-use std::{
-    collections::BTreeMap, ffi::CStr, os::raw::c_char, path::PathBuf, sync::Arc, time::Duration,
-};
+use std::{collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};
 use structopt::StructOpt;
-mod cache;
 mod fd_semaphore;
 mod fronts;
 mod lazy_binder_client;
 pub mod serialize;
 mod socks2http;
-mod tunman;
-use prelude::*;
-
 use crate::{fronts::fetch_fronts, lazy_binder_client::LazyBinderClient};
-mod dns;
-mod prelude;
-mod stats;
-mod vpn;
-
-mod activity;
-
-mod plots;
-
+use prelude::*;
 mod china;
+mod dns;
+pub mod ios;
 mod main_binderproxy;
 mod main_bridgetest;
 mod main_connect;
 mod main_sync;
+mod plots;
+mod port_forwarder;
+mod prelude;
+mod socks5;
+mod stats;
+mod vpn;
+
 // #[global_allocator]
 // static ALLOC: alloc_geiger::System = alloc_geiger::SYSTEM;
 
-#[derive(Debug, StructOpt, Deserialize)]
+#[derive(Debug, StructOpt, Deserialize, Serialize)]
 pub enum Opt {
     Connect(main_connect::ConnectOpt),
     BridgeTest(main_bridgetest::BridgeTestOpt),
@@ -43,45 +40,7 @@ pub enum Opt {
     BinderProxy(main_binderproxy::BinderProxyOpt),
 }
 
-fn config_logging() {
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("geph4client=debug,warn"),
-    )
-    .format_timestamp_millis()
-    .init();
-}
-
-#[no_mangle]
-pub unsafe extern "C" fn call_from_c(opt: *const c_char) {
-    let c_str = CStr::from_ptr(opt);
-    let opt: Opt = serde_json::from_str(c_str.to_str().unwrap()).unwrap();
-    dispatch(opt).unwrap();
-}
-
-pub fn dispatch(opt: Opt) -> anyhow::Result<()> {
-    config_logging();
-    let version = env!("CARGO_PKG_VERSION");
-    log::info!("geph4-client v{} starting...", version);
-
-    #[cfg(target_os = "android")]
-    smolscale::permanently_single_threaded();
-
-    smolscale::block_on(async move {
-        match opt {
-            Opt::Connect(opt) => loop {
-                if let Err(err) = main_connect::main_connect(opt.clone()).await {
-                    log::error!("Something SERIOUSLY wrong has happened! {:#?}", err);
-                    smol::Timer::after(Duration::from_secs(1)).await;
-                }
-            },
-            Opt::Sync(opt) => main_sync::main_sync(opt).await,
-            Opt::BinderProxy(opt) => main_binderproxy::main_binderproxy(opt).await,
-            Opt::BridgeTest(opt) => main_bridgetest::main_bridgetest(opt).await,
-        }
-    })
-}
-
-#[derive(Debug, StructOpt, Clone, Deserialize)]
+#[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
 pub struct CommonOpt {
     #[structopt(
         long,
@@ -166,14 +125,14 @@ impl CommonOpt {
     }
 }
 
-#[derive(Debug, StructOpt, Clone, Deserialize)]
+#[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
 pub struct AuthOpt {
     #[structopt(
         long,
         default_value = "auto",
         parse(from_str = str_to_path)
     )]
-    /// where to store Geph's credential cache. The default value of "auto", meaning a platform-specific path that Geph gets to pick.
+    /// where to store Geph's credential cache. The default value is "auto", meaning a platform-specific path that Geph gets to pick.
     credential_cache: PathBuf,
 
     #[structopt(long, default_value = "")]
@@ -183,4 +142,67 @@ pub struct AuthOpt {
     #[structopt(long, default_value = "")]
     /// password
     password: String,
+}
+
+// pub fn start_with_args(args: Vec<&str>) -> anyhow::Result<()> {
+//     let opt: Opt = Opt::from_iter_safe(args)?;
+//     dispatch(opt)
+// }
+
+pub fn dispatch(opt: Opt) -> anyhow::Result<()> {
+    config_logging();
+    let version = env!("CARGO_PKG_VERSION");
+    log::info!("geph4-client v{} starting...", version);
+
+    #[cfg(target_os = "android")]
+    smolscale::permanently_single_threaded();
+
+    smolscale::block_on(async move {
+        match opt {
+            Opt::Connect(opt) => loop {
+                if let Err(err) = main_connect::main_connect(opt.clone()).await {
+                    log::error!("Something SERIOUSLY wrong has happened! {:#?}", err);
+                    smol::Timer::after(Duration::from_secs(1)).await;
+                }
+            },
+            Opt::Sync(opt) => main_sync::main_sync(opt).await,
+            Opt::BinderProxy(opt) => main_binderproxy::main_binderproxy(opt).await,
+            Opt::BridgeTest(opt) => main_bridgetest::main_bridgetest(opt).await,
+        }
+    })
+}
+
+pub async fn to_cached_binder_client(
+    common_opt: &CommonOpt,
+    auth_opt: &AuthOpt,
+) -> anyhow::Result<CachedBinderClient> {
+    let mut dbpath = auth_opt.credential_cache.clone();
+    std::fs::create_dir_all(&dbpath)?;
+    dbpath.push("ngcredentials.json");
+    if std::fs::read(&dbpath).is_err() {
+        std::fs::write(&dbpath, b"{}")?;
+    }
+    let cache: AcidJson<BTreeMap<String, Bytes>> = AcidJson::open(&dbpath)?;
+    let cbc = CachedBinderClient::new(BinderParams {
+        underlying: common_opt.to_binder_client().await,
+        cache: Arc::new(cache),
+        binder_mizaru_free_pk: common_opt.binder_mizaru_free.clone(),
+        binder_mizaru_plus_pk: common_opt.binder_mizaru_plus.clone(),
+        username: auth_opt.username.clone(),
+        password: auth_opt.password.clone(),
+    });
+    Ok(cbc)
+}
+
+fn config_logging() {
+    log::debug!("TRYING TO CONFIG LOGGING HERE");
+    if let Err(e) = env_logger::Builder::from_env(
+        env_logger::Env::default()
+            .default_filter_or("geph4client=debug,geph4_protocol=debug,warn,geph_nat=debug"),
+    )
+    .format_timestamp_millis()
+    .try_init()
+    {
+        log::debug!("{}", e);
+    }
 }

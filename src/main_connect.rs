@@ -1,39 +1,28 @@
-use crate::{
-    activity::{notify_activity, wait_activity},
-    cache::ClientCache,
-    fd_semaphore::acquire_fd,
-    stats::{global_sosistab_stats, LAST_PING_MS},
-    tunman::{TunnelManager, TunnelState},
-    vpn::VPN_FD,
-    AuthOpt, CommonOpt,
+use std::{
+    net::Ipv4Addr, net::SocketAddr, path::PathBuf, process::Stdio, sync::Arc, time::Duration,
 };
-use crate::{china, plots::stat_derive};
+
 use anyhow::Context;
 use async_compat::Compat;
-use async_net::{IpAddr, TcpStream};
-use china::is_chinese_ip;
-use http_types::{Method, Request, Url};
+use async_net::TcpStream;
+use china::test_china;
+use futures_util::future::select_all;
+use geph4_protocol::EndpointSource;
+use geph4_protocol::{self, tunnel::ClientTunnel, BinderTunnelParams, ConnectionOptions};
+use http_types::{Method, Request};
 use once_cell::sync::Lazy;
-use psl::Psl;
-use serde::Deserialize;
+use parking_lot::RwLock;
+use serde::{Deserialize, Serialize};
 use smol::prelude::*;
-
-use smol_timeout::TimeoutExt;
+use structopt::StructOpt;
 use tap::Tap;
 
-use std::{
-    collections::BTreeMap,
-    net::Ipv4Addr,
-    net::SocketAddr,
-    net::SocketAddrV4,
-    path::PathBuf,
-    process::Stdio,
-    sync::{atomic::Ordering, Arc},
-    time::Duration,
-};
-use structopt::StructOpt;
+use crate::socks5::socks5_loop;
+use crate::vpn::{run_vpn, stdio_vpn};
+use crate::{china, port_forwarder::port_forwarder};
+use crate::{stats::print_stats_loop, vpn::VPN_FD, AuthOpt, CommonOpt};
 
-#[derive(Debug, StructOpt, Clone, Deserialize)]
+#[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
 pub struct ConnectOpt {
     #[structopt(flatten)]
     pub common: CommonOpt,
@@ -96,6 +85,10 @@ pub struct ConnectOpt {
     pub stdio_vpn: bool,
 
     #[structopt(long)]
+    /// Whether or not to stick to the same set of bridges
+    pub sticky_bridges: bool,
+
+    #[structopt(long)]
     /// Use this file descriptor for direct access to the VPN tun device.
     pub vpn_tun_fd: Option<i32>,
 
@@ -111,6 +104,8 @@ pub struct ConnectOpt {
     /// Where to store a log file.
     pub log_file: Option<PathBuf>,
 }
+
+pub static TUNNEL: Lazy<RwLock<Option<Arc<ClientTunnel>>>> = Lazy::new(|| RwLock::new(None));
 
 impl ConnectOpt {
     /// Should we use bridges?
@@ -146,6 +141,7 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         opt.use_tcp,
         opt.use_bridges
     );
+
     #[cfg(unix)]
     if let Some(fd) = opt.vpn_tun_fd {
         log::info!("setting VPN file descriptor to {}", fd);
@@ -156,7 +152,9 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     }
     // We *recursively* call Geph again if GEPH_RECURSIVE is not set.
     // This means we start a child process with the same arguments, and pipe its stderr to the log file directly.
-    // This ensures that 1. we can capture *all* stderr no matter what, 2. we can restart the daemon no matter what (even when panics/OOM/etc happen), and keep logs of what happened
+    // This ensures that 1. we can capture *all* stderr no matter what,
+    // 2. we can restart the daemon no matter what (even when panics/OOM/etc happen),
+    // and keep logs of what happened
     if std::env::var("GEPH_RECURSIVE").is_err() {
         static IP_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
             regex::Regex::new(r#"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"#).unwrap()
@@ -209,7 +207,7 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
                         std::process::exit(0);
                     }
                 } else {
-                    eprint!("{}", line);
+                    log::debug!("{}", line);
                     if let Some(log_file) = log_file.as_mut() {
                         let line = IP_REGEX.replace_all(&line, "[redacted]");
                         let stripped_line =
@@ -235,9 +233,50 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         anyhow::bail!("must provide both username and password")
     }
 
-    let _stats = smolscale::spawn(print_stats_loop());
+    // start a tunnel and connect
+    let endpoint = {
+        if let Some(override_url) = opt.override_connect.clone() {
+            EndpointSource::Independent {
+                endpoint: override_url,
+            }
+        } else {
+            let cbc = crate::to_cached_binder_client(&opt.common, &opt.auth).await?;
+            EndpointSource::Binder(BinderTunnelParams {
+                ccache: Arc::new(cbc),
+                exit_server: opt.exit_server.clone(),
+                use_bridges: opt.use_bridges,
+                force_bridge: opt.force_bridge,
+                sticky_bridges: opt.sticky_bridges,
+            })
+        }
+    };
 
-    // Start socks to http
+    let tunnel = Arc::new(
+        ClientTunnel::new(
+            ConnectionOptions {
+                udp_shard_count: opt.udp_shard_count,
+                udp_shard_lifetime: opt.udp_shard_lifetime,
+                tcp_shard_count: opt.tcp_shard_count,
+                tcp_shard_lifetime: opt.tcp_shard_lifetime,
+                use_tcp: opt.use_tcp,
+            },
+            endpoint,
+        )
+        .await?,
+    );
+    {
+        // put tunnel into global variable
+        let mut t = TUNNEL.write();
+        *t = Some(tunnel.clone());
+    }
+    // stats server
+    let stats_fut = crate::stats::serve_stats(tunnel.clone(), opt.stats_listen);
+    // print stats
+    let stats_printer_fut = async {
+        print_stats_loop(tunnel.clone()).await;
+        Ok(())
+    };
+    // http proxy
     let _socks2h = smolscale::spawn(Compat::new(crate::socks2http::run_tokio(
         opt.http_listen,
         {
@@ -247,68 +286,42 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         },
     )));
 
-    // Create a database directory if doesn't exist
-    let client_cache = ClientCache::from_opts(&opt.common, &opt.auth)
-        .await
-        .context("cannot create ClientCache")?;
-    // Create a tunnel_manager
-    let tunnel_manager = TunnelManager::new(opt.clone(), Arc::new(client_cache));
-    // Start port forwarders
-    let _port_forwarders: Vec<_> = opt
-        .forward_ports
-        .iter()
-        .map(|v| smolscale::spawn(port_forwarder(tunnel_manager.clone(), v.clone())))
-        .collect();
-
-    if let Some(dns_listen) = opt.dns_listen {
+    // socks5 proxy
+    let socks5_fut = socks5_loop(tunnel.clone(), opt.socks5_listen, opt.exclude_prc);
+    // dns
+    let dns_fut = if let Some(dns_listen) = opt.dns_listen {
         log::debug!("starting dns...");
-        smolscale::spawn(crate::dns::dns_loop(dns_listen, tunnel_manager.clone())).detach();
-    }
-    // Enter the stats loop
-    let stat_listener = smol::net::TcpListener::bind(opt.stats_listen)
-        .await
-        .context("cannot bind stats")?;
-    let _stat: smol::Task<anyhow::Result<()>> = {
-        let tman = tunnel_manager.clone();
-        smolscale::spawn(async move {
-            loop {
-                let (stat_client, _) = stat_listener.accept().await?;
-                let tman = tman.clone();
-                smolscale::spawn(async move {
-                    drop(
-                        async_h1::accept(stat_client, move |req| {
-                            let tman = tman.clone();
-                            async move { handle_stats(tman, req).await }
-                        })
-                        .await,
-                    );
-                })
-                .detach();
-            }
-        })
+        smolscale::spawn(crate::dns::dns_loop(dns_listen, tunnel.clone()))
+    } else {
+        smolscale::spawn(smol::future::pending())
     };
 
-    // Enter the socks5 loop
-    let socks5_listener = smol::net::TcpListener::bind(opt.socks5_listen)
-        .await
-        .context("cannot bind socks5")?;
+    // negotiate vpn
+    let vpn = Arc::new(tunnel.start_vpn().await?);
+    // run vpn
+    let vpn_fut = if opt.stdio_vpn {
+        smolscale::spawn(run_vpn(vpn.clone()).or(stdio_vpn(vpn.client_ip)))
+    } else {
+        smolscale::spawn(run_vpn(vpn.clone()))
+    };
 
-    let exclude_prc = opt.exclude_prc;
-
-    loop {
-        let (s5client, _) = socks5_listener
-            .accept()
-            .await
-            .context("cannot accept socks5")?;
-        let tunnel_manager = tunnel_manager.clone();
-        if let Ok(_ticket) = acquire_fd().await {
-            smolscale::spawn(async move {
-                let _ticket = _ticket;
-                handle_socks5(s5client, &tunnel_manager, exclude_prc).await
-            })
-            .detach()
-        }
+    // port forwarders
+    let port_forwarders: Vec<_> = opt
+        .forward_ports
+        .iter()
+        .map(|v| smolscale::spawn(port_forwarder(tunnel.clone(), v.clone())))
+        .collect();
+    if !port_forwarders.is_empty() {
+        smolscale::spawn(select_all(port_forwarders)).await;
     }
+
+    // ready, set, go!
+    async { stats_fut.await }
+        .race(async { stats_printer_fut.await })
+        .race(async { socks5_fut.await })
+        .race(async { dns_fut.await })
+        .race(async { vpn_fut.await })
+        .await
 }
 
 /// Kills geph at a particular port.
@@ -320,225 +333,5 @@ async fn kill_existing_geph(stats_addr: SocketAddr) -> anyhow::Result<()> {
     async_h1::connect(conn, Request::new(Method::Get, "/kill"))
         .await
         .map_err(|e| e.into_inner())?;
-    Ok(())
-}
-
-/// Returns whether or not we're in China.
-#[cached::proc_macro::cached(result = true)]
-async fn test_china() -> http_types::Result<bool> {
-    let req = Request::new(
-        Method::Get,
-        Url::parse("http://checkip.amazonaws.com").unwrap(),
-    );
-    let connect_to = geph4_aioutils::resolve("checkip.amazonaws.com:80").await?;
-
-    let response = {
-        let connection =
-            smol::net::TcpStream::connect(connect_to.get(0).context("no addrs for checkip")?)
-                .await?;
-        async_h1::connect(connection, req)
-            .await?
-            .body_string()
-            .await?
-    };
-    let response = response.trim();
-    let parsed: IpAddr = response.parse()?;
-    match parsed {
-        IpAddr::V4(inner) => Ok(is_chinese_ip(inner)),
-        IpAddr::V6(_) => Err(anyhow::anyhow!("cannot tell for ipv6").into()),
-    }
-}
-
-/// Prints stats in a loop.
-async fn print_stats_loop() {
-    let gather = global_sosistab_stats();
-    loop {
-        wait_activity(Duration::from_secs(200)).await;
-        log::info!(
-            "** recv_loss = {:.2}% **",
-            gather.get_last("recv_loss").unwrap_or_default() * 100.0
-        );
-        smol::Timer::after(Duration::from_secs(30)).await;
-    }
-}
-
-/// Forwards ports using a particular description.
-async fn port_forwarder(tunnel_manager: TunnelManager, desc: String) {
-    let exploded = desc.split(":::").collect::<Vec<_>>();
-    let listen_addr: SocketAddr = exploded[0].parse().expect("invalid port forwarding syntax");
-    let listener = smol::net::TcpListener::bind(listen_addr)
-        .await
-        .expect("could not listen for port forwarding");
-    loop {
-        let (conn, _) = listener.accept().await.unwrap();
-        let _ticket = acquire_fd().await;
-        if let Ok(_ticket) = _ticket {
-            let tunnel_manager = tunnel_manager.clone();
-            let remote_addr = exploded[1].to_owned();
-            smolscale::spawn(async move {
-                let _ticket = _ticket;
-                let remote = tunnel_manager.connect(&remote_addr).await.ok()?;
-                smol::future::race(
-                    smol::io::copy(remote.clone(), conn.clone()),
-                    smol::io::copy(conn, remote),
-                )
-                .await
-                .ok()
-            })
-            .detach();
-        }
-    }
-}
-
-/// Handles requests for the debug pack, proxy information, program termination, and general statistics
-async fn handle_stats(
-    tman: TunnelManager,
-    req: http_types::Request,
-) -> http_types::Result<http_types::Response> {
-    // If the GEPH_SECURE_STATS environment variable is set, we must have X-Geph-Stats-Token set to that environment variable.
-    if let Ok(s) = std::env::var("GEPH_SECURE_STATS") {
-        if req
-            .header("X-Geph-Stats-Token")
-            .map(|f| f.as_str().to_string())
-            .unwrap_or_default()
-            != s
-        {
-            return Err(http_types::Error::new(403, anyhow::anyhow!("denied")));
-        }
-    }
-    let mut res = http_types::Response::new(http_types::StatusCode::Ok);
-    res.insert_header("Access-Control-Allow-Origin", "*");
-    match req.url().path() {
-        "/proxy.pac" => {
-            // Serves a Proxy Auto-Configuration file
-            res.set_body("function FindProxyForURL(url, host){return 'PROXY 127.0.0.1:9910';}");
-            Ok(res)
-        }
-        "/rawstats" => Ok(res),
-        "/deltastats" => {
-            // Serves all the delta stats as json
-            let body_str = smol::unblock(move || {
-                let detail = stat_derive();
-                serde_json::to_string(&detail)
-            })
-            .await?;
-            res.set_body(body_str);
-            res.set_content_type(http_types::mime::JSON);
-            Ok(res)
-        }
-        "/kill" => std::process::exit(0),
-        _ => {
-            // Serves all the stats as json
-            let gather = global_sosistab_stats();
-            if tman.current_state() != TunnelState::Connecting {
-                let mut stats: BTreeMap<String, f32> = BTreeMap::new();
-                stats.insert(
-                    "total_tx".into(),
-                    gather.get_last("total_sent_bytes").unwrap_or_default(),
-                );
-                stats.insert(
-                    "total_rx".into(),
-                    gather.get_last("total_recv_bytes").unwrap_or_default(),
-                );
-                stats.insert(
-                    "latency".into(),
-                    LAST_PING_MS.load(Ordering::Relaxed) as f32,
-                );
-                stats.insert(
-                    "loss".into(),
-                    gather.get_last("recv_loss").unwrap_or_default(),
-                );
-                res.set_body(serde_json::to_string(&stats)?);
-                res.set_content_type(http_types::mime::JSON);
-            }
-            Ok(res)
-        }
-    }
-}
-
-/// Handles a socks5 client from localhost
-async fn handle_socks5(
-    s5client: smol::net::TcpStream,
-    tunnel_manager: &TunnelManager,
-    exclude_prc: bool,
-) -> anyhow::Result<()> {
-    notify_activity();
-    s5client.set_nodelay(true)?;
-    use socksv5::v5::*;
-    let _handshake = read_handshake(s5client.clone()).await?;
-    write_auth_method(s5client.clone(), SocksV5AuthMethod::Noauth).await?;
-    let request = read_request(s5client.clone()).await?;
-    let port = request.port;
-    let v4addr: Option<Ipv4Addr>;
-    let addr: String = match &request.host {
-        SocksV5Host::Domain(dom) => {
-            v4addr = String::from_utf8_lossy(dom).parse().ok();
-            format!("{}:{}", String::from_utf8_lossy(dom), request.port)
-        }
-        SocksV5Host::Ipv4(v4) => {
-            let v4addr_inner = Ipv4Addr::new(v4[0], v4[1], v4[2], v4[3]);
-            SocketAddr::V4(SocketAddrV4::new(
-                {
-                    v4addr = Some(v4addr_inner);
-                    v4addr.unwrap()
-                },
-                request.port,
-            ))
-            .to_string()
-        }
-        _ => anyhow::bail!("not supported"),
-    };
-
-    let is_private = if let Some(v4addr) = v4addr {
-        v4addr.is_private() || v4addr.is_loopback()
-    } else {
-        !psl::List
-            .suffix(addr.split(':').next().unwrap().as_bytes())
-            .map(|suf| suf.typ().is_some())
-            .unwrap_or_default()
-    };
-
-    let must_direct = is_private
-        || (exclude_prc
-            && (china::is_chinese_host(addr.split(':').next().unwrap())
-                || v4addr.map(china::is_chinese_ip).unwrap_or(false)));
-    if must_direct {
-        log::debug!("bypassing {}", addr);
-        let conn = smol::net::TcpStream::connect(&addr).await?;
-        write_request_status(
-            s5client.clone(),
-            SocksV5RequestStatus::Success,
-            request.host,
-            port,
-        )
-        .await?;
-        smol::future::race(
-            geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| ()),
-            geph4_aioutils::copy_with_stats(s5client.clone(), conn.clone(), |_| ()),
-        )
-        .await?;
-    } else {
-        let conn = tunnel_manager
-            .connect(&addr)
-            .timeout(Duration::from_secs(10))
-            .await
-            .context("open connection timeout")??;
-        write_request_status(
-            s5client.clone(),
-            SocksV5RequestStatus::Success,
-            request.host,
-            port,
-        )
-        .await?;
-        smol::future::race(
-            geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| {
-                notify_activity();
-            }),
-            geph4_aioutils::copy_with_stats(s5client, conn, |_| {
-                notify_activity();
-            }),
-        )
-        .await?;
-    }
     Ok(())
 }

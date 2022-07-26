@@ -1,13 +1,12 @@
 use std::time::{Duration, Instant};
 
-use anyhow::Context;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use smol_timeout::TimeoutExt;
 use structopt::StructOpt;
 
-use crate::{cache::ClientCache, AuthOpt, CommonOpt};
+use crate::{AuthOpt, CommonOpt};
 
-#[derive(Debug, StructOpt, Clone, Deserialize)]
+#[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
 pub struct BridgeTestOpt {
     #[structopt(flatten)]
     common: CommonOpt,
@@ -22,17 +21,18 @@ pub struct BridgeTestOpt {
 
 /// Entry point to the bridgetest subcommand, which sweeps through all available bridges and displays their reachability and performance in table.
 pub async fn main_bridgetest(opt: BridgeTestOpt) -> anyhow::Result<()> {
-    let client_cache = ClientCache::from_opts(&opt.common, &opt.auth)
-        .await
-        .context("cannot create ClientCache")?;
-    let exits = client_cache.get_exits().await?;
+    let cached_client = crate::to_cached_binder_client(&opt.common, &opt.auth).await?;
+
+    let exits = cached_client.get_exits().await?;
     for exit in exits {
-        eprintln!(
+        log::debug!(
             "EXIT: {} ({}-{})",
-            exit.hostname, exit.country_code, exit.city_code
+            exit.hostname,
+            exit.country_code,
+            exit.city_code
         );
-        client_cache.purge_bridges(&exit.hostname)?;
-        let bridges = client_cache.get_bridges(&exit.hostname).await?;
+        cached_client.purge_bridges(&exit.hostname)?;
+        let bridges = cached_client.get_bridges(&exit.hostname, false).await?;
         let proto = if opt.use_tcp {
             sosistab::Protocol::DirectTcp
         } else {
@@ -54,9 +54,11 @@ pub async fn main_bridgetest(opt: BridgeTestOpt) -> anyhow::Result<()> {
                     .timeout(Duration::from_secs(5))
                     .await;
                     match sess {
-                        Some(Ok(_)) => eprintln!(">>> {} ({:?})", bridge.endpoint, start.elapsed()),
-                        Some(Err(e)) => eprintln!(">>> {} (!! ERR: {} !!)", bridge.endpoint, e),
-                        None => eprintln!(">>> {} (!! TIMEOUT !!)", bridge.endpoint),
+                        Some(Ok(_)) => {
+                            log::debug!(">>> {} ({:?})", bridge.endpoint, start.elapsed())
+                        }
+                        Some(Err(e)) => log::debug!(">>> {} (!! ERR: {} !!)", bridge.endpoint, e),
+                        None => log::debug!(">>> {} (!! TIMEOUT !!)", bridge.endpoint),
                     }
                 })
             })
