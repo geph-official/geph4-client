@@ -5,7 +5,7 @@ use async_net::Ipv4Addr;
 
 use bytes::Bytes;
 use flume;
-use geph4_protocol::{activity::notify_activity, Vpn, VpnMessage, VpnStdio};
+use geph4_protocol::{Vpn, VpnMessage, VpnStdio};
 use geph_nat::GephNat;
 use governor::{Quota, RateLimiter};
 use once_cell::sync::{Lazy, OnceCell};
@@ -58,7 +58,6 @@ async fn vpn_up_loop(ctx: VpnContext) -> anyhow::Result<()> {
             let mangled_msg = ctx.nat.mangle_upstream_pkt(&bts);
 
             if let Some(body) = mangled_msg {
-                notify_activity();
                 ctx.vpn.send_vpn(VpnMessage::Payload(body)).await? // will this question mark make the whole function return if something fails?
             };
         }

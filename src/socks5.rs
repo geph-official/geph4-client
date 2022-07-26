@@ -1,5 +1,5 @@
 use anyhow::Context;
-use geph4_protocol::{activity::notify_activity, ClientTunnel};
+use geph4_protocol::ClientTunnel;
 use psl::Psl;
 use smol_timeout::TimeoutExt;
 use std::{
@@ -41,7 +41,6 @@ async fn handle_socks5(
     tun: Arc<ClientTunnel>,
     exclude_prc: bool,
 ) -> anyhow::Result<()> {
-    notify_activity();
     s5client.set_nodelay(true)?;
     use socksv5::v5::*;
     let _handshake = read_handshake(s5client.clone()).await?;
@@ -111,12 +110,8 @@ async fn handle_socks5(
         )
         .await?;
         smol::future::race(
-            geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| {
-                notify_activity();
-            }),
-            geph4_aioutils::copy_with_stats(s5client, conn, |_| {
-                notify_activity();
-            }),
+            geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| {}),
+            geph4_aioutils::copy_with_stats(s5client, conn, |_| {}),
         )
         .await?;
     }
