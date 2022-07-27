@@ -21,7 +21,7 @@ flume = "0.10.12"
 
 # geph4-binder-transport = {path="../geph4-libs/geph4-binder-transport"}
 geph4-binder-transport = "0.2"
-
+honggfuzz="0.5"
 os_pipe = "1.0.1"
 dirs = "3.0.2" 
 ed25519-dalek={ version = "1.0.1", features = ["serde"] }

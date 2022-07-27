@@ -126,6 +126,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bb07d2053ccdbe10e2af2995a2f116c1330396493dc1269f6a91d0ae82e19704"
 
 [[package]]
+name = "arbitrary"
+version = "1.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a7924531f38b1970ff630f03eb20a2fde69db5c590c93b0f3482e95dcc5fd60"
+
+[[package]]
 name = "arc-swap"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1401,7 +1407,7 @@ checksum = "62007592ac46aa7c2b6416f7deb9a8a8f63a01e0f1d6e1787d5630170db2b63e"
 dependencies = [
  "futures-core",
  "lock_api",
- "parking_lot 0.11.2",
+ "parking_lot",
 ]
 
 [[package]]
@@ -1496,9 +1502,10 @@ dependencies = [
  "bytes",
  "easy-parallel",
  "fastrand",
+ "honggfuzz",
  "log 0.4.17",
  "lru",
- "parking_lot 0.12.1",
+ "parking_lot",
  "pnet_packet 0.31.0",
 ]
 
@@ -1584,6 +1591,7 @@ dependencies = [
  "geph4-protocol",
  "governor",
  "hex",
+ "honggfuzz",
  "http",
  "http-types",
  "hyper",
@@ -1593,7 +1601,7 @@ dependencies = [
  "mizaru",
  "once_cell",
  "os_pipe",
- "parking_lot 0.11.2",
+ "parking_lot",
  "pin-project",
  "pnet_packet 0.27.2",
  "psl",
@@ -1645,7 +1653,7 @@ dependencies = [
  "log 0.4.17",
  "mizaru",
  "once_cell",
- "parking_lot 0.11.2",
+ "parking_lot",
  "rand 0.7.3",
  "regex",
  "rsa-fdh",
@@ -1745,7 +1753,7 @@ dependencies = [
  "futures-timer",
  "no-std-compat",
  "nonzero_ext 0.2.0",
- "parking_lot 0.11.2",
+ "parking_lot",
  "quanta",
  "rand 0.8.5",
  "smallvec",
@@ -1824,6 +1832,17 @@ checksum = "c1441c6b1e930e2817404b5046f1f989899143a12bf92de603b69f4e0aee1e15"
 dependencies = [
  "crypto-mac 0.10.1",
  "digest",
+]
+
+[[package]]
+name = "honggfuzz"
+version = "0.5.54"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bea09577d948a98a5f59b7c891e274c4fb35ad52f67782b3d0cb53b9c05301f1"
+dependencies = [
+ "arbitrary",
+ "lazy_static",
+ "memmap",
 ]
 
 [[package]]
@@ -2082,6 +2101,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2dffe52ecf27772e601905b7522cb4ef790d2cc203488bbd0e2fe85fcb74566d"
 
 [[package]]
+name = "memmap"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6585fd95e7bb50d6cc31e20d4cf9afb4e2ba16c5846fc76793f11218da9c475b"
+dependencies = [
+ "libc",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "memoffset"
 version = "0.6.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2323,16 +2352,6 @@ dependencies = [
  "instant",
  "lock_api",
  "parking_lot_core 0.8.5",
-]
-
-[[package]]
-name = "parking_lot"
-version = "0.12.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3742b2c103b9f06bc9fff0a37ff4912935851bee6d36f3c02bcc755bcfec228f"
-dependencies = [
- "lock_api",
- "parking_lot_core 0.9.3",
 ]
 
 [[package]]
@@ -3262,7 +3281,7 @@ dependencies = [
  "num_cpus",
  "once_cell",
  "ordered-float",
- "parking_lot 0.11.2",
+ "parking_lot",
  "priority-queue",
  "probability",
  "rand 0.7.3",

@@ -29,6 +29,8 @@ mod socks5;
 mod stats;
 mod vpn;
 
+pub use vpn::ack_decimate;
+
 // #[global_allocator]
 // static ALLOC: alloc_geiger::System = alloc_geiger::SYSTEM;
 
