@@ -1,7 +1,9 @@
 use crate::{ios::LOG_BUFFER, plots::stat_derive};
 use anyhow::Context;
+use chrono::{Datelike, Timelike, Utc};
 use geph4_protocol::tunnel::{activity::wait_activity, ClientTunnel};
-use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
+use http_types::headers::{HeaderValue, ToHeaderValues};
+use std::{collections::BTreeMap, net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
 
 /// Prints stats in a loop.
 pub async fn print_stats_loop(tun: Arc<ClientTunnel>) {
@@ -72,6 +74,23 @@ async fn handle_stats(
             Ok(res)
         }
         "/logs" => {
+            let now = Utc::now();
+            let filename = format!(
+                "filename=\"{}-{:02}-{:02}-{:02}:{:02}.txt\"",
+                now.year(),
+                now.month(),
+                now.day(),
+                now.hour(),
+                now.minute()
+            );
+            res.insert_header(
+                "Content-Disposition",
+                "attachment", // &vec![
+                              //     HeaderValue::from_str("attachment").unwrap(),
+                              //     HeaderValue::from_str(&filename).unwrap(),
+                              // // ]
+                              // .iter(),
+            );
             res.set_body(LOG_BUFFER.lock().get_logs());
             Ok(res)
         }
