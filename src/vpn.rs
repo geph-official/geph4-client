@@ -4,7 +4,6 @@ use anyhow::Context;
 use async_net::Ipv4Addr;
 
 use bytes::Bytes;
-use flume;
 use geph4_protocol::{Vpn, VpnMessage, VpnStdio};
 use geph_nat::GephNat;
 use governor::{Quota, RateLimiter};

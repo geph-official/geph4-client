@@ -15,10 +15,13 @@ use parking_lot::Mutex;
 use structopt::StructOpt;
 
 use crate::{
+    logs::LogBuffer,
     main_binderproxy, main_bridgetest, main_connect, main_sync,
     vpn::{DOWN_CHANNEL, UP_CHANNEL},
     Opt,
 };
+
+pub static LOG_BUFFER: Lazy<Mutex<LogBuffer>> = Lazy::new(|| Mutex::new(LogBuffer::new(20000)));
 
 static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
     let (read, write) = os_pipe::pipe().unwrap();
@@ -35,6 +38,8 @@ static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
             record.module_path().unwrap_or("none"),
             record.args()
         );
+        LOG_BUFFER.lock().add_line(&line);
+
         let mut write = write.lock();
         writeln!(buf, "{}", line).unwrap();
         writeln!(write, "{}", line)

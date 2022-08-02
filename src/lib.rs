@@ -18,6 +18,7 @@ use prelude::*;
 mod china;
 mod dns;
 pub mod ios;
+pub mod logs;
 mod main_binderproxy;
 mod main_bridgetest;
 mod main_connect;

@@ -1,4 +1,4 @@
-use crate::plots::stat_derive;
+use crate::{ios::LOG_BUFFER, plots::stat_derive};
 use anyhow::Context;
 use geph4_protocol::tunnel::{activity::wait_activity, ClientTunnel};
 use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
@@ -69,6 +69,10 @@ async fn handle_stats(
             .await?;
             res.set_body(body_str);
             res.set_content_type(http_types::mime::JSON);
+            Ok(res)
+        }
+        "/logs" => {
+            res.set_body(LOG_BUFFER.lock().get_logs());
             Ok(res)
         }
         "/kill" => std::process::exit(0),
