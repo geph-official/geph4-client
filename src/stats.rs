@@ -76,21 +76,14 @@ async fn handle_stats(
         "/logs" => {
             let now = Utc::now();
             let filename = format!(
-                "filename=\"{}-{:02}-{:02}-{:02}:{:02}.txt\"",
+                "attachment; filename=\"{}-{:02}-{:02}-{:02}:{:02}.txt\"",
                 now.year(),
                 now.month(),
                 now.day(),
                 now.hour(),
                 now.minute()
             );
-            res.insert_header(
-                "Content-Disposition",
-                "attachment", // &vec![
-                              //     HeaderValue::from_str("attachment").unwrap(),
-                              //     HeaderValue::from_str(&filename).unwrap(),
-                              // // ]
-                              // .iter(),
-            );
+            res.insert_header("Content-Disposition", filename);
             res.set_body(LOG_BUFFER.lock().get_logs());
             Ok(res)
         }

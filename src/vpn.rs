@@ -20,9 +20,9 @@ pub static VPN_FD: OnceCell<smol::Async<std::fs::File>> = OnceCell::new();
 
 // Up and down channels for iOS
 pub static UP_CHANNEL: Lazy<(flume::Sender<Bytes>, flume::Receiver<Bytes>)> =
-    Lazy::new(|| flume::bounded(100));
+    Lazy::new(|| flume::bounded(1000));
 pub static DOWN_CHANNEL: Lazy<(flume::Sender<Bytes>, flume::Receiver<Bytes>)> =
-    Lazy::new(|| flume::bounded(100));
+    Lazy::new(|| flume::bounded(1000));
 
 #[derive(Clone)]
 struct VpnContext {
