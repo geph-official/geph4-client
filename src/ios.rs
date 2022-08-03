@@ -115,19 +115,19 @@ pub extern "C" fn download_packet(buffer: *mut c_uchar, buflen: c_int) -> c_int 
     log::debug!("from geph: downloading packet!");
     let pkt = DOWN_CHANNEL.1.recv().unwrap();
     // let pkt = "111111".as_bytes();
-    log::debug!("from geph: downloaded packet!");
+    // log::debug!("from geph: downloaded packet!");
     let pkt_ref = pkt.as_ref();
     unsafe {
         let mut slice: &mut [u8] =
             std::slice::from_raw_parts_mut(buffer as *mut u8, buflen as usize);
-        log::debug!("from geph: sliced packet!");
+        // log::debug!("from geph: sliced packet!");
         if pkt.len() < slice.len() {
-            log::debug!("from geph: buffer large enough!");
+            // log::debug!("from geph: buffer large enough!");
             if slice.write_all(pkt_ref).is_err() {
                 log::debug!("from geph: error writing to buffer!");
                 -1
             } else {
-                log::debug!("from geph: success writing downloaded packet!");
+                // log::debug!("from geph: success writing downloaded packet!");
                 pkt.len() as c_int
             }
         } else {
