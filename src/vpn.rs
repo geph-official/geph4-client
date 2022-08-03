@@ -1,10 +1,10 @@
-use std::{io::Stdin, io::Write, num::NonZeroU32, sync::Arc};
+use std::{io::Stdin, io::Write, num::NonZeroU32, sync::Arc, time::Duration};
 
 use anyhow::Context;
 use async_net::Ipv4Addr;
 
 use bytes::Bytes;
-use geph4_protocol::{Vpn, VpnMessage, VpnStdio};
+use geph4_protocol::{ClientTunnel, VpnMessage, VpnStdio};
 use geph_nat::GephNat;
 use governor::{Quota, RateLimiter};
 use once_cell::sync::{Lazy, OnceCell};
@@ -26,17 +26,22 @@ pub static DOWN_CHANNEL: Lazy<(flume::Sender<Bytes>, flume::Receiver<Bytes>)> =
 
 #[derive(Clone)]
 struct VpnContext {
-    vpn: Arc<Vpn>,
+    tunnel: Arc<ClientTunnel>,
     nat: Arc<GephNat>,
 }
 
 pub const NAT_TABLE_SIZE: usize = 10000; // max size of the NAT table
 
 /// Runs a vpn session
-pub async fn run_vpn(vpn: Arc<Vpn>) -> anyhow::Result<()> {
-    let nat = GephNat::new(NAT_TABLE_SIZE, vpn.client_ip);
+pub async fn run_vpn(tunnel: Arc<ClientTunnel>) -> anyhow::Result<()> {
+    let nat = loop {
+        if let Some(ip) = tunnel.get_vpn_client_ip() {
+            break GephNat::new(NAT_TABLE_SIZE, ip);
+        }
+        smol::Timer::after(Duration::from_secs(1)).await;
+    };
     let ctx = VpnContext {
-        vpn: vpn.clone(),
+        tunnel: tunnel.clone(),
         nat: Arc::new(nat),
     };
     vpn_up_loop(ctx.clone()).or(vpn_down_loop(ctx)).await
@@ -57,7 +62,7 @@ async fn vpn_up_loop(ctx: VpnContext) -> anyhow::Result<()> {
             let mangled_msg = ctx.nat.mangle_upstream_pkt(&bts);
 
             if let Some(body) = mangled_msg {
-                ctx.vpn.send_vpn(VpnMessage::Payload(body)).await? // will this question mark make the whole function return if something fails?
+                ctx.tunnel.send_vpn(VpnMessage::Payload(body)).await? // will this question mark make the whole function return if something fails?
             };
         }
     }
@@ -67,7 +72,7 @@ async fn vpn_up_loop(ctx: VpnContext) -> anyhow::Result<()> {
 async fn vpn_down_loop(ctx: VpnContext) -> anyhow::Result<()> {
     let mut count = 0u64;
     loop {
-        let incoming = ctx.vpn.recv_vpn().await.context("downstream failed")?;
+        let incoming = ctx.tunnel.recv_vpn().await.context("downstream failed")?;
         count += 1;
         if count % 1000 == 1 {
             log::debug!("VPN received {} pkts ", count);

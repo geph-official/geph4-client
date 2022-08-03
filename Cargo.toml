@@ -79,7 +79,8 @@ tokio = { version = "1.11.0", features = ["rt","net", "io-util"] }
 hyper = { version = "0.14.12", features = ["http1", "client", "server", "tcp", "stream"] }
 pin-project = "1.0.8"
 http = "0.2.4"
-geph4-protocol = "0.3"
+# geph4-protocol = "0.3"
+geph4-protocol = {path="../geph4-protocol"}
 psl = "2.0.48"
 async-trait = "0.1.51"
 tracing = "0.1.26"

@@ -2,8 +2,8 @@ use crate::{ios::LOG_BUFFER, plots::stat_derive};
 use anyhow::Context;
 use chrono::{Datelike, Timelike, Utc};
 use geph4_protocol::tunnel::{activity::wait_activity, ClientTunnel};
-use http_types::headers::{HeaderValue, ToHeaderValues};
-use std::{collections::BTreeMap, net::SocketAddr, str::FromStr, sync::Arc, time::Duration};
+// use http_types::headers::{HeaderValue, ToHeaderValues};
+use std::{collections::BTreeMap, net::SocketAddr, sync::Arc, time::Duration};
 
 /// Prints stats in a loop.
 pub async fn print_stats_loop(tun: Arc<ClientTunnel>) {
@@ -97,7 +97,7 @@ async fn handle_stats(
         "/kill" => std::process::exit(0),
         _ => {
             // Serves all the stats as json
-            if tun.is_connected() {
+            if tun.get_vpn_client_ip().is_some() {
                 let mut stats_map: BTreeMap<String, f32> = BTreeMap::new();
                 stats_map.insert("total_tx".into(), stats.total_sent_bytes);
                 stats_map.insert("total_rx".into(), stats.total_recv_bytes);

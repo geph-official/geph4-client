@@ -264,6 +264,9 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         )
         .await?,
     );
+
+    let client_ip = tunnel.return_connected().await?;
+
     {
         // put tunnel into global variable
         let mut t = TUNNEL.write();
@@ -296,13 +299,11 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         smolscale::spawn(smol::future::pending())
     };
 
-    // negotiate vpn
-    let vpn = Arc::new(tunnel.start_vpn().await?);
     // run vpn
     let vpn_fut = if opt.stdio_vpn {
-        smolscale::spawn(run_vpn(vpn.clone()).or(stdio_vpn(vpn.client_ip)))
+        smolscale::spawn(run_vpn(tunnel.clone()).or(stdio_vpn(client_ip)))
     } else {
-        smolscale::spawn(run_vpn(vpn.clone()))
+        smolscale::spawn(run_vpn(tunnel.clone()))
     };
 
     // port forwarders
