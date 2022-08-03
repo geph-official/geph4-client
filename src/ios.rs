@@ -105,14 +105,14 @@ pub extern "C" fn call_geph(opt: *const c_char) -> *mut c_char {
 pub extern "C" fn upload_packet(pkt: *const c_uchar, len: c_int) {
     unsafe {
         let slice = std::slice::from_raw_parts(pkt as *mut u8, len as usize);
-        let bytes: Bytes = slice.into();
+        let owned = slice.to_vec();
+        let bytes: Bytes = owned.into();
         UP_CHANNEL.0.send(bytes).unwrap();
     }
 }
 
 #[no_mangle]
 pub extern "C" fn download_packet(buffer: *mut c_uchar, buflen: c_int) -> c_int {
-    log::debug!("from geph: downloading packet!");
     let pkt = DOWN_CHANNEL.1.recv().unwrap();
     // let pkt = "111111".as_bytes();
     // log::debug!("from geph: downloaded packet!");
@@ -120,14 +120,11 @@ pub extern "C" fn download_packet(buffer: *mut c_uchar, buflen: c_int) -> c_int 
     unsafe {
         let mut slice: &mut [u8] =
             std::slice::from_raw_parts_mut(buffer as *mut u8, buflen as usize);
-        // log::debug!("from geph: sliced packet!");
         if pkt.len() < slice.len() {
-            // log::debug!("from geph: buffer large enough!");
             if slice.write_all(pkt_ref).is_err() {
                 log::debug!("from geph: error writing to buffer!");
                 -1
             } else {
-                // log::debug!("from geph: success writing downloaded packet!");
                 pkt.len() as c_int
             }
         } else {
