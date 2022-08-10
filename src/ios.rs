@@ -23,7 +23,7 @@ use crate::{
 
 pub static LOG_BUFFER: Lazy<Mutex<LogBuffer>> = Lazy::new(|| Mutex::new(LogBuffer::new(20000)));
 
-static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
+pub static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
     let (read, write) = os_pipe::pipe().unwrap();
     let write = Mutex::new(write);
     env_logger::Builder::from_env(
@@ -212,5 +212,36 @@ pub extern "C" fn get_logs(buffer: *mut c_char, buflen: c_int) -> c_int {
         } else {
             -1
         }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn test_listening_ports() {
+    std::thread::spawn(|| {
+        let listener = TcpListener::bind("0.0.0.0:10010")?;
+
+        // accept connections and process them serially
+        for stream in listener.incoming() {
+            stream.write(&[1])?;
+            log::debug!("accepted a TCP connection on 0.0.0.0:10010!");
+        }
+    });
+
+    std::thread::spawn(|| {
+        let listener = TcpListener::bind("[::]:10010")?;
+
+        // accept connections and process them serially
+        for stream in listener.incoming() {
+            stream.write(&[1])?;
+            log::debug!("accepted a TCP connection on [::/]:10010!");
+        }
+    });
+
+    if let Ok(stream) = TcpStream::connect("0.0.0.0:10010") {
+        lob::debug!("Connected to the 0.0.0.0 server!");
+    }
+
+    if let Ok(stream) = TcpStream::connect("[::]:10010") {
+        log::debug!("Connected to the [::]:10010 server!");
     }
 }

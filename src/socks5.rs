@@ -24,7 +24,7 @@ pub async fn socks5_loop(
             .accept()
             .await
             .context("cannot accept socks5")?;
-        log::debug!("accepted a socks5 client");
+        // log::debug!("accepted a socks5 client");
         let tun = tun.clone();
         if let Ok(_ticket) = acquire_fd().await {
             smolscale::spawn(async move {

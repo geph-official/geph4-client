@@ -75,7 +75,7 @@ async fn handle_stats(
         }
         "/logs" => {
             let now = Utc::now();
-            let filename = format!(
+            let values = format!(
                 "attachment; filename=\"{}-{:02}-{:02}-{:02}:{:02}.txt\"",
                 now.year(),
                 now.month(),
@@ -83,7 +83,7 @@ async fn handle_stats(
                 now.hour(),
                 now.minute()
             );
-            res.insert_header("Content-Disposition", filename);
+            res.insert_header("Content-Disposition", values);
             res.set_body(LOG_BUFFER.lock().get_logs());
             Ok(res)
         }

@@ -1,22 +1,15 @@
-use std::{ffi::CString, time::Duration};
-
-use geph4client::{
-    dispatch,
-    ios::{call_geph, check_bridges, get_logs},
-    Opt,
-};
-// use rand::AsByteSliceMut;
-// use std::{ffi::CString, time::Duration};
-use structopt::StructOpt;
+use geph4client::ios::{call_geph, LOG_LINES};
+use std::{ffi::CString, io::BufRead};
 
 // ios simulation going on here
 fn main() -> anyhow::Result<()> {
     // logs loop
     std::thread::spawn(|| loop {
-        let buflen = 1000;
-        let mut buf = vec![0; buflen];
-        let ret = get_logs(buf.as_mut_ptr(), buflen as i32);
-        std::thread::sleep(Duration::from_secs(1));
+        let mut line = String::new();
+        if LOG_LINES.lock().read_line(&mut line).is_err() {
+            return -1;
+        }
+        eprint!("{}", line);
     });
 
     let args_arr = vec![
@@ -28,8 +21,12 @@ fn main() -> anyhow::Result<()> {
         "doremi",
         "--exit-server",
         "us-hio-01.exits.geph.io",
+        "--use-tcp",
+        "--http-listen",
+        "0.0.0.0:9910",
+        "--socks5-listen",
+        "0.0.0.0:9909",
         "--sticky-bridges",
-        "--stdio-vpn",
     ];
     let json = serde_json::to_string(&args_arr)?;
     let ret = call_geph(json.as_ptr() as *const i8);
