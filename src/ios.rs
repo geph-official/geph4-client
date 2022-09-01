@@ -2,7 +2,7 @@ use std::{
     ffi::{CStr, CString},
     format,
     io::{BufRead, BufReader, Write},
-    net::IpAddr,
+    net::{IpAddr, SocketAddr, SocketAddrV4, TcpListener, TcpStream},
     os::raw::{c_char, c_int, c_uchar},
     time::Duration,
 };
@@ -21,7 +21,7 @@ use crate::{
     Opt,
 };
 
-pub static LOG_BUFFER: Lazy<Mutex<LogBuffer>> = Lazy::new(|| Mutex::new(LogBuffer::new(20000)));
+pub static LOG_BUFFER: Lazy<Mutex<LogBuffer>> = Lazy::new(|| Mutex::new(LogBuffer::new(200000)));
 
 pub static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
     let (read, write) = os_pipe::pipe().unwrap();
@@ -217,31 +217,30 @@ pub extern "C" fn get_logs(buffer: *mut c_char, buflen: c_int) -> c_int {
 
 #[no_mangle]
 pub extern "C" fn test_listening_ports() {
-    std::thread::spawn(|| {
-        let listener = TcpListener::bind("0.0.0.0:10010")?;
+    log::debug!("entered test_listening_ports");
 
+    let all_interfaces = SocketAddr::V4(SocketAddrV4::new(
+        std::net::Ipv4Addr::new(0, 0, 0, 0),
+        10010,
+    ));
+
+    let listener = TcpListener::bind(all_interfaces).unwrap();
+
+    log::debug!(
+        "the listener looks like it's bound to {:?} ({:?})",
+        listener.local_addr().unwrap(),
+        listener
+    );
+
+    std::thread::spawn(move || {
         // accept connections and process them serially
         for stream in listener.incoming() {
-            stream.write(&[1])?;
+            let _ = stream.unwrap().write(&[1]);
             log::debug!("accepted a TCP connection on 0.0.0.0:10010!");
         }
     });
-
-    std::thread::spawn(|| {
-        let listener = TcpListener::bind("[::]:10010")?;
-
-        // accept connections and process them serially
-        for stream in listener.incoming() {
-            stream.write(&[1])?;
-            log::debug!("accepted a TCP connection on [::/]:10010!");
-        }
-    });
-
-    if let Ok(stream) = TcpStream::connect("0.0.0.0:10010") {
-        lob::debug!("Connected to the 0.0.0.0 server!");
-    }
-
-    if let Ok(stream) = TcpStream::connect("[::]:10010") {
-        log::debug!("Connected to the [::]:10010 server!");
+    match TcpStream::connect("127.0.0.1:10010") {
+        Ok(_) => log::debug!("Connected to the server listening on 0.0.0.0!"),
+        Err(e) => log::debug!("{}", e),
     }
 }

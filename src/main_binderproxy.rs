@@ -52,6 +52,7 @@ async fn handle_req(
     match req.url().path() {
         "/register" => handle_register(binder_client, req).await,
         "/captcha" => handle_captcha(binder_client, req).await,
+        "/delete_user" => handle_delete_user(binder_client, req).await,
         _ => Ok(Response::new(404)),
     }
     .map(|mut res| {
@@ -61,6 +62,31 @@ async fn handle_req(
         res.insert_header("Access-Control-Expose-Headers", "*");
         res
     })
+}
+
+async fn handle_delete_user(
+    binder_client: Arc<dyn BinderClient>,
+    mut req: Request,
+) -> http_types::Result<Response> {
+    #[derive(Serialize, Deserialize, Debug)]
+    struct Req {
+        username: String,
+        password: String,
+    }
+
+    let request: Req = smol::future::block_on(req.take_body().into_json())?;
+    match binder_client
+        .request(BinderRequestData::DeleteUser {
+            username: request.username,
+            password: request.password,
+        })
+        .timeout(TIMEOUT)
+        .await
+    {
+        Some(Ok(_)) => Ok(Response::new(200)),
+        Some(Err(_)) => Ok(Response::new(401)),
+        _ => Ok(Response::new(500)),
+    }
 }
 
 async fn handle_register(

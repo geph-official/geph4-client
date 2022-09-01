@@ -113,6 +113,6 @@ opt-level=1
 [profile.release]
 panic = "abort"
 opt-level=3
-debug=0
+debug=2
 # lto=true
 strip=true
