@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime};
 // use crate::stats::global_sosistab_stats;
 
 /// Derive delta-stats from the original stats.
-pub fn stat_derive(stats: geph4_protocol::Stats) -> Vec<DeltaStat> {
+pub fn stat_derive(stats: geph4_protocol::tunnel::Stats) -> Vec<DeltaStat> {
     let mut toret = vec![];
     let now = SystemTime::now();
     let first_time = stats

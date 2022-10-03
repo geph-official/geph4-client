@@ -1,19 +1,22 @@
-#![type_length_limit = "2000000"]
-use acidjson::AcidJson;
 use bytes::Bytes;
+
 use fronts::parse_fronts;
-use geph4_binder_transport::BinderClient;
-use geph4_protocol::{BinderParams, CachedBinderClient};
+// use geph4_binder_transport::BinderClient;
+use geph4_protocol::binder::client::CachedBinderClient;
+use geph4_protocol::binder::protocol::BinderClient;
+
 use serde::{self, Deserialize, Serialize};
-use smol_timeout::TimeoutExt;
-use std::{collections::BTreeMap, path::PathBuf, sync::Arc, time::Duration};
+
+use std::{
+    path::PathBuf,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 use structopt::StructOpt;
 mod fd_semaphore;
 mod fronts;
 mod lazy_binder_client;
 pub mod serialize;
 mod socks2http;
-use crate::{fronts::fetch_fronts, lazy_binder_client::LazyBinderClient};
 use prelude::*;
 mod china;
 mod dns;
@@ -29,10 +32,8 @@ mod socks5;
 mod stats;
 mod vpn;
 
-// #[global_allocator]
-// static ALLOC: alloc_geiger::System = alloc_geiger::SYSTEM;
-
 #[derive(Debug, StructOpt, Deserialize, Serialize)]
+#[allow(clippy::large_enum_variant)]
 pub enum Opt {
     Connect(main_connect::ConnectOpt),
     BridgeTest(main_bridgetest::BridgeTestOpt),
@@ -88,43 +89,6 @@ pub struct CommonOpt {
     binder_mizaru_plus: mizaru::PublicKey,
 }
 
-impl CommonOpt {
-    pub async fn to_binder_client(&self) -> Arc<dyn BinderClient> {
-        let fronts: BTreeMap<String, String> = self
-            .binder_http_fronts
-            .split(',')
-            .zip(self.binder_http_hosts.split(','))
-            .map(|(front, host)| (front.to_string(), host.to_string()))
-            .collect();
-        let main_fronts = parse_fronts(self.binder_master, fronts);
-        let binder_extra_url = self.binder_extra_url.clone();
-        let binder_master = self.binder_master;
-        let auxiliary_fronts = LazyBinderClient::new(smolscale::spawn(async move {
-            for url in binder_extra_url.split(',') {
-                log::debug!("getting extra fronts...");
-                match fetch_fronts(url.into())
-                    .timeout(Duration::from_secs(30))
-                    .await
-                {
-                    None => log::debug!("(timed out)"),
-                    Some(Ok(val)) => {
-                        log::debug!("inserting extra {} fronts", val.len());
-                        return Arc::new(parse_fronts(binder_master, val));
-                    }
-                    Some(Err(e)) => {
-                        log::warn!("error fetching fronts from {}: {:?}", url, e)
-                    }
-                }
-            }
-            smol::future::pending().await
-        }));
-        let mut toret = geph4_binder_transport::MultiBinderClient::empty();
-        toret = toret.add_client(main_fronts);
-        toret = toret.add_client(auxiliary_fronts);
-        Arc::new(toret)
-    }
-}
-
 #[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
 pub struct AuthOpt {
     #[structopt(
@@ -143,11 +107,6 @@ pub struct AuthOpt {
     /// password
     password: String,
 }
-
-// pub fn start_with_args(args: Vec<&str>) -> anyhow::Result<()> {
-//     let opt: Opt = Opt::from_iter_safe(args)?;
-//     dispatch(opt)
-// }
 
 pub fn dispatch(opt: Opt) -> anyhow::Result<()> {
     config_logging();
@@ -172,25 +131,54 @@ pub fn dispatch(opt: Opt) -> anyhow::Result<()> {
     })
 }
 
-pub async fn to_cached_binder_client(
+pub async fn get_binder_client(
     common_opt: &CommonOpt,
     auth_opt: &AuthOpt,
 ) -> anyhow::Result<CachedBinderClient> {
     let mut dbpath = auth_opt.credential_cache.clone();
+    dbpath.push(&auth_opt.username);
     std::fs::create_dir_all(&dbpath)?;
-    dbpath.push("ngcredentials.json");
-    if std::fs::read(&dbpath).is_err() {
-        std::fs::write(&dbpath, b"{}")?;
-    }
-    let cache: AcidJson<BTreeMap<String, Bytes>> = AcidJson::open(&dbpath)?;
-    let cbc = CachedBinderClient::new(BinderParams {
-        underlying: common_opt.to_binder_client().await,
-        cache: Arc::new(cache),
-        binder_mizaru_free_pk: common_opt.binder_mizaru_free.clone(),
-        binder_mizaru_plus_pk: common_opt.binder_mizaru_plus.clone(),
-        username: auth_opt.username.clone(),
-        password: auth_opt.password.clone(),
-    });
+    let cbc = CachedBinderClient::new(
+        {
+            let dbpath = dbpath.clone();
+            move |key| {
+                let mut dbpath = dbpath.clone();
+                dbpath.push(format!("{}.json", key));
+                let r = std::fs::read(dbpath).ok()?;
+                let (tstamp, bts): (u64, Bytes) = bincode::deserialize(&r).ok()?;
+                if tstamp > SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs() {
+                    Some(bts)
+                } else {
+                    None
+                }
+            }
+        },
+        {
+            let dbpath = dbpath.clone();
+            move |k, v, expires| {
+                let noviy_taymstamp = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    + expires.as_secs();
+                let to_write =
+                    bincode::serialize(&(noviy_taymstamp, Bytes::copy_from_slice(v))).unwrap();
+                let mut dbpath = dbpath.clone();
+                dbpath.push(format!("{}.json", k));
+                let _ = std::fs::write(dbpath, to_write);
+            }
+        },
+        BinderClient(parse_fronts(
+            *common_opt.binder_master.as_bytes(),
+            common_opt
+                .binder_http_fronts
+                .split(',')
+                .zip(common_opt.binder_http_hosts.split(','))
+                .map(|(k, v)| (k.to_string(), v.to_string())),
+        )),
+        &auth_opt.username,
+        &auth_opt.password,
+    );
     Ok(cbc)
 }
 

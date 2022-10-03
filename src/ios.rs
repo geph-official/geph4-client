@@ -2,13 +2,12 @@ use std::{
     ffi::{CStr, CString},
     format,
     io::{BufRead, BufReader, Write},
-    net::IpAddr,
     os::raw::{c_char, c_int, c_uchar},
     time::Duration,
 };
 
 use bytes::Bytes;
-use geph4_protocol::EndpointSource;
+
 use once_cell::sync::Lazy;
 use os_pipe::PipeReader;
 use parking_lot::Mutex;
@@ -133,61 +132,62 @@ pub extern "C" fn download_packet(buffer: *mut c_uchar, buflen: c_int) -> c_int 
 }
 
 #[no_mangle]
-pub extern "C" fn check_bridges(buffer: *mut c_char, buflen: c_int) -> c_int {
-    let mut whitelist: Vec<IpAddr> = Vec::new();
-    if let Some(tun) = main_connect::TUNNEL.read().clone() {
-        let endpoint = tun.get_endpoint();
-        match endpoint {
-            EndpointSource::Independent { endpoint: _ } => {
-                -1 // independent exits not supported for iOS
-            }
-            EndpointSource::Binder(binder_tunnel_params) => {
-                let cached_binder = binder_tunnel_params.ccache;
-                let exits = smol::block_on(cached_binder.get_exits()).unwrap();
-                for exit in exits {
-                    if let Ok(server_addr) = smol::block_on(
-                        geph4_protocol::getsess::ipv4_addr_from_hostname(exit.hostname.clone()),
-                    ) {
-                        whitelist.push(server_addr.ip());
-                        // bridges
-                        if let Ok(bridges) =
-                            smol::block_on(cached_binder.get_bridges(&exit.hostname, true))
-                        {
-                            for bridge in bridges {
-                                let ip = bridge.endpoint.ip();
-                                whitelist.push(ip);
-                            }
-                        }
-                    }
-                }
-                let whitelist = serde_json::json!(whitelist).to_string();
-                log::debug!(
-                    "whitelist is {}; with length {}",
-                    whitelist,
-                    whitelist.len()
-                );
+pub extern "C" fn check_bridges(_buffer: *mut c_char, _buflen: c_int) -> c_int {
+    todo!()
+    // let mut whitelist: Vec<IpAddr> = Vec::new();
+    // if let Some(tun) = main_connect::TUNNEL.read().clone() {
+    //     let endpoint = tun.get_endpoint();
+    //     match endpoint {
+    //         EndpointSource::Independent { endpoint: _ } => {
+    //             -1 // independent exits not supported for iOS
+    //         }
+    //         EndpointSource::Binder(binder_tunnel_params) => {
+    //             let cached_binder = binder_tunnel_params.ccache;
+    //             let exits = smol::block_on(cached_binder.get_summary().exits).unwrap();
+    //             for exit in exits {
+    //                 if let Ok(server_addr) = smol::block_on(
+    //                     geph4_protocol::getsess::ipv4_addr_from_hostname(exit.hostname.clone()),
+    //                 ) {
+    //                     whitelist.push(server_addr.ip());
+    //                     // bridges
+    //                     if let Ok(bridges) =
+    //                         smol::block_on(cached_binder.get_bridges(&exit.hostname, true))
+    //                     {
+    //                         for bridge in bridges {
+    //                             let ip = bridge.endpoint.ip();
+    //                             whitelist.push(ip);
+    //                         }
+    //                     }
+    //                 }
+    //             }
+    //             let whitelist = serde_json::json!(whitelist).to_string();
+    //             log::debug!(
+    //                 "whitelist is {}; with length {}",
+    //                 whitelist,
+    //                 whitelist.len()
+    //             );
 
-                unsafe {
-                    let mut slice =
-                        std::slice::from_raw_parts_mut(buffer as *mut u8, buflen as usize);
-                    if whitelist.len() < slice.len() {
-                        if slice.write_all(whitelist.as_bytes()).is_err() {
-                            log::debug!("check bridges failed: writing to buffer failed");
-                            -1
-                        } else {
-                            whitelist.len() as c_int
-                        }
-                    } else {
-                        log::debug!("check bridges failed: buffer not big enough");
-                        -1
-                    }
-                }
-            }
-        }
-    } else {
-        log::debug!("check bridges failed: no tunnel");
-        -1
-    }
+    //             unsafe {
+    //                 let mut slice =
+    //                     std::slice::from_raw_parts_mut(buffer as *mut u8, buflen as usize);
+    //                 if whitelist.len() < slice.len() {
+    //                     if slice.write_all(whitelist.as_bytes()).is_err() {
+    //                         log::debug!("check bridges failed: writing to buffer failed");
+    //                         -1
+    //                     } else {
+    //                         whitelist.len() as c_int
+    //                     }
+    //                 } else {
+    //                     log::debug!("check bridges failed: buffer not big enough");
+    //                     -1
+    //                 }
+    //             }
+    //         }
+    //     }
+    // } else {
+    //     log::debug!("check bridges failed: no tunnel");
+    //     -1
+    // }
 }
 
 #[no_mangle]

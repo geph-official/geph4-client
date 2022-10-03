@@ -30,19 +30,20 @@ fn dbg_err<T, E: std::fmt::Display>(f: Result<T, E>) -> Result<T, E> {
     }
 }
 
-pub async fn main_binderproxy(opt: BinderProxyOpt) -> anyhow::Result<()> {
-    log::info!("binder proxy mode started");
-    let binder_client = opt.common.to_binder_client().await;
-    let listener = smol::net::TcpListener::bind(opt.listen).await?;
-    loop {
-        let (client, _) = listener.accept().await?;
-        let binder_client = binder_client.clone();
-        smolscale::spawn(async_h1::accept(client, move |req| {
-            let binder_client = binder_client.clone();
-            async move { dbg_err(handle_req(binder_client, req).await) }
-        }))
-        .detach();
-    }
+pub async fn main_binderproxy(_opt: BinderProxyOpt) -> anyhow::Result<()> {
+    todo!()
+    // log::info!("binder proxy mode started");
+    // let binder_client = opt.common.to_binder_client().await;
+    // let listener = smol::net::TcpListener::bind(opt.listen).await?;
+    // loop {
+    //     let (client, _) = listener.accept().await?;
+    //     let binder_client = binder_client.clone();
+    //     smolscale::spawn(async_h1::accept(client, move |req| {
+    //         let binder_client = binder_client.clone();
+    //         async move { dbg_err(handle_req(binder_client, req).await) }
+    //     }))
+    //     .detach();
+    // }
 }
 
 async fn handle_req(

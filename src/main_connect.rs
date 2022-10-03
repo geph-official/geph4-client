@@ -1,24 +1,26 @@
 use std::{
-    net::Ipv4Addr, net::SocketAddr, path::PathBuf, process::Stdio, sync::Arc, time::Duration,
+    net::Ipv4Addr, net::SocketAddr, path::PathBuf, sync::Arc,
 };
 
-use anyhow::Context;
+
 use async_compat::Compat;
-use async_net::TcpStream;
+
 use china::test_china;
 use futures_util::future::select_all;
-use geph4_protocol::EndpointSource;
-use geph4_protocol::{self, tunnel::ClientTunnel, BinderTunnelParams, ConnectionOptions};
-use http_types::{Method, Request};
+use geph4_protocol::{
+    self,
+    tunnel::{BinderTunnelParams, ClientTunnel, ConnectionOptions, EndpointSource},
+};
+
 use once_cell::sync::Lazy;
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use smol::prelude::*;
 use structopt::StructOpt;
-use tap::Tap;
+
 
 use crate::socks5::socks5_loop;
-use crate::vpn::{run_vpn, stdio_vpn};
+
 use crate::{china, port_forwarder::port_forwarder};
 use crate::{stats::print_stats_loop, vpn::VPN_FD, AuthOpt, CommonOpt};
 
@@ -150,79 +152,6 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
             .set(smol::Async::new(unsafe { std::fs::File::from_raw_fd(fd) })?)
             .expect("cannot set VPN file descriptor");
     }
-    // We *recursively* call Geph again if GEPH_RECURSIVE is not set.
-    // This means we start a child process with the same arguments, and pipe its stderr to the log file directly.
-    // This ensures that 1. we can capture *all* stderr no matter what,
-    // 2. we can restart the daemon no matter what (even when panics/OOM/etc happen),
-    // and keep logs of what happened
-    if std::env::var("GEPH_RECURSIVE").is_err() {
-        static IP_REGEX: Lazy<regex::Regex> = Lazy::new(|| {
-            regex::Regex::new(r#"[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"#).unwrap()
-        });
-        let mut log_file = if let Some(path) = opt.log_file.as_ref() {
-            Some(
-                smol::fs::File::create(path)
-                    .await
-                    .context("cannot create log file")?,
-            )
-        } else {
-            None
-        };
-        // infinitely loop around
-        let my_path = std::env::current_exe()?;
-        std::env::set_var("GEPH_RECURSIVE", "1");
-        scopeguard::defer!(std::env::remove_var("GEPH_RECURSIVE"));
-        loop {
-            let args = std::env::args().collect::<Vec<_>>();
-            let mut child = smol::process::Command::new(&my_path)
-                .args(&args[1..])
-                .stderr(Stdio::piped())
-                .stdin(Stdio::inherit())
-                .stdout(Stdio::inherit())
-                .spawn()
-                .context("cannot spawn child")?;
-
-            let mut stdout = smol::io::BufReader::new(child.stderr.take().unwrap());
-            let mut line = String::new();
-            loop {
-                if stdout.read_line(&mut line).await? == 0 {
-                    // we've gotten to the end
-                    log::debug!("child process ended, checking status code!");
-                    let output = child.output().await?;
-                    let scode = output.status.code().unwrap_or(200);
-                    if scode != 0 {
-                        if let Some(log_file) = log_file.as_mut() {
-                            log_file
-                                .write_all(b"------------------- RESTART -------------------\n")
-                                .await?;
-                        }
-                        log::error!("***** ABNORMAL RESTART (status code {}) *****", scode);
-
-                        // Attempt to kill any possible other Geph
-                        let res = kill_existing_geph(opt.stats_listen).await;
-                        log::debug!("kill resulted in {:?}", res);
-                        break;
-                    } else {
-                        log::info!("Exiting normally.");
-                        std::process::exit(0);
-                    }
-                } else {
-                    log::debug!("{}", line);
-                    if let Some(log_file) = log_file.as_mut() {
-                        let line = IP_REGEX.replace_all(&line, "[redacted]");
-                        let stripped_line =
-                            strip_ansi_escapes::strip(line.as_bytes()).unwrap_or_default();
-                        log_file
-                            .write_all(&stripped_line)
-                            .await
-                            .context("cannot write to log file")?;
-                    }
-                    line.clear();
-                }
-            }
-            smol::Timer::after(Duration::from_secs(1)).await;
-        }
-    }
 
     log::info!("connect mode started");
 
@@ -240,7 +169,7 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
                 endpoint: override_url,
             }
         } else {
-            let cbc = crate::to_cached_binder_client(&opt.common, &opt.auth).await?;
+            let cbc = crate::get_binder_client(&opt.common, &opt.auth).await?;
             EndpointSource::Binder(BinderTunnelParams {
                 ccache: Arc::new(cbc),
                 exit_server: opt.exit_server.clone(),
@@ -269,8 +198,6 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         let mut t = TUNNEL.write();
         *t = Some(tunnel.clone());
     }
-    // stats server
-    let stats_fut = crate::stats::serve_stats(tunnel.clone(), opt.stats_listen);
     // print stats
     let stats_printer_fut = async {
         print_stats_loop(tunnel.clone()).await;
@@ -296,15 +223,6 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
         smolscale::spawn(smol::future::pending())
     };
 
-    // negotiate vpn
-    let vpn = Arc::new(tunnel.start_vpn().await?);
-    // run vpn
-    let vpn_fut = if opt.stdio_vpn {
-        smolscale::spawn(run_vpn(vpn.clone()).or(stdio_vpn(vpn.client_ip)))
-    } else {
-        smolscale::spawn(run_vpn(vpn.clone()))
-    };
-
     // port forwarders
     let port_forwarders: Vec<_> = opt
         .forward_ports
@@ -316,22 +234,9 @@ pub async fn main_connect(opt: ConnectOpt) -> anyhow::Result<()> {
     }
 
     // ready, set, go!
-    async { stats_fut.await }
-        .race(async { stats_printer_fut.await })
+    async { stats_printer_fut.await }
         .race(async { socks5_fut.await })
         .race(async { dns_fut.await })
-        .race(async { vpn_fut.await })
+        // .race(async { vpn_fut.await })
         .await
-}
-
-/// Kills geph at a particular port.
-async fn kill_existing_geph(stats_addr: SocketAddr) -> anyhow::Result<()> {
-    let conn = TcpStream::connect(
-        stats_addr.tap_mut(|addr| addr.set_ip(Ipv4Addr::new(127, 0, 0, 1).into())),
-    )
-    .await?;
-    async_h1::connect(conn, Request::new(Method::Get, "/kill"))
-        .await
-        .map_err(|e| e.into_inner())?;
-    Ok(())
 }

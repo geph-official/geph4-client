@@ -1,6 +1,6 @@
 use async_net::SocketAddr;
 use async_tls::{client::TlsStream, TlsConnector};
-use geph4_protocol::ClientTunnel;
+use geph4_protocol::tunnel::ClientTunnel;
 use smol::{
     channel::{Receiver, Sender},
     prelude::*,

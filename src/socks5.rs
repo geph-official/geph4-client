@@ -1,5 +1,5 @@
 use anyhow::Context;
-use geph4_protocol::ClientTunnel;
+use geph4_protocol::tunnel::ClientTunnel;
 use psl::Psl;
 use smol_timeout::TimeoutExt;
 use std::{

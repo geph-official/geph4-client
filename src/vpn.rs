@@ -4,8 +4,7 @@ use anyhow::Context;
 use async_net::Ipv4Addr;
 
 use bytes::Bytes;
-use flume;
-use geph4_protocol::{Vpn, VpnMessage, VpnStdio};
+use geph4_protocol::{tunnel::ClientTunnel, VpnMessage, VpnStdio};
 use geph_nat::GephNat;
 use governor::{Quota, RateLimiter};
 use once_cell::sync::{Lazy, OnceCell};
@@ -27,15 +26,18 @@ pub static DOWN_CHANNEL: Lazy<(flume::Sender<Bytes>, flume::Receiver<Bytes>)> =
 
 #[derive(Clone)]
 struct VpnContext {
-    vpn: Arc<Vpn>,
+    vpn: Arc<ClientTunnel>,
     nat: Arc<GephNat>,
 }
 
 pub const NAT_TABLE_SIZE: usize = 10000; // max size of the NAT table
 
 /// Runs a vpn session
-pub async fn run_vpn(vpn: Arc<Vpn>) -> anyhow::Result<()> {
-    let nat = GephNat::new(NAT_TABLE_SIZE, vpn.client_ip);
+pub async fn run_vpn(vpn: Arc<ClientTunnel>) -> anyhow::Result<()> {
+    let nat = GephNat::new(
+        NAT_TABLE_SIZE,
+        vpn.get_vpn_client_ip().context("no vpn client ip")?,
+    );
     let ctx = VpnContext {
         vpn: vpn.clone(),
         nat: Arc::new(nat),
@@ -53,7 +55,7 @@ async fn vpn_up_loop(ctx: VpnContext) -> anyhow::Result<()> {
         let bts = UP_CHANNEL.1.recv_async().await.unwrap();
         // ACK decimation
         if ack_decimate(&bts).is_some() && limiter.check().is_err() {
-            log::debug!("SUPPRESSING");
+            log::trace!("doing ack decimation!");
         } else {
             let mangled_msg = ctx.nat.mangle_upstream_pkt(&bts);
 
@@ -76,7 +78,9 @@ async fn vpn_down_loop(ctx: VpnContext) -> anyhow::Result<()> {
         if let geph4_protocol::VpnMessage::Payload(bts) = incoming {
             let mangled_incoming = ctx.nat.mangle_downstream_pkt(&bts);
             if let Some(mangled_bts) = mangled_incoming {
-                let _ = DOWN_CHANNEL.0.try_send(mangled_bts.clone());
+                let _ = DOWN_CHANNEL.0.try_send(mangled_bts);
+            } else {
+                let _ = DOWN_CHANNEL.0.try_send(bts);
             }
         }
     }
@@ -127,8 +131,6 @@ async fn std_io_vpn_down_loop() -> anyhow::Result<()> {
             buff.clear();
         }
         let bts = DOWN_CHANNEL.1.recv_async().await?;
-        log::debug!("down bts = {:?}", bts);
-
         // either write to stdout or the FD
         if let Some(mut fd) = VPN_FD.get() {
             fd.write(&bts).await?;
@@ -143,17 +145,13 @@ async fn stdio_vpn_up_loop() -> anyhow::Result<()> {
     log::debug!("STD_IO_VPN UP LOOP");
     loop {
         let bts = if let Some(mut vpnfd) = VPN_FD.get() {
-            log::debug!("fd");
             let mut buf = [0; 2048];
             let n = vpnfd.read(&mut buf).await?;
-            log::debug!("pkt of length {} from raw FD!", n);
             Bytes::copy_from_slice(&buf[..n])
         } else {
             let msg = STDIN.recv().await;
-            log::debug!("up pkt from stdin!");
             msg.body
         };
-        log::debug!("up bts = {:?}", bts);
         UP_CHANNEL.0.send(bts)?
     }
 }

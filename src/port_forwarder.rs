@@ -1,8 +1,7 @@
-use std::{net::SocketAddr, sync::Arc};
-
-use geph4_protocol::ClientTunnel;
+use geph4_protocol::tunnel::ClientTunnel;
 
 use crate::fd_semaphore::acquire_fd;
+use std::{net::SocketAddr, sync::Arc};
 
 /// Forwards ports using a particular description.
 pub async fn port_forwarder(tun: Arc<ClientTunnel>, desc: String) {

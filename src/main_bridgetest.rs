@@ -21,9 +21,9 @@ pub struct BridgeTestOpt {
 
 /// Entry point to the bridgetest subcommand, which sweeps through all available bridges and displays their reachability and performance in table.
 pub async fn main_bridgetest(opt: BridgeTestOpt) -> anyhow::Result<()> {
-    let cached_client = crate::to_cached_binder_client(&opt.common, &opt.auth).await?;
+    let cached_client = crate::get_binder_client(&opt.common, &opt.auth).await?;
 
-    let exits = cached_client.get_exits().await?;
+    let exits = cached_client.get_summary().await?.exits;
     for exit in exits {
         log::debug!(
             "EXIT: {} ({}-{})",
@@ -31,8 +31,7 @@ pub async fn main_bridgetest(opt: BridgeTestOpt) -> anyhow::Result<()> {
             exit.country_code,
             exit.city_code
         );
-        cached_client.purge_bridges(&exit.hostname)?;
-        let bridges = cached_client.get_bridges(&exit.hostname, false).await?;
+        let bridges = cached_client.get_bridges(&exit.hostname).await?;
         let proto = if opt.use_tcp {
             sosistab::Protocol::DirectTcp
         } else {
