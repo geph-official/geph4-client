@@ -40,7 +40,9 @@ jobs:
       - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       - run: cargo install cross
       - run: cross build --release --locked  --target armv7-linux-androideabi
+      - run: cargo clean
       - run: cross build --release --locked  --target x86_64-unknown-linux-musl
+      - run: cargo clean
       - run: cross build --release --locked  --target aarch64-linux-android
       - run: sh move_built.sh
       - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
@@ -59,7 +61,9 @@ jobs:
       - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       - run: cargo install cross
       - run: cross build --release --locked  --target armv7-unknown-linux-musleabihf
+      - run: cargo clean
       - run: cross build --release --locked --target x86_64-pc-windows-gnu
+      - run: cargo clean
       - run: cross build --release --locked --target i686-pc-windows-gnu
       - run: sh move_built.sh
       - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
