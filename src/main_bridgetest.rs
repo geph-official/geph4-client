@@ -4,15 +4,15 @@ use serde::{Deserialize, Serialize};
 use smol_timeout::TimeoutExt;
 use structopt::StructOpt;
 
-use crate::{AuthOpt, CommonOpt};
+use crate::config::{AuthOpt, CommonOpt, CACHED_BINDER_CLIENT};
 
 #[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
 pub struct BridgeTestOpt {
     #[structopt(flatten)]
-    common: CommonOpt,
+    pub common: CommonOpt,
 
     #[structopt(flatten)]
-    auth: AuthOpt,
+    pub auth: AuthOpt,
 
     #[structopt(long)]
     /// Whether to use TCP
@@ -21,9 +21,7 @@ pub struct BridgeTestOpt {
 
 /// Entry point to the bridgetest subcommand, which sweeps through all available bridges and displays their reachability and performance in table.
 pub async fn main_bridgetest(opt: BridgeTestOpt) -> anyhow::Result<()> {
-    let cached_client = crate::to_cached_binder_client(&opt.common, &opt.auth).await?;
-
-    let exits = cached_client.get_exits().await?;
+    let exits = CACHED_BINDER_CLIENT.get_summary().await?.exits;
     for exit in exits {
         log::debug!(
             "EXIT: {} ({}-{})",
@@ -31,8 +29,7 @@ pub async fn main_bridgetest(opt: BridgeTestOpt) -> anyhow::Result<()> {
             exit.country_code,
             exit.city_code
         );
-        cached_client.purge_bridges(&exit.hostname)?;
-        let bridges = cached_client.get_bridges(&exit.hostname, false).await?;
+        let bridges = CACHED_BINDER_CLIENT.get_bridges(&exit.hostname).await?;
         let proto = if opt.use_tcp {
             sosistab::Protocol::DirectTcp
         } else {

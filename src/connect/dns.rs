@@ -1,6 +1,5 @@
 use async_net::SocketAddr;
 use async_tls::{client::TlsStream, TlsConnector};
-use geph4_protocol::ClientTunnel;
 use smol::{
     channel::{Receiver, Sender},
     prelude::*,
@@ -10,11 +9,13 @@ use sosistab::RelConn;
 use std::sync::Arc;
 use std::time::Duration;
 
+use super::TUNNEL;
+
 /// Handle DNS requests from localhost
-pub async fn dns_loop(addr: SocketAddr, keepalive: Arc<ClientTunnel>) -> anyhow::Result<()> {
+pub async fn dns_loop(addr: SocketAddr) -> anyhow::Result<()> {
     let socket = smol::net::UdpSocket::bind(addr).await?;
     let mut buf = [0; 2048];
-    let pool = Arc::new(DnsPool::new(keepalive));
+    let pool = Arc::new(DnsPool::new());
     log::debug!("DNS loop started");
     loop {
         let (n, c_addr) = socket.recv_from(&mut buf).await?;
@@ -43,17 +44,15 @@ pub async fn dns_loop(addr: SocketAddr, keepalive: Arc<ClientTunnel>) -> anyhow:
 pub struct DnsPool {
     send_conn: Sender<TlsStream<RelConn>>,
     recv_conn: Receiver<TlsStream<RelConn>>,
-    keepalive: Arc<ClientTunnel>,
 }
 
 impl DnsPool {
-    /// Create a new pool based on a Keepalive
-    pub fn new(keepalive: Arc<ClientTunnel>) -> Self {
+    /// Create a new pool
+    pub fn new() -> Self {
         let (send_conn, recv_conn) = smol::channel::unbounded();
         Self {
             send_conn,
             recv_conn,
-            keepalive,
         }
     }
 
@@ -65,8 +64,7 @@ impl DnsPool {
             match lala {
                 Ok(v) => v,
                 _ => {
-                    let tcp_conn = self
-                        .keepalive
+                    let tcp_conn = TUNNEL
                         .connect("1.0.0.1:853")
                         .timeout(dns_timeout)
                         .await?
