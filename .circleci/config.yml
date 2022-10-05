@@ -29,7 +29,7 @@ jobs:
     working_directory: ~/repo/
     machine:
       image: ubuntu-2204:2022.04.1
-    resource_class: 2xlarge
+    resource_class: xlarge
     steps:
       - checkout
       - run: sudo apt install python3-pip
@@ -48,7 +48,7 @@ jobs:
     working_directory: ~/repo/
     machine:
       image: ubuntu-2204:2022.04.1
-    resource_class: 2xlarge
+    resource_class: xlarge
     steps:
       - checkout
       - run: sudo apt install python3-pip
