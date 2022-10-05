@@ -1,16 +1,15 @@
-
-
-use crate::{AuthOpt, CommonOpt};
 use serde::{Deserialize, Serialize};
 use structopt::StructOpt;
 
-#[derive(Debug, StructOpt, Deserialize, Serialize)]
+use crate::config::{AuthOpt, CommonOpt};
+
+#[derive(Debug, StructOpt, Deserialize, Serialize, Clone)]
 pub struct SyncOpt {
     #[structopt(flatten)]
-    common: CommonOpt,
+    pub common: CommonOpt,
 
     #[structopt(flatten)]
-    auth: AuthOpt,
+    pub auth: AuthOpt,
 
     /// Forces synchronization of fresh data.
     #[structopt(long)]

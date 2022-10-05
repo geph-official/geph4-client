@@ -1,16 +1,16 @@
-use geph4client::{
-    dispatch,
-    // ios::{call_geph, check_bridges, get_logs},
-    Opt,
-};
-// use rand::AsByteSliceMut;
-// use std::{ffi::CString, time::Duration};
-use structopt::StructOpt;
-
+use binary_search::Direction;
+use geph4client::dispatch;
 
 fn main() -> anyhow::Result<()> {
-    std::env::set_var("GEPH_RECURSIVE", "1"); // no forking in iOS
-    let args = Opt::from_args();
-    dispatch(args)
+    let ((largest_low, _), _) = binary_search::binary_search((1, ()), (65536, ()), |lim| {
+        if rlimit::utils::increase_nofile_limit(lim).unwrap_or_default() >= lim {
+            Direction::Low(())
+        } else {
+            Direction::High(())
+        }
+    });
+    let _ = rlimit::utils::increase_nofile_limit(largest_low);
+    log::info!("** set fd limit to {} **", largest_low);
+
+    dispatch()
 }
- 

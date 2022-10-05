@@ -1,9 +1,6 @@
+use crate::socks2http::address::{host_addr, Address};
 use crate::socks2http::http_client;
 use crate::socks2http::socks5;
-use crate::{
-    fd_semaphore::acquire_fd,
-    socks2http::address::{host_addr, Address},
-};
 use futures_util::FutureExt;
 use http::{
     uri::{Authority, Scheme, Uri},
@@ -45,9 +42,6 @@ async fn server_dispatch(
     client_addr: SocketAddr,
     proxy_server: SharedProxyServer,
 ) -> std::io::Result<Response<Body>> {
-    let _ticket = acquire_fd()
-        .await
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e));
     let host = match host_addr(req.uri()) {
         None => {
             if req.uri().authority().is_some() {
@@ -139,7 +133,6 @@ async fn server_dispatch(
             host
         );
         tokio::spawn(async move {
-            let _ticket = _ticket;
             match hyper::upgrade::on(req).await {
                 Ok(upgraded) => {
                     trace!(

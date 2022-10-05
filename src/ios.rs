@@ -3,7 +3,6 @@ use std::{
     format,
     io::{BufRead, BufReader, Write},
     os::raw::{c_char, c_int, c_uchar},
-    time::Duration,
 };
 
 use bytes::Bytes;
@@ -13,11 +12,7 @@ use os_pipe::PipeReader;
 use parking_lot::Mutex;
 use structopt::StructOpt;
 
-use crate::{
-    main_binderproxy, main_bridgetest, main_connect, main_sync,
-    vpn::{DOWN_CHANNEL, UP_CHANNEL},
-    Opt,
-};
+use crate::{connect, main_binderproxy, main_bridgetest, main_sync, Opt};
 
 static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
     let (read, write) = os_pipe::pipe().unwrap();
@@ -26,7 +21,6 @@ static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
         env_logger::Env::default().default_filter_or("geph4client=debug,geph4_protocol=debug,warn"),
     )
     .format_timestamp_millis()
-    // .target(env_logger::Target::Pipe(Box::new(std::io::sink())))
     .format(move |buf, record| {
         let line = format!(
             "[{} {}]: {}",
@@ -55,12 +49,10 @@ fn dispatch_ios(opt: Opt) -> anyhow::Result<String> {
 
     smolscale::block_on(async move {
         match opt {
-            Opt::Connect(opt) => loop {
-                if let Err(err) = main_connect::main_connect(opt.clone()).await {
-                    log::error!("Something SERIOUSLY wrong has happened! {:#?}", err);
-                    smol::Timer::after(Duration::from_secs(1)).await;
-                };
-            },
+            Opt::Connect(_opt) => {
+                connect::start_main_connect();
+                Ok(String::from(""))
+            }
             Opt::Sync(opt) => main_sync::sync_json(opt).await,
             Opt::BinderProxy(opt) => {
                 main_binderproxy::main_binderproxy(opt).await?;

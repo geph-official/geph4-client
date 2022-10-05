@@ -1624,7 +1624,9 @@ dependencies = [
 
 [[package]]
 name = "geph-nat"
-version = "0.1.0"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "682ff3beec4a42705e2c1339e56c00b8c2a545613c787a7cd1887d298d6aea06"
 dependencies = [
  "async-net",
  "bytes",
@@ -3666,6 +3668,8 @@ dependencies = [
 [[package]]
 name = "sosistab"
 version = "0.4.48"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f30acc7c590d711704fbe16cd3103fb9727184ae2dff6634fe3562ec737c7ffb"
 dependencies = [
  "anyhow",
  "arc-swap",
