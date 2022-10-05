@@ -29,6 +29,13 @@ pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
     let res = cbc.sync(opt.force).await;
     match res {
         Ok(info) => {
+            #[cfg(target_os = "ios")]
+            if info.user_info.subscription.is_none() {
+                return Ok(
+                    "{\"error\": \"Not a Plus user / iOS beta testing only available to existing Plus users; the production version will be open to all users / 您非付费用户 / iOS beta 测试只面向付费用户；正式版会对免费用户开放\"}"
+                        .to_owned(),
+                );
+            }
             let json = serde_json::to_string(&(info.user_info, info.exits, info.exits_free))?;
             Ok(json)
         }

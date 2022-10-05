@@ -52,7 +52,7 @@ async fn handle_req(
     match req.url().path() {
         "/register" => handle_register(binder_client, req).await,
         "/captcha" => handle_captcha(binder_client, req).await,
-        "/delete_user" => handle_delete_user(binder_client, req).await,
+        "/delete_account" => handle_delete_account(binder_client, req).await,
         _ => Ok(Response::new(404)),
     }
     .map(|mut res| {
@@ -64,16 +64,24 @@ async fn handle_req(
     })
 }
 
-async fn handle_delete_user(
+async fn handle_delete_account(
     binder_client: Arc<dyn BinderClient>,
     mut req: Request,
 ) -> http_types::Result<Response> {
-    #[derive(Serialize, Deserialize, Debug)]
-    struct Req {
-        username: String,
-        password: String,
+    if req.method() == Method::Options {
+        return Ok("".into());
     }
 
+    log::debug!("entered HANDLE_DELETE_ACCOUNT function");
+
+    #[derive(Serialize, Deserialize, Debug)]
+    struct Req {
+        #[serde(rename = "Username")]
+        username: String,
+        #[serde(rename = "Password")]
+        password: String,
+    }
+    log::debug!("DELETE ACCOUNT REQUEST IS: {:?}", req);
     let request: Req = smol::future::block_on(req.take_body().into_json())?;
     match binder_client
         .request(BinderRequestData::DeleteUser {
@@ -84,7 +92,10 @@ async fn handle_delete_user(
         .await
     {
         Some(Ok(_)) => Ok(Response::new(200)),
-        Some(Err(_)) => Ok(Response::new(401)),
+        Some(Err(e)) => {
+            log::debug!("DELETE ACCOUNT ERROR: {:?}", e);
+            Ok(Response::new(401))
+        }
         _ => Ok(Response::new(500)),
     }
 }
@@ -93,9 +104,10 @@ async fn handle_register(
     binder_client: Arc<dyn BinderClient>,
     mut req: Request,
 ) -> http_types::Result<Response> {
-    if req.method() != Method::Post {
+    if req.method() == Method::Options {
         return Ok("".into());
     }
+
     #[derive(Serialize, Deserialize, Debug)]
     struct Req {
         #[serde(rename = "Username")]
