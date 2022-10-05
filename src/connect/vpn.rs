@@ -1,29 +1,30 @@
-use std::{convert::Infallible, io::Stdin, io::Write, num::NonZeroU32, sync::Arc};
+use std::{convert::Infallible, num::NonZeroU32, sync::Arc};
 
 use anyhow::Context;
-use async_net::Ipv4Addr;
 
 use bytes::Bytes;
-use geph4_protocol::{VpnMessage, VpnStdio};
+use geph4_protocol::VpnMessage;
 use geph_nat::GephNat;
 use governor::{Quota, RateLimiter};
-use once_cell::sync::{Lazy, OnceCell};
+use once_cell::sync::Lazy;
 use pnet_packet::{
     ipv4::Ipv4Packet,
     tcp::{TcpFlags, TcpPacket},
     Packet,
 };
-use smol::{channel::Receiver, prelude::*};
+use smol::prelude::*;
 
 use super::TUNNEL;
 
 /// Uploads a packet through the global VPN
 pub fn vpn_upload(pkt: Bytes) {
+    Lazy::force(&VPN_TASK);
     let _ = UP_CHANNEL.0.try_send(pkt);
 }
 
 /// Downloads a packet through the global VPN
 pub async fn vpn_download() -> Bytes {
+    Lazy::force(&VPN_TASK);
     DOWN_CHANNEL.1.recv_async().await.unwrap()
 }
 
@@ -100,38 +101,5 @@ fn ack_decimate(bts: &[u8]) -> Option<u16> {
         Some(hash)
     } else {
         None
-    }
-}
-
-pub static STDIN: Lazy<AtomicStdin> = Lazy::new(AtomicStdin::new);
-
-/// A type that wraps stdin and provides atomic packet recv operations to prevent cancellations from messing things up.
-pub struct AtomicStdin {
-    incoming: Receiver<VpnStdio>,
-    _task: smol::Task<Option<()>>,
-}
-
-impl AtomicStdin {
-    fn new() -> Self {
-        static STDIN: Lazy<async_dup::Arc<async_dup::Mutex<smol::Unblock<Stdin>>>> =
-            Lazy::new(|| {
-                async_dup::Arc::new(async_dup::Mutex::new(smol::Unblock::with_capacity(
-                    65536,
-                    std::io::stdin(),
-                )))
-            });
-        let (send_incoming, incoming) = smol::channel::bounded(100);
-        let _task = smolscale::spawn(async move {
-            let mut stdin = STDIN.clone();
-            loop {
-                let msg = VpnStdio::read(&mut stdin).await.unwrap();
-                let _ = send_incoming.send(msg).await;
-            }
-        });
-        Self { incoming, _task }
-    }
-
-    async fn recv(&self) -> VpnStdio {
-        self.incoming.recv().await.unwrap()
     }
 }

@@ -118,10 +118,6 @@ pub struct ConnectOpt {
     #[structopt(long)]
     /// SSH-style local-remote port forwarding. For example, "0.0.0.0:8888:::example.com:22" will forward local port 8888 to example.com:22. Must be in form host:port:::host:port! May have multiple ones.
     pub forward_ports: Vec<String>,
-
-    #[structopt(long)]
-    /// Where to store a log file.
-    pub log_file: Option<PathBuf>,
 }
 
 #[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]

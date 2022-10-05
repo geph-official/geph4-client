@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 mod config;
 mod fronts;
-mod lazy_binder_client;
+
 pub mod serialize;
 mod socks2http;
 
@@ -19,7 +19,6 @@ pub fn dispatch() -> anyhow::Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
 
-    #[cfg(target_os = "android")]
     smolscale::permanently_single_threaded();
 
     smolscale::block_on(async move {

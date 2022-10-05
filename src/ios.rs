@@ -2,22 +2,18 @@ use std::{
     ffi::{CStr, CString},
     format,
     io::{BufRead, BufReader, Write},
-    net::IpAddr,
     os::raw::{c_char, c_int, c_uchar},
-    time::Duration,
 };
 
 use bytes::Bytes;
-use geph4_protocol::EndpointSource;
 use once_cell::sync::Lazy;
 use os_pipe::PipeReader;
 use parking_lot::Mutex;
 use structopt::StructOpt;
 
 use crate::{
-    main_binderproxy, main_bridgetest, main_connect, main_sync,
-    vpn::{DOWN_CHANNEL, UP_CHANNEL},
-    Opt,
+    connect::vpn::{vpn_download, vpn_upload},
+    main_binderproxy, main_bridgetest, main_sync, Opt,
 };
 
 static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
@@ -57,7 +53,7 @@ fn dispatch_ios(opt: Opt) -> anyhow::Result<String> {
     smolscale::block_on(async move {
         match opt {
             Opt::Connect(_opt) => {
-                connect::start_main_connect();
+                crate::connect::start_main_connect();
                 Ok(String::from(""))
             }
             Opt::Sync(opt) => main_sync::sync_json(opt).await,
@@ -100,13 +96,13 @@ pub extern "C" fn upload_packet(pkt: *const c_uchar, len: c_int) {
         let slice = std::slice::from_raw_parts(pkt as *mut u8, len as usize);
         let owned = slice.to_vec();
         let bytes: Bytes = owned.into();
-        UP_CHANNEL.0.send(bytes).unwrap();
+        vpn_upload(bytes);
     }
 }
 
 #[no_mangle]
 pub extern "C" fn download_packet(buffer: *mut c_uchar, buflen: c_int) -> c_int {
-    let pkt = DOWN_CHANNEL.1.recv().unwrap();
+    let pkt = smol::future::block_on(vpn_download());
     let pkt_ref = pkt.as_ref();
     unsafe {
         let mut slice: &mut [u8] =

@@ -1,5 +1,4 @@
 use std::{
-    collections::BTreeMap,
     sync::atomic::{AtomicUsize, Ordering},
     time::Duration,
 };
@@ -7,7 +6,7 @@ use std::{
 use anyhow::Context;
 use async_trait::async_trait;
 use geph4_protocol::binder::client::E2eeHttpTransport;
-use http_types::{Method, Request, Url};
+
 use itertools::Itertools;
 use nanorpc::{DynRpcTransport, RpcTransport};
 use smol_timeout::TimeoutExt;
@@ -64,27 +63,4 @@ impl RpcTransport for MultiRpcTransport {
             }
         }
     }
-}
-
-/// Obtains a front/host mapping from a URL.
-#[cached::proc_macro::cached(result = true)]
-pub async fn fetch_fronts(url: String) -> http_types::Result<BTreeMap<String, String>> {
-    let url = Url::parse(&url)?;
-    let req = Request::new(Method::Get, url.clone());
-    let connect_to =
-        geph4_aioutils::resolve(&format!("{}:443", url.host_str().context("bad")?)).await?;
-
-    let response: BTreeMap<String, String> = {
-        let connection =
-            smol::net::TcpStream::connect(connect_to.get(0).context("no addrs for checkip")?)
-                .await?;
-        let tls_connection = async_tls::TlsConnector::default()
-            .connect(url.host_str().context("bad")?, connection)
-            .await?;
-        async_h1::connect(tls_connection, req)
-            .await?
-            .body_json()
-            .await?
-    };
-    Ok(response)
 }
