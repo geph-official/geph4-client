@@ -1,3 +1,5 @@
 target/*
 OUTPUT/*
 osxcross
+hfuzz_target/*
+hfuzz_workspace/*
