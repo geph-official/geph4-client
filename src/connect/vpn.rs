@@ -1,4 +1,16 @@
-use std::{convert::Infallible, num::NonZeroU32, sync::Arc};
+#[cfg(unix)]
+mod tun;
+
+use std::{
+    convert::Infallible,
+    io::{Read, Write},
+    num::NonZeroU32,
+    sync::Arc,
+    thread::JoinHandle,
+};
+
+#[cfg(unix)]
+use std::os::unix::prelude::{AsRawFd, FromRawFd};
 
 use anyhow::Context;
 
@@ -14,7 +26,89 @@ use pnet_packet::{
 };
 use smol::prelude::*;
 
-use super::TUNNEL;
+use crate::config::VpnMode;
+
+use super::{CONNECT_CONFIG, TUNNEL};
+
+/// The VPN shuffling task
+pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
+    #[cfg(unix)]
+    unsafe fn fd_vpn_loop(fd_num: i32) -> Infallible {
+        let mut up_file = std::fs::File::from_raw_fd(fd_num);
+        let mut down_file = std::fs::File::from_raw_fd(fd_num);
+        let up_thread = std::thread::Builder::new()
+            .name("vpn-up".into())
+            .spawn(move || {
+                let mut bts = [0u8; 2048];
+                loop {
+                    let n = up_file.read(&mut bts).expect("vpn up thread failed");
+                    vpn_upload(Bytes::copy_from_slice(&bts[..n]));
+                }
+            })
+            .unwrap();
+        let dn_thread = std::thread::Builder::new()
+            .name("vpn-dn".into())
+            .spawn(move || loop {
+                let bts = smol::future::block_on(vpn_download());
+                let _ = down_file.write(&bts).unwrap();
+            })
+            .unwrap();
+        up_thread.join().unwrap();
+        dn_thread.join().unwrap()
+    }
+
+    std::thread::Builder::new()
+        .name("vpn".into())
+        .spawn(|| {
+            match CONNECT_CONFIG.vpn_mode {
+                Some(VpnMode::InheritedFd) => {
+                    // Read the file-descriptor number from an environment variable
+                    let fd_num: i32 = std::env::var("GEPH_VPN_FD")
+                    .ok()
+                    .and_then(|e| e.parse().ok())
+                    .expect(
+                    "must set GEPH_VPN_FD to a file descriptor in order to use inherited-fd mode",
+                );
+                    #[cfg(unix)]
+                    {
+                        unsafe { fd_vpn_loop(fd_num) }
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        panic!("cannot use inherited-fd mode on non-Unix systems")
+                    }
+                }
+                Some(VpnMode::TunNoRoute | VpnMode::TunRoute) => {
+                    #[cfg(unix)]
+                    {
+                        let device = ::tun::platform::Device::new(
+                            ::tun::Configuration::default()
+                                .name("tun-geph")
+                                .address("100.64.89.64")
+                                .netmask("255.255.255.0")
+                                .destination("100.64.0.1")
+                                .mtu(1280)
+                                .up(),
+                        )
+                        .expect("could not initialize TUN device");
+                        unsafe { fd_vpn_loop(device.as_raw_fd()) }
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        panic!("cannot use tun modes on non-Unix systems")
+                    }
+                }
+                None => {
+                    log::info!("not starting VPN mode");
+                    loop {
+                        std::thread::park()
+                    }
+                }
+                _ => unimplemented!(),
+            }
+        })
+        .unwrap()
+});
 
 /// Uploads a packet through the global VPN
 pub fn vpn_upload(pkt: Bytes) {

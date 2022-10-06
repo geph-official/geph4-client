@@ -1,6 +1,7 @@
 use std::{
     ops::Deref,
     path::PathBuf,
+    str::FromStr,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -108,8 +109,13 @@ pub struct ConnectOpt {
     pub sticky_bridges: bool,
 
     #[structopt(long)]
-    /// Use this file descriptor for direct access to the VPN tun device.
-    pub vpn_tun_fd: Option<i32>,
+    /// Specify whether and how to create a L3 VPN tunnel. Possible options are:
+    /// - nothing (no VPN)
+    /// - "inherited-fd" (reads a TUN device file descriptor number, inherited from the parent process, from the GEPH_VPN_FD environment variable)
+    /// - "tun-no-route" (Unix only; creates and configures a TUN device named "tun-geph", but does not change the routing table)
+    /// - "tun-route" (Unix only; creates and configures a TUN device, as well as executing platform-specific actions to force all non-Geph traffic through the tunnel)
+    /// - "windivert" (Windows only; uses WinDivert to capture non-Geph traffic to feed into the VPN)
+    pub vpn_mode: Option<VpnMode>,
 
     #[structopt(long)]
     /// Whether or not to force TCP mode.
@@ -118,6 +124,29 @@ pub struct ConnectOpt {
     #[structopt(long)]
     /// SSH-style local-remote port forwarding. For example, "0.0.0.0:8888:::example.com:22" will forward local port 8888 to example.com:22. Must be in form host:port:::host:port! May have multiple ones.
     pub forward_ports: Vec<String>,
+}
+
+/// An enum represennting the various VPN modes.
+#[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq, Hash, Serialize, Deserialize)]
+pub enum VpnMode {
+    InheritedFd,
+    TunNoRoute,
+    TunRoute,
+    WinDivert,
+}
+
+impl FromStr for VpnMode {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "inherited-fd" => Ok(Self::InheritedFd),
+            "tun-no-route" => Ok(Self::TunNoRoute),
+            "tun-route" => Ok(Self::TunRoute),
+            "windivert" => Ok(Self::WinDivert),
+
+            x => anyhow::bail!("unrecognized VPN mode {}", x),
+        }
+    }
 }
 
 #[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
