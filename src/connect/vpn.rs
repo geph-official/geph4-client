@@ -1,5 +1,5 @@
-#[cfg(unix)]
-mod tun;
+#[cfg(target_os = "linux")]
+mod linux_routing;
 
 use std::{
     convert::Infallible,
@@ -33,6 +33,7 @@ use super::{CONNECT_CONFIG, TUNNEL};
 /// The VPN shuffling task
 pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
     #[cfg(unix)]
+    /// Runs the VPN on a particular file-descriptor number.
     unsafe fn fd_vpn_loop(fd_num: i32) -> Infallible {
         let mut up_file = std::fs::File::from_raw_fd(fd_num);
         let mut down_file = std::fs::File::from_raw_fd(fd_num);
@@ -91,6 +92,16 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
                                 .up(),
                         )
                         .expect("could not initialize TUN device");
+                        if CONNECT_CONFIG.vpn_mode == Some(VpnMode::TunRoute) {
+                            #[cfg(target_os = "linux")]
+                            {
+                                linux_routing::setup_routing();
+                            }
+                            #[cfg(not(target_os = "linux"))]
+                            {
+                                panic!("cannot use tun-route on non-Linux, just yet")
+                            }
+                        }
                         unsafe { fd_vpn_loop(device.as_raw_fd()) }
                     }
                     #[cfg(not(unix))]
