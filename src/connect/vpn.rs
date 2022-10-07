@@ -82,6 +82,18 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
                 Some(VpnMode::TunNoRoute | VpnMode::TunRoute) => {
                     #[cfg(unix)]
                     {
+                        #[cfg(target_os = "macos")]
+                        let device = ::tun::platform::Device::new(
+                            ::tun::Configuration::default()
+                                .name("/dev/utun831")
+                                .address("100.64.89.64")
+                                .netmask("255.255.255.0")
+                                .destination("100.64.0.1")
+                                .mtu(1280)
+                                .up(),
+                        )
+                        .expect("could not initialize TUN device");
+
                         let device = ::tun::platform::Device::new(
                             ::tun::Configuration::default()
                                 .name("tun-geph")

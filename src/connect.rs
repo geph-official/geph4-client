@@ -23,6 +23,7 @@ use crate::china;
 mod dns;
 mod port_forwarder;
 mod socks5;
+mod stats;
 pub(crate) mod vpn;
 
 /// Main function for `connect` subcommand
@@ -142,6 +143,8 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
         if !port_forwarders.is_empty() {
             smolscale::spawn(select_all(port_forwarders)).await;
         }
+
+        Lazy::force(&stats::STATS_THREAD);
 
         // ready, set, go!
         Lazy::force(&vpn::VPN_SHUFFLE_TASK);
