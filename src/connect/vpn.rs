@@ -25,6 +25,7 @@ use pnet_packet::{
     Packet,
 };
 use smol::prelude::*;
+use tun::Device;
 
 use crate::config::VpnMode;
 
@@ -43,7 +44,16 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
                 let mut bts = [0u8; 2048];
                 loop {
                     let n = up_file.read(&mut bts).expect("vpn up thread failed");
-                    vpn_upload(Bytes::copy_from_slice(&bts[..n]));
+
+                    let to_send = Bytes::copy_from_slice(&bts[..n]);
+                    #[cfg(target_os = "macos")]
+                    let to_send = if to_send.len() >= 4 {
+                        to_send.slice(4..)
+                    } else {
+                        continue;
+                    };
+                    log::trace!("vpn up {}", to_send.len());
+                    vpn_upload(to_send);
                 }
             })
             .unwrap();
@@ -51,6 +61,15 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
             .name("vpn-dn".into())
             .spawn(move || loop {
                 let bts = smol::future::block_on(vpn_download());
+                log::trace!("vpn dn {}", bts.len());
+                #[cfg(target_os = "macos")]
+                {
+                    let mut buf = [0u8; 4096];
+                    buf[4..][..bts.len()].copy_from_slice(&bts);
+                    buf[3] = 0x02;
+                    let _ = down_file.write(&buf[..bts.len() + 4]);
+                }
+                #[cfg(not(target_os = "macos"))]
                 let _ = down_file.write(&bts).unwrap();
             })
             .unwrap();
@@ -83,17 +102,23 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
                     #[cfg(unix)]
                     {
                         #[cfg(target_os = "macos")]
-                        let device = ::tun::platform::Device::new(
-                            ::tun::Configuration::default()
-                                .name("utun831")
-                                .address("100.64.89.64")
-                                .netmask("255.255.255.0")
-                                .destination("100.64.0.1")
-                                .mtu(1280)
-                                .up(),
-                        )
-                        .expect("could not initialize TUN device");
+                        let device = {
+                            let device = ::tun::platform::Device::new(
+                                ::tun::Configuration::default().mtu(1280).up(),
+                            )
+                            .expect("could not initialize TUN device");
+                            std::process::Command::new("ifconfig")
+                                .arg(device.name())
+                                .arg("100.64.89.64")
+                                .arg("100.64.0.1")
+                                .spawn()
+                                .expect("cannot ifconfig")
+                                .wait()
+                                .expect("cannot wait");
+                            device
+                        };
 
+                        #[cfg(not(target_os = "macos"))]
                         let device = ::tun::platform::Device::new(
                             ::tun::Configuration::default()
                                 .name("tun-geph")
