@@ -1,7 +1,9 @@
+use geph4_protocol::binder::{client::DynBinderClient, protocol::Level};
+use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use structopt::StructOpt;
 
-use crate::config::{AuthOpt, CommonOpt};
+use crate::config::{AuthOpt, CommonOpt, CACHED_BINDER_CLIENT};
 
 #[derive(Debug, StructOpt, Deserialize, Serialize, Clone)]
 pub struct SyncOpt {
@@ -17,26 +19,43 @@ pub struct SyncOpt {
 }
 
 pub async fn main_sync(opt: SyncOpt) -> anyhow::Result<()> {
-    log::debug!("{}", sync_json(opt).await?);
+    println!("{}", sync_json(opt).await?);
     Ok(())
 }
 
-pub async fn sync_json(_opt: SyncOpt) -> anyhow::Result<String> {
-    todo!()
-    // let cbc = crate::to_cached_binder_client(&opt.common, &opt.auth).await?;
-    // log::info!("sync mode started (force = {})", opt.force);
+pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
+    let master = CACHED_BINDER_CLIENT.get_summary().await?;
+    let user = CACHED_BINDER_CLIENT.get_auth_token().await?.0;
+    let exits = master
+        .exits
+        .into_iter()
+        .map(|exit| DumbedDownExitDescriptor {
+            hostname: exit.hostname.into(),
+            signing_key: hex::encode(&exit.signing_key),
+            country_code: exit.country_code.into(),
+            city_code: exit.city_code.into(),
+            allowed_levels: exit
+                .allowed_levels
+                .into_iter()
+                .map(|l| match l {
+                    Level::Free => "free".to_string(),
+                    Level::Plus => "plus".to_string(),
+                })
+                .collect_vec(),
+        })
+        .collect_vec();
+    Ok(format!(
+        "{{\"exits\": {}, \"user\": {}}}",
+        serde_json::to_string(&exits)?,
+        serde_json::to_string(&user)?
+    ))
+}
 
-    // let res = cbc.get_summary().await;
-    // match res {
-    //     Ok(info) => {
-    //         let json = serde_json::to_string(&(info.user_info, info.exits, info.exits_free))?;
-    //         Ok(json)
-    //     }
-    //     Err(err) => {
-    //         let mut haha = HashMap::new();
-    //         haha.insert("error".to_string(), err.to_string());
-    //         let json = serde_json::to_string(&haha)?;
-    //         Ok(json)
-    //     }
-    // }
+#[derive(Serialize)]
+struct DumbedDownExitDescriptor {
+    hostname: String,
+    signing_key: String,
+    country_code: String,
+    city_code: String,
+    allowed_levels: Vec<String>,
 }

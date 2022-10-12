@@ -1,58 +1,41 @@
-use geph4_protocol::binder::client::DynBinderClient;
-use http_types::{Request, Response};
-use nanorpc::JrpcRequest;
-use nanorpc::RpcTransport;
-use serde::{Deserialize, Serialize};
-use std::{net::SocketAddr, sync::Arc};
-use structopt::StructOpt;
-
 use crate::config::CommonOpt;
+use nanorpc::RpcTransport;
+use nanorpc::{JrpcError, JrpcRequest, JrpcResponse};
+use serde::{Deserialize, Serialize};
+use smol::io::AsyncBufReadExt;
+use std::sync::Arc;
+use structopt::StructOpt;
 
 #[derive(Debug, StructOpt, Deserialize, Serialize, Clone)]
 pub struct BinderProxyOpt {
     #[structopt(flatten)]
     common: CommonOpt,
-
-    /// Where to listen for HTTP requests
-    #[structopt(long)]
-    listen: SocketAddr,
-}
-
-fn dbg_err<T, E: std::fmt::Display>(f: Result<T, E>) -> Result<T, E> {
-    match f {
-        Ok(f) => Ok(f),
-        Err(e) => {
-            log::warn!("error: {}", e);
-            Err(e)
-        }
-    }
 }
 
 pub async fn main_binderproxy(opt: BinderProxyOpt) -> anyhow::Result<()> {
-    log::info!("binder proxy mode started");
+    log::info!("binder proxy mode started; send a JSON-RPC line on stdin to get a response");
     let binder_client = Arc::new(opt.common.get_binder_client());
-    let listener = smol::net::TcpListener::bind(opt.listen).await?;
+    let mut input = smol::io::BufReader::new(smol::Unblock::new(std::io::stdin()));
+    let mut line = String::new();
     loop {
-        let (client, _) = listener.accept().await?;
-        let binder_client = binder_client.clone();
-        smolscale::spawn(async_h1::accept(client, move |req| {
-            let binder_client = binder_client.clone();
-            async move { dbg_err(handle_req(binder_client, req).await) }
-        }))
-        .detach();
+        line.clear();
+        input.read_line(&mut line).await?;
+        let req: JrpcRequest = serde_json::from_str(&line)?;
+        match binder_client.0.call_raw(req.clone()).await {
+            Ok(res) => println!("{}", serde_json::to_string(&res)?),
+            Err(err) => {
+                let resp = JrpcResponse {
+                    jsonrpc: "2.0".into(),
+                    result: None,
+                    error: Some(JrpcError {
+                        code: 1234,
+                        message: err.to_string(),
+                        data: serde_json::Value::Null,
+                    }),
+                    id: req.id,
+                };
+                println!("{}", serde_json::to_string(&resp)?)
+            }
+        }
     }
-}
-
-async fn handle_req(
-    binder_client: Arc<DynBinderClient>,
-    mut req: Request,
-) -> http_types::Result<Response> {
-    let request: JrpcRequest = req.body_json().await?;
-    let jres = binder_client.0.call_raw(request).await?;
-    let mut res = Response::from(serde_json::to_value(jres)?);
-    res.insert_header("Access-Control-Allow-Origin", "*");
-    res.insert_header("Access-Control-Allow-Methods", "GET, POST");
-    res.insert_header("Access-Control-Allow-Headers", "Content-Type");
-    res.insert_header("Access-Control-Expose-Headers", "*");
-    Ok(res)
 }

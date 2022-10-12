@@ -5,6 +5,7 @@ use std::{
 
 use anyhow::Context;
 use async_trait::async_trait;
+use backoff::{backoff::Backoff, ExponentialBackoffBuilder};
 use geph4_protocol::binder::client::E2eeHttpTransport;
 
 use itertools::Itertools;
@@ -41,25 +42,33 @@ impl RpcTransport for MultiRpcTransport {
         &self,
         req: nanorpc::JrpcRequest,
     ) -> Result<nanorpc::JrpcResponse, Self::Error> {
-        static IDX: AtomicUsize = AtomicUsize::new(2);
-        let idx = IDX.load(Ordering::Relaxed) % self.0.len();
-        let random_element = &self.0[idx];
-        log::debug!("selecting binder front {idx}");
-        let vv = async {
-            anyhow::Ok(
-                random_element
-                    .call_raw(req)
-                    .timeout(Duration::from_secs(10))
-                    .await
-                    .context("timeout on one of the transports")??,
-            )
-        };
-        match vv.await {
-            Ok(v) => Ok(v),
-            Err(err) => {
-                log::warn!("binder front {idx} failed: {:?}", err);
-                IDX.store(fastrand::usize(..), Ordering::Relaxed);
-                Err(err)
+        let mut backoff = ExponentialBackoffBuilder::new().build();
+        loop {
+            static IDX: AtomicUsize = AtomicUsize::new(0);
+            let idx = IDX.load(Ordering::Relaxed) % self.0.len();
+            let random_element = &self.0[idx];
+            log::debug!("selecting binder front {idx}");
+            let req = req.clone();
+            let vv = async {
+                anyhow::Ok(
+                    random_element
+                        .call_raw(req)
+                        .timeout(Duration::from_secs(10))
+                        .await
+                        .context("timeout on one of the transports")??,
+                )
+            };
+            match vv.await {
+                Ok(v) => return Ok(v),
+                Err(err) => {
+                    log::warn!("binder front {idx} failed: {:?}", err);
+                    IDX.store(fastrand::usize(..), Ordering::Relaxed);
+                    if let Some(next) = backoff.next_backoff() {
+                        smol::Timer::after(next).await;
+                    } else {
+                        return Err(err);
+                    }
+                }
             }
         }
     }
