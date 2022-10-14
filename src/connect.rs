@@ -1,4 +1,4 @@
-use std::{convert::Infallible, ops::Deref, time::Duration};
+use std::{convert::Infallible, ops::Deref, sync::Arc, time::Duration};
 
 use async_compat::Compat;
 
@@ -6,17 +6,19 @@ use china::test_china;
 use futures_util::future::select_all;
 use geph4_protocol::{
     self,
+    binder::client::CachedBinderClient,
     tunnel::{
         activity::wait_activity, BinderTunnelParams, ClientTunnel, ConnectionOptions,
-        EndpointSource,
+        EndpointSource, TunnelStatus,
     },
 };
 
 use once_cell::sync::Lazy;
 
+use parking_lot::RwLock;
 use smol::{prelude::*, Task};
 
-use crate::config::{ConnectOpt, Opt, CACHED_BINDER_CLIENT, CONFIG};
+use crate::config::{get_cached_binder_client, ConnectOpt, Opt, CONFIG};
 
 use crate::china;
 
@@ -30,6 +32,17 @@ pub(crate) mod vpn;
 pub fn start_main_connect() {
     Lazy::force(&CONNECT_TASK);
 }
+
+/// The configured binder client
+static CACHED_BINDER_CLIENT: Lazy<Arc<CachedBinderClient>> = Lazy::new(|| {
+    Arc::new({
+        let (common, auth) = match CONFIG.deref() {
+            Opt::Connect(c) => (&c.common, &c.auth),
+            _ => panic!(),
+        };
+        get_cached_binder_client(common, auth).unwrap()
+    })
+});
 
 static CONNECT_CONFIG: Lazy<ConnectOpt> = Lazy::new(|| match CONFIG.deref() {
     Opt::Connect(c) => c.clone(),
@@ -60,6 +73,13 @@ static SHOULD_USE_BRIDGES: Lazy<bool> = Lazy::new(|| {
     })
 });
 
+type StatusCallback = Box<dyn Fn(TunnelStatus) + Send + Sync + 'static>;
+static TUNNEL_STATUS_CALLBACK: Lazy<RwLock<StatusCallback>> = Lazy::new(|| {
+    RwLock::new(Box::new(|addr| {
+        log::debug!("tunnel reported {:?} to dummy", addr);
+    }))
+});
+
 static TUNNEL: Lazy<ClientTunnel> = Lazy::new(|| {
     let endpoint = {
         if let Some(override_url) = CONNECT_CONFIG.override_connect.clone() {
@@ -85,6 +105,7 @@ static TUNNEL: Lazy<ClientTunnel> = Lazy::new(|| {
             use_tcp: CONNECT_CONFIG.use_tcp,
         },
         endpoint,
+        |status| TUNNEL_STATUS_CALLBACK.read()(status),
     )
 });
 

@@ -1,8 +1,6 @@
 use std::{
-    ops::Deref,
     path::PathBuf,
     str::FromStr,
-    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -20,26 +18,13 @@ static INIT_CONFIG: OnceCell<Opt> = OnceCell::new();
 /// The global configuration of the client.
 pub static CONFIG: Lazy<Opt> = Lazy::new(|| INIT_CONFIG.get_or_init(Opt::from_args).clone());
 
-/// The configured binder client
-pub static CACHED_BINDER_CLIENT: Lazy<Arc<CachedBinderClient>> = Lazy::new(|| {
-    Arc::new({
-        let (common, auth) = match CONFIG.deref() {
-            Opt::Connect(c) => (&c.common, &c.auth),
-            Opt::BridgeTest(b) => (&b.common, &b.auth),
-            Opt::Sync(s) => (&s.common, &s.auth),
-            Opt::BinderProxy(_) => panic!(),
-        };
-        get_cached_binder_client(common, auth).unwrap()
-    })
-});
-
 #[derive(Debug, StructOpt, Deserialize, Serialize, Clone)]
 #[allow(clippy::large_enum_variant)]
 pub enum Opt {
     Connect(ConnectOpt),
     BridgeTest(crate::main_bridgetest::BridgeTestOpt),
-    Sync(crate::main_sync::SyncOpt),
-    BinderProxy(crate::main_binderproxy::BinderProxyOpt),
+    Sync(crate::sync::SyncOpt),
+    BinderProxy(crate::binderproxy::BinderProxyOpt),
 }
 
 #[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
@@ -245,7 +230,8 @@ fn str_to_mizaru_pk(src: &str) -> mizaru::PublicKey {
     mizaru::PublicKey(raw_bts)
 }
 
-fn get_cached_binder_client(
+/// Given the common and authentication options, produce a binder client.
+pub fn get_cached_binder_client(
     common_opt: &CommonOpt,
     auth_opt: &AuthOpt,
 ) -> anyhow::Result<CachedBinderClient> {

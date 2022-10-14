@@ -7,12 +7,12 @@ pub mod serialize;
 mod socks2http;
 
 use crate::config::{Opt, CONFIG};
+mod binderproxy;
 mod china;
 mod connect;
 pub mod ios;
-mod main_binderproxy;
 mod main_bridgetest;
-mod main_sync;
+mod sync;
 
 pub fn dispatch() -> anyhow::Result<()> {
     config_logging();
@@ -27,8 +27,8 @@ pub fn dispatch() -> anyhow::Result<()> {
                 connect::start_main_connect();
                 smol::future::pending().await
             }
-            Opt::Sync(opt) => main_sync::main_sync(opt.clone()).await,
-            Opt::BinderProxy(opt) => main_binderproxy::main_binderproxy(opt.clone()).await,
+            Opt::Sync(opt) => sync::main_sync(opt.clone()).await,
+            Opt::BinderProxy(opt) => binderproxy::main_binderproxy(opt.clone()).await,
             Opt::BridgeTest(opt) => main_bridgetest::main_bridgetest(opt.clone()).await,
         }
     })

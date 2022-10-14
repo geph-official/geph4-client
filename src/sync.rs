@@ -1,9 +1,10 @@
-use geph4_protocol::binder::{client::DynBinderClient, protocol::Level};
+use geph4_protocol::binder::protocol::Level;
+
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use structopt::StructOpt;
 
-use crate::config::{AuthOpt, CommonOpt, CACHED_BINDER_CLIENT};
+use crate::config::{get_cached_binder_client, AuthOpt, CommonOpt};
 
 #[derive(Debug, StructOpt, Deserialize, Serialize, Clone)]
 pub struct SyncOpt {
@@ -24,8 +25,9 @@ pub async fn main_sync(opt: SyncOpt) -> anyhow::Result<()> {
 }
 
 pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
-    let master = CACHED_BINDER_CLIENT.get_summary().await?;
-    let user = CACHED_BINDER_CLIENT.get_auth_token().await?.0;
+    let binder_client = get_cached_binder_client(&opt.common, &opt.auth)?;
+    let master = binder_client.get_summary().await?;
+    let user = binder_client.get_auth_token().await?.0;
     let exits = master
         .exits
         .into_iter()

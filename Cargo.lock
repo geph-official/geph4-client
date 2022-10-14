@@ -1732,6 +1732,7 @@ dependencies = [
  "im",
  "ip_network_table-deps-treebitmap",
  "itertools",
+ "libc",
  "log 0.4.17",
  "mizaru",
  "nanorpc",
@@ -1751,6 +1752,8 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "shutdown_hooks",
+ "signal-hook",
  "smol",
  "smol-timeout",
  "smolscale",
@@ -1774,9 +1777,9 @@ dependencies = [
 
 [[package]]
 name = "geph4-protocol"
-version = "0.5.1"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7b70e69f40fd2bc1f2457d0002d719ec08fa1a193405c5a87a472a961eaa3650"
+checksum = "cb0f71ba7fd28dc62675f6ac7607ab832bf511e0e69ba39360043d5a41c2cafc"
 dependencies = [
  "acidjson",
  "anyhow",
@@ -1799,8 +1802,8 @@ dependencies = [
  "log 0.4.17",
  "mizaru",
  "nanorpc",
+ "native-tls",
  "once_cell",
- "openssl",
  "parking_lot 0.11.2",
  "rand 0.7.3",
  "regex",
@@ -3520,6 +3523,12 @@ dependencies = [
  "digest 0.9.0",
  "opaque-debug",
 ]
+
+[[package]]
+name = "shutdown_hooks"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6057adedbec913419c92996f395ba69931acbd50b7d56955394cd3f7bedbfa45"
 
 [[package]]
 name = "signal-hook"

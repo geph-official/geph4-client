@@ -7,6 +7,7 @@ use std::{
     num::NonZeroU32,
     sync::Arc,
     thread::JoinHandle,
+    time::Duration,
 };
 
 #[cfg(unix)]
@@ -25,7 +26,6 @@ use pnet_packet::{
     Packet,
 };
 use smol::prelude::*;
-use tun::Device;
 
 use crate::config::VpnMode;
 
@@ -103,6 +103,7 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
                     {
                         #[cfg(target_os = "macos")]
                         let device = {
+                            use tun::Device;
                             let device = ::tun::platform::Device::new(
                                 ::tun::Configuration::default().mtu(1280).up(),
                             )
@@ -179,11 +180,24 @@ static DOWN_CHANNEL: Lazy<(flume::Sender<Bytes>, flume::Receiver<Bytes>)> =
 static VPN_TASK: Lazy<smol::Task<Infallible>> = Lazy::new(|| {
     smolscale::spawn(async {
         loop {
+            let init_ip = TUNNEL.get_vpn_client_ip().await;
             let nat = Arc::new(GephNat::new(
                 NAT_TABLE_SIZE,
                 TUNNEL.get_vpn_client_ip().await,
             ));
-            let res = vpn_up_loop(nat.clone()).or(vpn_down_loop(nat)).await;
+            let ip_change_fut = async move {
+                loop {
+                    let i = TUNNEL.get_vpn_client_ip().await;
+                    if i != init_ip {
+                        anyhow::bail!("new IP: {i}")
+                    }
+                    smol::Timer::after(Duration::from_secs(5)).await;
+                }
+            };
+            let res = vpn_up_loop(nat.clone())
+                .or(vpn_down_loop(nat))
+                .or(ip_change_fut)
+                .await;
             log::warn!("vpn loops somehow died: {:?}", res);
         }
     })

@@ -12,8 +12,9 @@ use parking_lot::Mutex;
 use structopt::StructOpt;
 
 use crate::{
+    binderproxy,
     connect::vpn::{vpn_download, vpn_upload},
-    main_binderproxy, main_bridgetest, main_sync, Opt,
+    main_bridgetest, sync, Opt,
 };
 
 static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
@@ -56,9 +57,9 @@ fn dispatch_ios(opt: Opt) -> anyhow::Result<String> {
                 crate::connect::start_main_connect();
                 Ok(String::from(""))
             }
-            Opt::Sync(opt) => main_sync::sync_json(opt).await,
+            Opt::Sync(opt) => sync::sync_json(opt).await,
             Opt::BinderProxy(opt) => {
-                main_binderproxy::main_binderproxy(opt).await?;
+                binderproxy::main_binderproxy(opt).await?;
                 Ok(String::from(""))
             }
             Opt::BridgeTest(opt) => {
