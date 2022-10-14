@@ -1778,9 +1778,9 @@ dependencies = [
 
 [[package]]
 name = "geph4-protocol"
-version = "0.6.0"
+version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cb0f71ba7fd28dc62675f6ac7607ab832bf511e0e69ba39360043d5a41c2cafc"
+checksum = "a69dd50359fc60c650b62589364fd0871a6157ceecb6e4bdc2b2f69f9caa5983"
 dependencies = [
  "acidjson",
  "anyhow",
@@ -1793,6 +1793,7 @@ dependencies = [
  "blake3 1.3.1",
  "bytes",
  "chacha20poly1305",
+ "dashmap 5.4.0",
  "ed25519-dalek",
  "event-listener",
  "fastrand",
