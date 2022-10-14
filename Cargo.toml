@@ -91,6 +91,7 @@ backoff = {version = "0.4.0"}
 shutdown_hooks = "0.1.0"
 libc = "0.2.135"
 signal-hook = "0.3.14"
+dashmap = "5.4.0"
 
 [dependencies.async-tls]
 version = "0.11.0"

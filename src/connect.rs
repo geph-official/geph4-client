@@ -167,6 +167,28 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
 
         Lazy::force(&stats::STATS_THREAD);
 
+        let _syncer = smolscale::spawn(async {
+            // We must keep our stuff freshly cached so that when Geph dies and respawns, it never needs to talk to the binder again.
+            loop {
+                smol::Timer::after(Duration::from_secs(120)).await;
+                let s = match TUNNEL.get_endpoint() {
+                    EndpointSource::Independent { .. } => unreachable!(),
+                    EndpointSource::Binder(b) => {
+                        CACHED_BINDER_CLIENT
+                            .get_closest_exit(&b.exit_server.unwrap_or_default())
+                            .await
+                    }
+                };
+                if let Ok(s) = s {
+                    if let Err(err) = CACHED_BINDER_CLIENT.get_bridges(&s.hostname, true).await {
+                        log::warn!("error refreshing bridges: {:?}", err);
+                    } else {
+                        log::debug!("refreshed bridges");
+                    }
+                }
+            }
+        });
+
         // ready, set, go!
         Lazy::force(&vpn::VPN_SHUFFLE_TASK);
         stats_printer_fut

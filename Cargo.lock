@@ -1714,6 +1714,7 @@ dependencies = [
  "bytes",
  "cached 0.23.0",
  "chrono",
+ "dashmap 5.4.0",
  "dirs",
  "ed25519-dalek",
  "env_logger",

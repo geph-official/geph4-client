@@ -1,14 +1,13 @@
 #[cfg(target_os = "linux")]
 mod linux_routing;
 
-use std::{
-    convert::Infallible,
-    io::{Read, Write},
-    num::NonZeroU32,
-    sync::Arc,
-    thread::JoinHandle,
-    time::Duration,
-};
+#[cfg(windows)]
+mod windows_routing;
+
+use std::{convert::Infallible, num::NonZeroU32, sync::Arc, thread::JoinHandle, time::Duration};
+
+#[cfg(unix)]
+use std::io::{Read, Write};
 
 #[cfg(unix)]
 use std::os::unix::prelude::{AsRawFd, FromRawFd};
@@ -82,15 +81,15 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
         .spawn(|| {
             match CONNECT_CONFIG.vpn_mode {
                 Some(VpnMode::InheritedFd) => {
-                    // Read the file-descriptor number from an environment variable
-                    let fd_num: i32 = std::env::var("GEPH_VPN_FD")
-                    .ok()
-                    .and_then(|e| e.parse().ok())
-                    .expect(
-                    "must set GEPH_VPN_FD to a file descriptor in order to use inherited-fd mode",
-                );
                     #[cfg(unix)]
                     {
+                        // Read the file-descriptor number from an environment variable
+                        let fd_num: i32 = std::env::var("GEPH_VPN_FD")
+                    .ok()
+                     .and_then(|e| e.parse().ok())
+                    .expect(
+                    "must set GEPH_VPN_FD to a file descriptor in order to use inherited-fd mode",
+                    );
                         unsafe { fd_vpn_loop(fd_num) }
                     }
                     #[cfg(not(unix))]
@@ -147,13 +146,23 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
                         panic!("cannot use tun modes on non-Unix systems")
                     }
                 }
+                Some(VpnMode::WinDivert) => {
+                    #[cfg(windows)]
+                    {
+                        windows_routing::start_routing()
+                    }
+
+                    #[cfg(not(windows))]
+                    {
+                        panic!("cannot use windivert mode outside windows")
+                    }
+                }
                 None => {
                     log::info!("not starting VPN mode");
                     loop {
                         std::thread::park()
                     }
                 }
-                _ => unimplemented!(),
             }
         })
         .unwrap()
@@ -169,6 +178,12 @@ pub fn vpn_upload(pkt: Bytes) {
 pub async fn vpn_download() -> Bytes {
     Lazy::force(&VPN_TASK);
     DOWN_CHANNEL.1.recv_async().await.unwrap()
+}
+
+/// Downloads a packet through the global VPN, blockingly
+pub fn vpn_download_blocking() -> Bytes {
+    Lazy::force(&VPN_TASK);
+    DOWN_CHANNEL.1.recv().unwrap()
 }
 
 // Up and down channels
