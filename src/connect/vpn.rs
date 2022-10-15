@@ -59,7 +59,7 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
         let dn_thread = std::thread::Builder::new()
             .name("vpn-dn".into())
             .spawn(move || loop {
-                let bts = smol::future::block_on(vpn_download());
+                let bts = vpn_download_blocking();
                 log::trace!("vpn dn {}", bts.len());
                 #[cfg(target_os = "macos")]
                 {

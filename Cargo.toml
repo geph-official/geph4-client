@@ -93,11 +93,6 @@ libc = "0.2.135"
 signal-hook = "0.3.14"
 dashmap = "5.4.0"
 
-[dependencies.async-tls]
-version = "0.11.0"
-default-features = false
-features = ["client"]
-# tracing-flame="0.1"
 
 # tracing-subscriber = "0.2.15"
 

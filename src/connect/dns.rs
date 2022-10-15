@@ -1,5 +1,4 @@
 use async_net::SocketAddr;
-use async_tls::{client::TlsStream, TlsConnector};
 use smol::{
     channel::{Receiver, Sender},
     prelude::*,
@@ -42,8 +41,8 @@ pub async fn dns_loop(addr: SocketAddr) -> anyhow::Result<()> {
 
 /// A DNS connection pool
 pub struct DnsPool {
-    send_conn: Sender<TlsStream<RelConn>>,
-    recv_conn: Receiver<TlsStream<RelConn>>,
+    send_conn: Sender<RelConn>,
+    recv_conn: Receiver<RelConn>,
 }
 
 impl DnsPool {
@@ -63,17 +62,11 @@ impl DnsPool {
             let lala = self.recv_conn.try_recv();
             match lala {
                 Ok(v) => v,
-                _ => {
-                    let tcp_conn = TUNNEL
-                        .connect("1.0.0.1:853")
-                        .timeout(dns_timeout)
-                        .await?
-                        .ok()?;
-                    TlsConnector::default()
-                        .connect("cloudflare-dns.com", tcp_conn)
-                        .await
-                        .ok()?
-                }
+                _ => TUNNEL
+                    .connect("1.0.0.1:53")
+                    .timeout(dns_timeout)
+                    .await?
+                    .ok()?,
             }
         };
         conn.write_all(&(buff.len() as u16).to_be_bytes())

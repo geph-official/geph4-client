@@ -13,10 +13,10 @@
     iptables -t nat -D POSTROUTING -o tun-geph -j MASQUERADE
     iptables -t nat -A POSTROUTING -o tun-geph -j MASQUERADE
     # redirect DNS
-    iptables -t nat -D OUTPUT -p udp --dport 53 -j DNAT -m owner ! --uid-owner `id -u` --to 1.1.1.1:53
-    iptables -t nat -D OUTPUT -p tcp --dport 53 -j DNAT -m owner ! --uid-owner `id -u` --to 1.1.1.1:53
-    iptables -t nat -A OUTPUT -p udp --dport 53 -j DNAT -m owner ! --uid-owner `id -u` --to 1.1.1.1:53
-    iptables -t nat -A OUTPUT -p tcp --dport 53 -j DNAT -m owner ! --uid-owner `id -u` --to 1.1.1.1:53
+    iptables -t nat -D OUTPUT -p udp --dport 53 -j DNAT -m owner ! --uid-owner `id -u` --to $GEPH_DNS
+    iptables -t nat -D OUTPUT -p tcp --dport 53 -j DNAT -m owner ! --uid-owner `id -u` --to $GEPH_DNS
+    iptables -t nat -A OUTPUT -p udp --dport 53 -j DNAT -m owner ! --uid-owner `id -u` --to $GEPH_DNS
+    iptables -t nat -A OUTPUT -p tcp --dport 53 -j DNAT -m owner ! --uid-owner `id -u` --to $GEPH_DNS
     # clamp MTU
     iptables -t mangle -D OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
     iptables -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240

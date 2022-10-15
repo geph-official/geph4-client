@@ -73,9 +73,9 @@ pub struct ConnectOpt {
     /// Where to listen for REST-based local connections
     pub stats_listen: SocketAddr,
 
-    #[structopt(long)]
-    /// Where to listen for proxied DNS requests. Optional.
-    pub dns_listen: Option<SocketAddr>,
+    #[structopt(long, default_value = "127.0.0.1:15353")]
+    /// Where to listen for proxied DNS requests.
+    pub dns_listen: SocketAddr,
 
     #[structopt(long)]
     /// Which exit server to connect to. If there isn't an exact match, the exit server with the most similar hostname is picked. If not given, a random server will be selected.

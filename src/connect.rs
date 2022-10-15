@@ -148,12 +148,7 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
             CONNECT_CONFIG.exclude_prc,
         ));
         // dns
-        let dns_fut = if let Some(dns_listen) = CONNECT_CONFIG.dns_listen {
-            log::debug!("starting dns...");
-            smolscale::spawn(dns::dns_loop(dns_listen))
-        } else {
-            smolscale::spawn(smol::future::pending())
-        };
+        let dns_fut = smolscale::spawn(dns::dns_loop(CONNECT_CONFIG.dns_listen));
 
         // port forwarders
         let port_forwarders: Vec<_> = CONNECT_CONFIG
