@@ -32,6 +32,9 @@ pub fn setup_routing() {
                 std::process::exit(-1)
             }
         });
+        unsafe {
+            libc::atexit(teardown_routing);
+        }
     });
 }
 

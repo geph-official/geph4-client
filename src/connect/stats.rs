@@ -68,7 +68,7 @@ pub trait StatsControlProtocol {
     /// Turns off the daemon.
     async fn kill(&self) -> bool {
         smolscale::spawn(async {
-            smol::Timer::after(Duration::from_secs(1)).await;
+            smol::Timer::after(Duration::from_millis(300)).await;
             std::process::exit(0);
         })
         .detach();
