@@ -13,7 +13,7 @@ jobs:
       size: xlarge
     steps:
       - checkout
-      - run: pip3 install --upgrade b2
+      - run: pip install --upgrade b2
       - run: curl https://win.rustup.rs/ > rustup-init.exe
       - run: ./rustup-init -y --default-toolchain "stable-i686-pc-windows-msvc" --profile minimal
       - run: PATH=$PATH:/c/Users/circleci/.cargo/bin CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release
