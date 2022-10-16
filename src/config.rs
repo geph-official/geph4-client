@@ -15,6 +15,11 @@ use structopt::StructOpt;
 
 static INIT_CONFIG: OnceCell<Opt> = OnceCell::new();
 
+/// Must be called *before* CONFIG is ever referenced
+pub fn override_config(opt: Opt) {
+    INIT_CONFIG.get_or_init(|| opt);
+}
+
 /// The global configuration of the client.
 pub static CONFIG: Lazy<Opt> = Lazy::new(|| INIT_CONFIG.get_or_init(Opt::from_args).clone());
 

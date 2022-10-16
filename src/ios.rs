@@ -3,18 +3,27 @@ use std::{
     format,
     io::{BufRead, BufReader, Write},
     os::raw::{c_char, c_int, c_uchar},
+    sync::Arc,
 };
 
 use bytes::Bytes;
 use once_cell::sync::Lazy;
 use os_pipe::PipeReader;
 use parking_lot::Mutex;
+use smol::process::Command;
 use structopt::StructOpt;
 
 use crate::{
-    binderproxy,
-    connect::vpn::{vpn_download, vpn_upload},
-    main_bridgetest, sync, Opt,
+    binderproxy::{self, binderproxy_once},
+    config::{override_config, CommonOpt, ConnectOpt},
+    connect::{
+        start_main_connect,
+        vpn::{vpn_download, vpn_upload},
+        TUNNEL,
+    },
+    main_bridgetest,
+    sync::{self, sync_json, SyncOpt},
+    Opt,
 };
 
 static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
@@ -46,49 +55,151 @@ fn config_logging_ios() {
     Lazy::force(&LOG_LINES);
 }
 
-fn dispatch_ios(opt: Opt) -> anyhow::Result<String> {
+fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
     config_logging_ios();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("IOS geph4-client v{} starting...", version);
 
     smolscale::block_on(async move {
-        match opt {
-            Opt::Connect(_opt) => {
-                crate::connect::start_main_connect();
-                Ok(String::from(""))
+        let func = func.as_str();
+        // let args: Vec<&str> = args.into_iter().map(|s| s.as_str()).collect();
+
+        match func {
+            "start_daemon" => {
+                let opt = Opt::from_iter(
+                    vec![String::from("geph4-client"), String::from("connect")]
+                        .into_iter()
+                        .chain(args.into_iter()),
+                );
+                override_config(opt);
+                start_main_connect();
+                anyhow::Ok(String::from(""))
             }
-            Opt::Sync(opt) => sync::sync_json(opt).await,
-            Opt::BinderProxy(opt) => {
-                binderproxy::main_binderproxy(opt).await?;
-                Ok(String::from(""))
+            "is_connected" => {
+                let ret = serde_json::to_string(&true)?;
+                anyhow::Ok(ret)
             }
-            Opt::BridgeTest(opt) => {
-                main_bridgetest::main_bridgetest(opt).await?;
-                Ok(String::from(""))
+            "is_running" => {
+                let ret = serde_json::to_string(&TUNNEL.is_connected())?;
+                anyhow::Ok(ret)
             }
+            "sync" => {
+                let sync_opt = SyncOpt::from_iter(
+                    std::iter::once(String::from("sync")).chain(args.into_iter()),
+                );
+                let ret = sync_json(sync_opt).await?;
+                anyhow::Ok(ret)
+            }
+            "binder_rpc" => {
+                let binder_client = Arc::new(CommonOpt::from_iter(vec![""]).get_binder_client());
+                let line = args[0].clone();
+                let resp = binderproxy_once(binder_client, line).await?;
+                anyhow::Ok(resp)
+            }
+            _ => anyhow::bail!("function {func} does not exist"),
         }
     })
 }
 
 #[no_mangle]
-pub extern "C" fn call_geph(opt: *const c_char) -> *mut c_char {
+pub extern "C" fn call_geph(func: *const c_char, opt: *const c_char) -> *mut c_char {
     let inner = || {
+        let func = unsafe { CStr::from_ptr(func) }.to_str()?.to_owned();
+        // println!("func = {func}");
         let c_str = unsafe { CStr::from_ptr(opt) };
-        // if c_str.to_str()?.contains("connect") {
-        //     anyhow::bail!("lol always fail connects")
-        // }
+        // println!("got args str");
         let args: Vec<&str> = serde_json::from_str(c_str.to_str()?)?;
-        std::env::set_var("GEPH_RECURSIVE", "1"); // no forking in iOS
-        let opt: Opt = Opt::from_iter_safe(args)?;
-        dispatch_ios(opt)
+        // println!("args = {:?}", args);
+        anyhow::Ok(dispatch_ios(
+            func,
+            args.into_iter().map(|s| s.to_owned()).collect(),
+        )?)
     };
 
     let output = match inner() {
         Ok(output) => output,
         Err(err) => format!("ERROR!!!! {:?}", err),
     };
-
+    println!("output = {output}");
     CString::new(output).unwrap().into_raw()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::CString;
+
+    use super::call_geph;
+
+    // fn test() {
+    //     let v = vec![String::from("labooyah")];
+    //     let vprime: Vec<&str> = v.iter().map(|s| s.as_str()).collect();
+    //     println!("{:?}", vprime);
+    // }
+
+    // #[test]
+    // fn test_cstr() {
+    //     let inner = || {
+    //         let args = ["--username", "public", "--password", "public", "--force"];
+    //         let args_str = CString::new(serde_json::to_string(&args)?)?.into_raw();
+
+    //         let c_str = unsafe { CStr::from_ptr(args_str) };
+    //         let s = c_str.to_str()?;
+    //         println!("s = {s}");
+    //         let args: Vec<&str> = serde_json::from_str(s)?;
+    //         anyhow::Ok(args)
+    //     };
+    //     match inner() {
+    //         Ok(x) => println!("{:?}", x),
+    //         Err(e) => println!("{e}"),
+    //     }
+    // }
+
+    // #[test]
+    // fn test_rstr() {
+    //     let inner = || {
+    //         let s = String::from("heyhey");
+    //         let ptr_to_s = &s;
+    //         ptr_to_s
+    //     };
+
+    //     println!("{}", inner());
+    // }
+
+    fn test(func: &str, args: Vec<&str>) {
+        let inner = || {
+            let func = CString::new(func).unwrap().into_raw();
+            let args = CString::new(serde_json::to_string(&args).unwrap())
+                .unwrap()
+                .into_raw();
+            let ret = call_geph(func, args);
+            unsafe {
+                let output = CString::from_raw(ret).to_str()?.to_owned();
+                anyhow::Ok(output)
+            }
+        };
+        let output = inner();
+        println!("{:?}", output);
+        assert!(output.is_ok());
+    }
+
+    #[test]
+    fn test_c_functions() {
+        test(
+            "connect",
+            vec!["--username", "public", "--password", "public"],
+        );
+
+        test("is_connected", vec![]);
+
+        test("is_running", vec![]);
+
+        test("sync", vec!["--username", "public", "--password", "public"]);
+
+        // test(
+        //     "binder_rpc",
+        //     vec!["--username", "public", "--password", "public"],
+        // );
+    }
 }
 
 #[no_mangle]
@@ -123,65 +234,6 @@ pub extern "C" fn download_packet(buffer: *mut c_uchar, buflen: c_int) -> c_int 
 }
 
 #[no_mangle]
-pub extern "C" fn check_bridges(_buffer: *mut c_char, _buflen: c_int) -> c_int {
-    todo!()
-    // let mut whitelist: Vec<IpAddr> = Vec::new();
-    // if let Some(tun) = main_connect::TUNNEL.read().clone() {
-    //     let endpoint = tun.get_endpoint();
-    //     match endpoint {
-    //         EndpointSource::Independent { endpoint: _ } => {
-    //             -1 // independent exits not supported for iOS
-    //         }
-    //         EndpointSource::Binder(binder_tunnel_params) => {
-    //             let cached_binder = binder_tunnel_params.ccache;
-    //             let exits = smol::block_on(cached_binder.get_summary().exits).unwrap();
-    //             for exit in exits {
-    //                 if let Ok(server_addr) = smol::block_on(
-    //                     geph4_protocol::getsess::ipv4_addr_from_hostname(exit.hostname.clone()),
-    //                 ) {
-    //                     whitelist.push(server_addr.ip());
-    //                     // bridges
-    //                     if let Ok(bridges) =
-    //                         smol::block_on(cached_binder.get_bridges(&exit.hostname, true))
-    //                     {
-    //                         for bridge in bridges {
-    //                             let ip = bridge.endpoint.ip();
-    //                             whitelist.push(ip);
-    //                         }
-    //                     }
-    //                 }
-    //             }
-    //             let whitelist = serde_json::json!(whitelist).to_string();
-    //             log::debug!(
-    //                 "whitelist is {}; with length {}",
-    //                 whitelist,
-    //                 whitelist.len()
-    //             );
-
-    //             unsafe {
-    //                 let mut slice =
-    //                     std::slice::from_raw_parts_mut(buffer as *mut u8, buflen as usize);
-    //                 if whitelist.len() < slice.len() {
-    //                     if slice.write_all(whitelist.as_bytes()).is_err() {
-    //                         log::debug!("check bridges failed: writing to buffer failed");
-    //                         -1
-    //                     } else {
-    //                         whitelist.len() as c_int
-    //                     }
-    //                 } else {
-    //                     log::debug!("check bridges failed: buffer not big enough");
-    //                     -1
-    //                 }
-    //             }
-    //         }
-    //     }
-    // } else {
-    //     log::debug!("check bridges failed: no tunnel");
-    //     -1
-    // }
-}
-
-#[no_mangle]
 // returns one line of logs
 pub extern "C" fn get_logs(buffer: *mut c_char, buflen: c_int) -> c_int {
     let mut line = String::new();
@@ -203,3 +255,61 @@ pub extern "C" fn get_logs(buffer: *mut c_char, buflen: c_int) -> c_int {
         }
     }
 }
+
+// #[no_mangle]
+// pub extern "C" fn check_bridges(_buffer: *mut c_char, _buflen: c_int) -> c_int {
+// let mut whitelist: Vec<IpAddr> = Vec::new();
+// if let Some(tun) = main_connect::TUNNEL.read().clone() {
+//     let endpoint = tun.get_endpoint();
+//     match endpoint {
+//         EndpointSource::Independent { endpoint: _ } => {
+//             -1 // independent exits not supported for iOS
+//         }
+//         EndpointSource::Binder(binder_tunnel_params) => {
+//             let cached_binder = binder_tunnel_params.ccache;
+//             let exits = smol::block_on(cached_binder.get_summary().exits).unwrap();
+//             for exit in exits {
+//                 if let Ok(server_addr) = smol::block_on(
+//                     geph4_protocol::getsess::ipv4_addr_from_hostname(exit.hostname.clone()),
+//                 ) {
+//                     whitelist.push(server_addr.ip());
+//                     // bridges
+//                     if let Ok(bridges) =
+//                         smol::block_on(cached_binder.get_bridges(&exit.hostname, true))
+//                     {
+//                         for bridge in bridges {
+//                             let ip = bridge.endpoint.ip();
+//                             whitelist.push(ip);
+//                         }
+//                     }
+//                 }
+//             }
+//             let whitelist = serde_json::json!(whitelist).to_string();
+//             log::debug!(
+//                 "whitelist is {}; with length {}",
+//                 whitelist,
+//                 whitelist.len()
+//             );
+
+//             unsafe {
+//                 let mut slice =
+//                     std::slice::from_raw_parts_mut(buffer as *mut u8, buflen as usize);
+//                 if whitelist.len() < slice.len() {
+//                     if slice.write_all(whitelist.as_bytes()).is_err() {
+//                         log::debug!("check bridges failed: writing to buffer failed");
+//                         -1
+//                     } else {
+//                         whitelist.len() as c_int
+//                     }
+//                 } else {
+//                     log::debug!("check bridges failed: buffer not big enough");
+//                     -1
+//                 }
+//             }
+//         }
+//     }
+// } else {
+//     log::debug!("check bridges failed: no tunnel");
+//     -1
+// }
+// }

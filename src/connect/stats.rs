@@ -1,6 +1,12 @@
-use std::{convert::Infallible, thread::JoinHandle, time::Duration};
+use std::{
+    collections::HashMap,
+    convert::Infallible,
+    thread::JoinHandle,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use async_trait::async_trait;
+use itertools::Itertools;
 use nanorpc::nanorpc_derive;
 use nanorpc::RpcService;
 use once_cell::sync::Lazy;
@@ -65,6 +71,43 @@ pub trait StatsControlProtocol {
         }
     }
 
+    /// Obtains time-series statistics.
+    async fn timeseries_stats(&self, series: Timeseries) -> Vec<(u64, f32)> {
+        let s = TUNNEL.get_stats().await;
+        let diffify = |series: sosistab::TimeSeries| {
+            let mut accum = HashMap::new();
+            let mut last = 0.0f32;
+            let now = SystemTime::now();
+            for (&time, &total) in series.iter() {
+                if let Ok(dur) = now.duration_since(time) {
+                    if dur.as_secs() > 600 {
+                        continue;
+                    }
+                }
+                let bucket = time.duration_since(UNIX_EPOCH).unwrap().as_secs();
+                let diff = (total - last).max(0.0);
+                last = total;
+                *accum.entry(bucket).or_default() += diff;
+            }
+            let first = accum.keys().min().copied().unwrap_or_default();
+            let end = accum.keys().max().copied().unwrap_or_default();
+            (first..end)
+                .map(|i| (i, accum.get(&i).copied().unwrap_or_default()))
+                .collect_vec()
+        };
+        match series {
+            Timeseries::SendSpeed => {
+                let series = s.sent_series;
+                diffify(series)
+            }
+            Timeseries::RecvSpeed => {
+                let series = s.recv_series;
+                diffify(series)
+            }
+            Timeseries::Loss => todo!(),
+        }
+    }
+
     /// Turns off the daemon.
     async fn kill(&self) -> bool {
         smolscale::spawn(async {
@@ -74,4 +117,11 @@ pub trait StatsControlProtocol {
         .detach();
         true
     }
+}
+
+#[derive(Copy, Clone, Serialize, Deserialize, Debug)]
+pub enum Timeseries {
+    RecvSpeed,
+    SendSpeed,
+    Loss,
 }

@@ -80,7 +80,7 @@ static TUNNEL_STATUS_CALLBACK: Lazy<RwLock<StatusCallback>> = Lazy::new(|| {
     }))
 });
 
-static TUNNEL: Lazy<ClientTunnel> = Lazy::new(|| {
+pub static TUNNEL: Lazy<ClientTunnel> = Lazy::new(|| {
     let endpoint = {
         if let Some(override_url) = CONNECT_CONFIG.override_connect.clone() {
             EndpointSource::Independent {
