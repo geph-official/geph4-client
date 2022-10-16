@@ -1,5 +1,8 @@
 # Use the latest 2.1 version of CircleCI pipeline process engine. See: https://circleci.com/docs/2.0/configuration-reference
 version: 2.1
+
+orbs:
+  win: circleci/windows@2.2.0 # The Windows orb give you everything you need to start using the Windows executor.
 # Use a package of configuration called an orb.
 # Orchestrate or schedule a set of jobs
 jobs:
