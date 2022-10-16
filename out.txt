@@ -1,0 +1,146 @@
+warning: unused import: `Cubic`
+  --> /home/thisbefruit/Geph/sosistab/src/mux/relconn/connvars.rs:13:41
+   |
+13 |         congestion::{CongestionControl, Cubic, Highspeed},
+   |                                         ^^^^^
+   |
+   = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `cmp::Reverse`
+ --> /home/thisbefruit/Geph/sosistab/src/mux/relconn/inflight/calc.rs:2:5
+  |
+2 |     cmp::Reverse,
+  |     ^^^^^^^^^^^^
+
+warning: unused import: `ordered_float::OrderedFloat`
+ --> /home/thisbefruit/Geph/sosistab/src/mux/relconn/inflight/calc.rs:6:5
+  |
+6 | use ordered_float::OrderedFloat;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused import: `MinQueue`
+ --> /home/thisbefruit/Geph/sosistab/src/mux/relconn/inflight/calc.rs:8:28
+  |
+8 | use crate::{EmaCalculator, MinQueue};
+  |                            ^^^^^^^^
+
+warning: associated function is never used: `max_pps`
+  --> /home/thisbefruit/Geph/sosistab/src/session/stats.rs:88:12
+   |
+88 |     pub fn max_pps(&self) -> f64 {
+   |            ^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: associated function is never used: `new`
+  --> /home/thisbefruit/Geph/sosistab/src/mux/congestion/cubic.rs:17:12
+   |
+17 |     pub fn new(beta: f64, cee: f64) -> Self {
+   |            ^^^
+
+warning: associated function is never used: `new`
+ --> /home/thisbefruit/Geph/sosistab/src/mux/congestion/trivial.rs:9:12
+  |
+9 |     pub fn new(cwnd: usize) -> Self {
+  |            ^^^
+
+warning: associated function is never used: `change_cc`
+   --> /home/thisbefruit/Geph/sosistab/src/mux/relconn/connvars.rs:267:12
+    |
+267 |     pub fn change_cc(&mut self, algo: impl CongestionControl + Send + 'static) {
+    |            ^^^^^^^^^
+
+warning: field is never read: `seqno`
+  --> /home/thisbefruit/Geph/sosistab/src/mux/relconn/inflight.rs:14:5
+   |
+14 |     seqno: Seqno,
+   |     ^^^^^^^^^^^^
+   |
+note: `InflightEntry` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+  --> /home/thisbefruit/Geph/sosistab/src/mux/relconn/inflight.rs:11:10
+   |
+11 | #[derive(Debug, Clone)]
+   |          ^^^^^  ^^^^^
+   = note: this warning originates in the derive macro `Debug` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: field is never read: `delivered_time`
+  --> /home/thisbefruit/Geph/sosistab/src/mux/relconn/inflight.rs:21:5
+   |
+21 |     delivered_time: Instant,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^
+   |
+note: `InflightEntry` has derived impls for the traits `Clone` and `Debug`, but these are intentionally ignored during dead code analysis
+  --> /home/thisbefruit/Geph/sosistab/src/mux/relconn/inflight.rs:11:10
+   |
+11 | #[derive(Debug, Clone)]
+   |          ^^^^^  ^^^^^
+   = note: this warning originates in the derive macro `Debug` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: `sosistab` (lib) generated 10 warnings
+warning: function is never used: `config_logging_ios`
+  --> src/ios.rs:36:4
+   |
+36 | fn config_logging_ios() {
+   |    ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` on by default
+
+warning: `geph4-client` (lib) generated 1 warning
+warning: unused imports: `Opt`, `dispatch`
+ --> src/main.rs:2:5
+  |
+2 |     dispatch,
+  |     ^^^^^^^^
+3 |     ios::{call_geph, check_bridges, get_logs},
+4 |     Opt,
+  |     ^^^
+  |
+  = note: `#[warn(unused_imports)]` on by default
+
+warning: unused import: `structopt::StructOpt`
+ --> src/main.rs:8:5
+  |
+8 | use structopt::StructOpt;
+  |     ^^^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `ret`
+  --> src/main.rs:17:13
+   |
+17 |         let ret = check_bridges(buf.as_mut_ptr(), buflen as i32);
+   |             ^^^ help: if this is intentional, prefix it with an underscore: `_ret`
+   |
+   = note: `#[warn(unused_variables)]` on by default
+
+warning: variable does not need to be mutable
+  --> src/main.rs:32:9
+   |
+32 |     let mut args_arr = vec![
+   |         ----^^^^^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` on by default
+
+warning: `geph4-client` (bin "geph4-client") generated 4 warnings
+    Finished dev [unoptimized + debuginfo] target(s) in 0.21s
+     Running `target/debug/geph4-client connect --username LisaWei --password doremi`
+[src/ios.rs:185] &line = ""
+LOOOOGS ret = 0
+[2022-06-14T17:46:26.447Z INFO  geph4client::ios] IOS geph4-client v4.5.0-beta.1 starting...
+[2022-06-14T17:46:26.448Z INFO  geph4client::main_connect] exit = us-hio-01.exits.geph.io, use_tcp = false, use_bridges = false
+[2022-06-14T17:46:26.448Z INFO  geph4client::main_connect] connect mode started
+[2022-06-14T17:46:26.453Z DEBUG geph4client] getting extra fronts...
+[2022-06-14T17:46:26.484Z INFO  geph4client::stats] ** recv_loss = 0.00% **
+[2022-06-14T17:46:26.550Z INFO  geph4_protocol::tunnel::getsess] connected to UDP for 156.146.53.107:19831
+[2022-06-14T17:46:26.562Z DEBUG geph4client] inserting extra 1 fronts
+[2022-06-14T17:46:27.138Z DEBUG geph4_protocol::tunnel::tunnel_actor] sending auth info...
+[2022-06-14T17:46:27.138Z DEBUG geph4_protocol::tunnel::tunnel_actor] sent auth info!
+[src/ios.rs:185] &line = ""
+LOOOOGS ret = 0
+[2022-06-14T17:46:27.909Z INFO  geph4_protocol::tunnel::tunnel_actor] TUNNEL_MANAGER MAIN LOOP through 156.146.53.107:19831
+[src/ios.rs:185] &line = ""
+LOOOOGS ret = 0
+[2022-06-14T17:46:28.469Z INFO  geph4_protocol::vpn] negotiating VPN with client id 329633718752500055804956647310501519170...
+[2022-06-14T17:46:28.532Z INFO  geph4_protocol::vpn] negotiated IP address 100.77.189.221!
+[src/ios.rs:185] &line = ""
+LOOOOGS ret = 0

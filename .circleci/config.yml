@@ -1,29 +1,53 @@
 # Use the latest 2.1 version of CircleCI pipeline process engine. See: https://circleci.com/docs/2.0/configuration-reference
 version: 2.1
+
+orbs:
+  win: circleci/windows@2.2.0 # The Windows orb give you everything you need to start using the Windows executor.
 # Use a package of configuration called an orb.
 # Orchestrate or schedule a set of jobs
 jobs:
-  build_osx:
-    working_directory: ~/repo/
-    machine:
-      image: ubuntu-2004:202008-01
-    resource_class: 2xlarge
+  build_windows:
+    executor:
+      name: win/default
+      shell: bash.exe
+      size: xlarge
     steps:
       - checkout
-      - run: sudo apt install python3-pip
-      - run: sudo pip3 install --upgrade b2
-      - run: |
-          b2 authorize-account $B2_KEYID $B2_APPKEY
+      - run: pip install --upgrade b2
+      - run: b2 authorize-account $B2_KEYID $B2_APPKEY
+      - run: curl https://win.rustup.rs/ > rustup-init.exe
+      - run: ./rustup-init -y --default-toolchain "stable-i686-pc-windows-msvc" --profile minimal
+      - run: PATH=$PATH:/c/Users/circleci/.cargo/bin CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release
+      - run: bash move_built.sh
+      - run: b2 sync ./OUTPUT/ b2://geph-dl/geph4-binaries/
+
+  build_osx:
+    working_directory: ~/repo/
+    macos:
+      xcode: 12.5.1
+    resource_class: macos.x86.medium.gen2
+    steps:
+      - checkout
+      # - run: sudo apt install python3-pip
+      # - run: sudo pip3 install --upgrade b2
+      # - run: |
+      #     b2 authorize-account $B2_KEYID $B2_APPKEY
+      - run: curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+      - run: python3 get-pip.py
+      - run: pip3 install --upgrade b2
+      - run: b2 authorize-account $B2_KEYID $B2_APPKEY
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
-      - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
-      - run: sh osx_build.sh
+      - run: cargo build --release --locked --target x86_64-apple-darwin
       - run: sh move_built.sh
+      # - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
+      # - run: sh osx_build.sh
+      # - run: sh move_built.sh
       - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
   build_cross_1:
     working_directory: ~/repo/
     machine:
-      image: ubuntu-2004:202008-01
-    resource_class: 2xlarge
+      image: ubuntu-2204:2022.04.1
+    resource_class: xlarge
     steps:
       - checkout
       - run: sudo apt install python3-pip
@@ -33,16 +57,16 @@ jobs:
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
       - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       - run: cargo install cross
-      - run: cross build --release --locked  --target x86_64-unknown-linux-musl
       - run: cross build --release --locked  --target armv7-linux-androideabi
+      - run: cargo clean
       - run: cross build --release --locked  --target aarch64-linux-android
       - run: sh move_built.sh
       - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
   build_cross_2:
     working_directory: ~/repo/
     machine:
-      image: ubuntu-2004:202008-01
-    resource_class: 2xlarge
+      image: ubuntu-2204:2022.04.1
+    resource_class: xlarge
     steps:
       - checkout
       - run: sudo apt install python3-pip
@@ -53,30 +77,31 @@ jobs:
       - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       - run: cargo install cross
       - run: cross build --release --locked  --target armv7-unknown-linux-musleabihf
-      - run: cross build --release --locked --target x86_64-pc-windows-gnu
-      - run: cross build --release --locked --target i686-pc-windows-gnu
+      - run: cargo clean
+      - run: cross build --release --locked  --target x86_64-unknown-linux-musl
       - run: sh move_built.sh
-      - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
+      - run: b2 sync ./OUTPUT/ b2://geph-dl/geph4-binaries/
 
 workflows:
   version: 2
   main:
     jobs:
-      - build_cross_1:
-          filters:
-            branches:
-              ignore: /.*/
-            tags:
-              only: /.*/
-      - build_cross_2:
-          filters:
-            branches:
-              ignore: /.*/
-            tags:
-              only: /.*/
-      - build_osx:
-          filters:
-            branches:
-              ignore: /.*/
-            tags:
-              only: /.*/
+      - build_windows
+      - build_cross_1
+        # filters:
+        #   branches:
+        #     ignore: /.*/
+        #   tags:
+        #     only: /.*/
+      - build_cross_2
+        # filters:
+        #   branches:
+        #     ignore: /.*/
+        #   tags:
+        #     only: /.*/
+      - build_osx
+        # filters:
+        #   branches:
+        #     ignore: /.*/
+        #   tags:
+        #     only: /.*/

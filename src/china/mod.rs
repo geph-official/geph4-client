@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
-use async_net::Ipv4Addr;
+use anyhow::Context;
+use async_net::{IpAddr, Ipv4Addr};
+use http_types::{Method, Request, Url};
 use once_cell::sync::Lazy;
 use treebitmap::IpLookupTable;
 
@@ -42,4 +44,30 @@ pub fn is_chinese_host(host: &str) -> bool {
         }
     }
     false
+}
+
+/// Returns whether or not we're in China.
+#[cached::proc_macro::cached(result = true)]
+pub async fn test_china() -> http_types::Result<bool> {
+    let req = Request::new(
+        Method::Get,
+        Url::parse("http://checkip.amazonaws.com").unwrap(),
+    );
+    let connect_to = geph4_aioutils::resolve("checkip.amazonaws.com:80").await?;
+
+    let response = {
+        let connection =
+            smol::net::TcpStream::connect(connect_to.get(0).context("no addrs for checkip")?)
+                .await?;
+        async_h1::connect(connection, req)
+            .await?
+            .body_string()
+            .await?
+    };
+    let response = response.trim();
+    let parsed: IpAddr = response.parse()?;
+    match parsed {
+        IpAddr::V4(inner) => Ok(is_chinese_ip(inner)),
+        IpAddr::V6(_) => Err(anyhow::anyhow!("cannot tell for ipv6").into()),
+    }
 }

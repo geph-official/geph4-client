@@ -1,21 +1,20 @@
-use async_dup::Arc;
 use async_net::SocketAddr;
-use async_tls::{client::TlsStream, TlsConnector};
 use smol::{
     channel::{Receiver, Sender},
     prelude::*,
 };
 use smol_timeout::TimeoutExt;
 use sosistab::RelConn;
+use std::sync::Arc;
 use std::time::Duration;
 
-use crate::tunman::TunnelManager;
+use super::TUNNEL;
 
 /// Handle DNS requests from localhost
-pub async fn dns_loop(addr: SocketAddr, keepalive: TunnelManager) -> anyhow::Result<()> {
+pub async fn dns_loop(addr: SocketAddr) -> anyhow::Result<()> {
     let socket = smol::net::UdpSocket::bind(addr).await?;
     let mut buf = [0; 2048];
-    let pool = Arc::new(DnsPool::new(keepalive));
+    let pool = Arc::new(DnsPool::new());
     log::debug!("DNS loop started");
     loop {
         let (n, c_addr) = socket.recv_from(&mut buf).await?;
@@ -42,19 +41,17 @@ pub async fn dns_loop(addr: SocketAddr, keepalive: TunnelManager) -> anyhow::Res
 
 /// A DNS connection pool
 pub struct DnsPool {
-    send_conn: Sender<TlsStream<RelConn>>,
-    recv_conn: Receiver<TlsStream<RelConn>>,
-    keepalive: TunnelManager,
+    send_conn: Sender<RelConn>,
+    recv_conn: Receiver<RelConn>,
 }
 
 impl DnsPool {
-    /// Create a new pool based on a Keepalive
-    pub fn new(keepalive: TunnelManager) -> Self {
+    /// Create a new pool
+    pub fn new() -> Self {
         let (send_conn, recv_conn) = smol::channel::unbounded();
         Self {
             send_conn,
             recv_conn,
-            keepalive,
         }
     }
 
@@ -65,18 +62,11 @@ impl DnsPool {
             let lala = self.recv_conn.try_recv();
             match lala {
                 Ok(v) => v,
-                _ => {
-                    let tcp_conn = self
-                        .keepalive
-                        .connect("1.0.0.1:853")
-                        .timeout(dns_timeout)
-                        .await?
-                        .ok()?;
-                    TlsConnector::default()
-                        .connect("cloudflare-dns.com", tcp_conn)
-                        .await
-                        .ok()?
-                }
+                _ => TUNNEL
+                    .connect("1.0.0.1:53")
+                    .timeout(dns_timeout)
+                    .await?
+                    .ok()?,
             }
         };
         conn.write_all(&(buff.len() as u16).to_be_bytes())
