@@ -4,6 +4,7 @@ use std::{
     io::{BufRead, BufReader, Write},
     os::raw::{c_char, c_int, c_uchar},
     sync::Arc,
+    time::Duration,
 };
 
 use bytes::Bytes;
@@ -73,7 +74,12 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
                 );
                 override_config(opt);
                 start_main_connect();
-                anyhow::Ok(String::from(""))
+                loop {
+                    smol::Timer::after(Duration::from_secs(1)).await;
+                    if TUNNEL.is_connected() {
+                        break anyhow::Ok(String::from(""));
+                    }
+                }
             }
             "is_connected" => {
                 let ret = serde_json::to_string(&true)?;

@@ -19,7 +19,7 @@ jobs:
       - run: ./rustup-init -y --default-toolchain "stable-i686-pc-windows-msvc" --profile minimal
       - run: PATH=$PATH:/c/Users/circleci/.cargo/bin CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release
       - run: bash move_built.sh
-      - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
+      - run: b2 sync ./OUTPUT/ b2://geph-dl/geph4-binaries/
 
   build_osx:
     working_directory: ~/repo/
