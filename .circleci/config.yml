@@ -3,6 +3,20 @@ version: 2.1
 # Use a package of configuration called an orb.
 # Orchestrate or schedule a set of jobs
 jobs:
+  build_windows:
+    executor:
+      name: win/default
+      shell: bash.exe
+      size: xlarge
+    steps:
+      - checkout
+      - run: pip3 install --upgrade b2
+      - run: curl https://win.rustup.rs/ > rustup-init.exe
+      - run: ./rustup-init -y --default-toolchain "stable-i686-pc-windows-msvc" --profile minimal
+      - run: PATH=$PATH:/c/Users/circleci/.cargo/bin CARGO_NET_GIT_FETCH_WITH_CLI=true cargo build --release
+      - run: bash move_built.sh
+      - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
+
   build_osx:
     working_directory: ~/repo/
     macos:

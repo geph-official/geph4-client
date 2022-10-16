@@ -51,7 +51,7 @@ static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
 });
 
 fn config_logging_ios() {
-    log::debug!("TRYING TO CONFIG LOGGING HERE");
+    log::debug!("TRYING TO CONFIG iOS LOGGING HERE");
     Lazy::force(&LOG_LINES);
 }
 
@@ -94,6 +94,7 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
                 let binder_client = Arc::new(CommonOpt::from_iter(vec![""]).get_binder_client());
                 let line = args[0].clone();
                 let resp = binderproxy_once(binder_client, line).await?;
+                println!("binder resp = {resp}");
                 anyhow::Ok(resp)
             }
             _ => anyhow::bail!("function {func} does not exist"),
@@ -167,25 +168,25 @@ mod tests {
 
     fn test(func: &str, args: Vec<&str>) {
         let inner = || {
-            let func = CString::new(func).unwrap().into_raw();
-            let args = CString::new(serde_json::to_string(&args).unwrap())
+            let func_c = CString::new(func).unwrap().into_raw();
+            let args_c = CString::new(serde_json::to_string(&args).unwrap())
                 .unwrap()
                 .into_raw();
-            let ret = call_geph(func, args);
+            let ret = call_geph(func_c, args_c);
             unsafe {
                 let output = CString::from_raw(ret).to_str()?.to_owned();
                 anyhow::Ok(output)
             }
         };
         let output = inner();
-        println!("{:?}", output);
+        println!("Output of {func} = {:?}", output);
         assert!(output.is_ok());
     }
 
     #[test]
     fn test_c_functions() {
         test(
-            "connect",
+            "start_daemon",
             vec!["--username", "public", "--password", "public"],
         );
 
@@ -197,7 +198,7 @@ mod tests {
 
         // test(
         //     "binder_rpc",
-        //     vec!["--username", "public", "--password", "public"],
+        //     vec!["{ jsonrpc: \"2.0\", method: \"method\", params: [], id: 1 }"],
         // );
     }
 }
