@@ -80,7 +80,7 @@ jobs:
       - run: cargo clean
       - run: cross build --release --locked  --target x86_64-unknown-linux-musl
       - run: sh move_built.sh
-      - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
+      - run: b2 sync ./OUTPUT/ b2://geph-dl/geph4-binaries/
 
 workflows:
   version: 2
