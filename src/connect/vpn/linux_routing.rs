@@ -1,21 +1,64 @@
 use std::{process::Command, time::Duration};
 
-use async_net::Ipv4Addr;
+use async_net::{IpAddr, Ipv4Addr};
+use dashmap::DashMap;
+use geph4_protocol::tunnel::TunnelStatus;
 use itertools::Itertools;
+use once_cell::sync::Lazy;
 use signal_hook::iterator::Signals;
 
-use crate::connect::{CONNECT_CONFIG, TUNNEL};
+use crate::connect::{CONNECT_CONFIG, TUNNEL, TUNNEL_STATUS_CALLBACK};
+
+struct SingleWhitelister {
+    dest: IpAddr,
+}
+
+impl Drop for SingleWhitelister {
+    fn drop(&mut self) {
+        log::debug!("DROPPING whitelist to {}", self.dest);
+        Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "/usr/bin/env ip rule del to {} lookup main pref 1",
+                self.dest
+            ))
+            .status()
+            .expect("cannot run iptables");
+    }
+}
+
+impl SingleWhitelister {
+    fn new(dest: IpAddr) -> Self {
+        Command::new("sh")
+            .arg("-c")
+            .arg(format!(
+                "/usr/bin/env ip rule add to {} lookup main pref 1",
+                dest
+            ))
+            .status()
+            .expect("cannot run iptables");
+        Self { dest }
+    }
+}
+
+static WHITELIST: Lazy<DashMap<IpAddr, SingleWhitelister>> = Lazy::new(DashMap::new);
 
 pub fn setup_routing() {
     std::thread::spawn(|| {
+        *TUNNEL_STATUS_CALLBACK.write() = Box::new(|status| {
+            if let TunnelStatus::PreConnect { addr, protocol: _ } = status {
+                WHITELIST.entry(addr.ip()).or_insert_with(move || {
+                    log::debug!("making whitelist entry for {}", addr);
+                    SingleWhitelister::new(addr.ip())
+                });
+            }
+        });
+
         while !TUNNEL.is_connected() {
             log::debug!("waiting for tunnel to connect...");
             std::thread::sleep(Duration::from_secs(1));
         }
-        log::warn!("** ------------------------------------------ **");
-        log::warn!("** WARNING: Currently, geph4-client in \"tun-route\" mode will exclude all traffic running with the same user ({}) as Geph **", whoami::username());
-        log::warn!("** You are STRONGLY advised to create a separate user with CAP_NET_ADMIN privileges for running geph4-client! **");
-        log::warn!("** ------------------------------------------ **");
+
         // set the DNS server
         let mut dns_listen = CONNECT_CONFIG.dns_listen;
         dns_listen.set_ip(Ipv4Addr::new(127, 0, 0, 1).into());
@@ -40,9 +83,10 @@ pub fn setup_routing() {
 
 extern "C" fn teardown_routing() {
     log::debug!("teardown_routing starting!");
+    WHITELIST.clear();
     let cmd = include_str!("linux_routing_setup.sh")
         .lines()
-        .filter(|l| l.contains("-D") || l.contains("del"))
+        .filter(|l| l.contains("-D") || l.contains("del") || l.contains("flush"))
         .join("\n");
     let mut child = Command::new("sh").arg("-c").arg(cmd).spawn().unwrap();
     child.wait().expect("iptables was not set up properly");
