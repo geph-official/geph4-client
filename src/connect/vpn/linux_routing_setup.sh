@@ -5,8 +5,8 @@ ip route add default dev tun-geph table 8964
 # ip rule add not fwmark 8964 table 8964
 ip rule del table main suppress_prefixlength 0
 ip rule add table main suppress_prefixlength 0
-ip rule del to all lookup 8964 pref 400
-ip rule add to all lookup 8964 pref 400
+ip rule del to all lookup 8964 pref 2
+ip rule add to all lookup 8964 pref 2
 iptables -t nat -D OUTPUT -p udp --dport 53 -j DNAT --to $GEPH_DNS
 iptables -t nat -D OUTPUT -p tcp --dport 53 -j DNAT --to $GEPH_DNS
 iptables -t nat -A OUTPUT -p udp --dport 53 -j DNAT --to $GEPH_DNS
