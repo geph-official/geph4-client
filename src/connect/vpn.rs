@@ -32,7 +32,6 @@ use pnet_packet::{
     Packet,
 };
 use smol::prelude::*;
-use tun::Device;
 
 use crate::config::VpnMode;
 
@@ -144,6 +143,7 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
                             }
                             #[cfg(target_os = "macos")]
                             {
+                                use tun::Device;
                                 macos_routing::setup_routing(device.name());
                             }
                         }
