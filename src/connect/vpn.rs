@@ -1,9 +1,13 @@
 #[cfg(target_os = "linux")]
 mod linux_routing;
 
+#[cfg(target_os = "macos")]
+mod macos_routing;
+
 #[cfg(windows)]
 mod windows_routing;
 
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::{convert::Infallible, num::NonZeroU32, sync::Arc, thread::JoinHandle, time::Duration};
 
 #[cfg(unix)]
@@ -14,17 +18,21 @@ use std::os::unix::prelude::{AsRawFd, FromRawFd};
 
 use anyhow::Context;
 
+use async_net::{IpAddr, Ipv4Addr};
 use bytes::Bytes;
 use geph4_protocol::VpnMessage;
 use geph_nat::GephNat;
 use governor::{Quota, RateLimiter};
 use once_cell::sync::Lazy;
+use pnet_packet::ip::IpNextHeaderProtocols;
+use pnet_packet::MutablePacket;
 use pnet_packet::{
     ipv4::Ipv4Packet,
     tcp::{TcpFlags, TcpPacket},
     Packet,
 };
 use smol::prelude::*;
+use tun::Device;
 
 use crate::config::VpnMode;
 
@@ -134,9 +142,9 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
                             {
                                 linux_routing::setup_routing();
                             }
-                            #[cfg(not(target_os = "linux"))]
+                            #[cfg(target_os = "macos")]
                             {
-                                panic!("cannot use tun-route on non-Linux, just yet")
+                                macos_routing::setup_routing(device.name());
                             }
                         }
                         unsafe { fd_vpn_loop(device.as_raw_fd()) }
@@ -227,7 +235,8 @@ async fn vpn_up_loop(nat: Arc<GephNat>) -> anyhow::Result<()> {
             .allow_burst(NonZeroU32::new(100u32).unwrap()),
     );
     loop {
-        let bts = UP_CHANNEL.1.recv_async().await.unwrap();
+        let mut bts = UP_CHANNEL.1.recv_async().await.unwrap().to_vec();
+        mangle_dns_up(&mut bts);
         // ACK decimation
         if ack_decimate(&bts).is_some() && limiter.check().is_err() {
             log::trace!("doing ack decimation!");
@@ -239,6 +248,75 @@ async fn vpn_up_loop(nat: Arc<GephNat>) -> anyhow::Result<()> {
             };
         }
     }
+}
+
+static FAKE_DNS_SERVER: AtomicU32 = AtomicU32::new(0);
+static REAL_DNS_SERVER: Ipv4Addr = Ipv4Addr::new(1, 1, 1, 1);
+
+fn mangle_dns_up(mut pkt: &mut [u8]) {
+    let pkt_dest: Option<Ipv4Addr> =
+        pnet_packet::ipv4::Ipv4Packet::new(&pkt).map(|parsed| parsed.get_destination());
+    if let Some(pkt_dest) = pkt_dest {
+        let mut mangled = false;
+        if let Some(mut ip_pkt) = pnet_packet::ipv4::MutableIpv4Packet::new(pkt) {
+            if let Some(udp_pkt) = pnet_packet::udp::MutableUdpPacket::new(ip_pkt.payload_mut()) {
+                if udp_pkt.get_destination() == 53 {
+                    mangled = true;
+                }
+            }
+            if mangled {
+                FAKE_DNS_SERVER.store(ip_pkt.get_destination().into(), Ordering::SeqCst);
+                ip_pkt.set_destination(REAL_DNS_SERVER);
+            }
+        }
+        if mangled {
+            fix_all_checksums(pkt);
+        }
+    }
+}
+
+fn mangle_dns_dn(mut pkt: &mut [u8]) {
+    let mut mangled = false;
+    if let Some(mut ip_pkt) = pnet_packet::ipv4::MutableIpv4Packet::new(&mut pkt) {
+        if let Some(udp_pkt) = pnet_packet::udp::MutableUdpPacket::new(ip_pkt.payload_mut()) {
+            if udp_pkt.get_source() == 53 {
+                mangled = true;
+            }
+        }
+        if mangled {
+            ip_pkt.set_source(FAKE_DNS_SERVER.load(Ordering::SeqCst).into())
+        }
+    }
+    if mangled {
+        fix_all_checksums(pkt);
+    }
+}
+
+fn fix_all_checksums(bts: &mut [u8]) -> Option<()> {
+    let mut ip_layer = pnet_packet::ipv4::MutableIpv4Packet::new(bts)?;
+    let source = ip_layer.get_source();
+    let destination = ip_layer.get_destination();
+    // match on UDP vs TCP
+    match ip_layer.get_next_level_protocol() {
+        IpNextHeaderProtocols::Tcp => {
+            // extract the payload and modify its checksum too
+            let mut tcp_layer = pnet_packet::tcp::MutableTcpPacket::new(ip_layer.payload_mut())?;
+            let tcp_checksum =
+                pnet_packet::tcp::ipv4_checksum(&tcp_layer.to_immutable(), &source, &destination);
+            tcp_layer.set_checksum(tcp_checksum)
+        }
+        IpNextHeaderProtocols::Udp => {
+            // extract the payload and modify its checksum too
+            let mut udp_layer = pnet_packet::udp::MutableUdpPacket::new(ip_layer.payload_mut())?;
+            let udp_checksum =
+                pnet_packet::udp::ipv4_checksum(&udp_layer.to_immutable(), &source, &destination);
+            udp_layer.set_checksum(udp_checksum)
+        }
+        _ => (),
+    }
+    let ip_checksum = pnet_packet::ipv4::checksum(&ip_layer.to_immutable());
+    ip_layer.set_checksum(ip_checksum);
+    Some(())
 }
 
 /// Down loop for vpn
@@ -253,9 +331,9 @@ async fn vpn_down_loop(nat: Arc<GephNat>) -> anyhow::Result<()> {
         if let geph4_protocol::VpnMessage::Payload(bts) = incoming {
             let mangled_incoming = nat.mangle_downstream_pkt(&bts);
             if let Some(mangled_bts) = mangled_incoming {
-                let _ = DOWN_CHANNEL.0.try_send(mangled_bts);
-            } else {
-                let _ = DOWN_CHANNEL.0.try_send(bts);
+                let mut mangled_bts = mangled_bts.to_vec();
+                mangle_dns_dn(&mut mangled_bts);
+                let _ = DOWN_CHANNEL.0.try_send(mangled_bts.into());
             }
         }
     }
