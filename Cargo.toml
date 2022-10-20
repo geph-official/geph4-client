@@ -14,7 +14,7 @@ crate-type = ["staticlib", "lib"]
 
 [dependencies]
 anyhow = "1.0.65"
-geph4-protocol= "0.6.2"
+geph4-protocol= "0.7"
 # geph4-protocol = {path="../geph4-protocol"}
 async-h1= "2.3.3"
 bincode = "1.3.3"
@@ -40,7 +40,7 @@ sha2 = "0.9.9"
 smol = "1.2.5"
 smol-timeout = "0.6.0"
 socksv5 = "0.2.0"
-sosistab= "0.4.50"
+sosistab= "0.5"
 strsim = "0.10.0"
 structopt = "0.3.26"
 x25519-dalek={ version = "1.2.0", features = ["serde"] }
