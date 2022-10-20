@@ -18,7 +18,7 @@ use std::os::unix::prelude::{AsRawFd, FromRawFd};
 
 use anyhow::Context;
 
-use async_net::{IpAddr, Ipv4Addr};
+use async_net::Ipv4Addr;
 use bytes::Bytes;
 use geph4_protocol::VpnMessage;
 use geph_nat::GephNat;

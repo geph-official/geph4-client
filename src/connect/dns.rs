@@ -5,8 +5,8 @@ use smol::{
 };
 use smol_timeout::TimeoutExt;
 use sosistab::RelConn;
-use std::sync::Arc;
 use std::time::Duration;
+use std::{sync::Arc, time::Instant};
 
 use super::TUNNEL;
 
@@ -41,8 +41,8 @@ pub async fn dns_loop(addr: SocketAddr) -> anyhow::Result<()> {
 
 /// A DNS connection pool
 pub struct DnsPool {
-    send_conn: Sender<RelConn>,
-    recv_conn: Receiver<RelConn>,
+    send_conn: Sender<(RelConn, Instant)>,
+    recv_conn: Receiver<(RelConn, Instant)>,
 }
 
 impl DnsPool {
@@ -59,9 +59,17 @@ impl DnsPool {
     pub async fn request(&self, buff: &[u8]) -> Option<Vec<u8>> {
         let dns_timeout = Duration::from_secs(10);
         let mut conn = {
-            let lala = self.recv_conn.try_recv();
+            let lala = loop {
+                if let Ok((c, i)) = self.recv_conn.try_recv() {
+                    if i.elapsed().as_secs() < 5 {
+                        break Some(c);
+                    }
+                } else {
+                    break None;
+                }
+            };
             match lala {
-                Ok(v) => v,
+                Some(v) => v,
                 _ => TUNNEL
                     .connect("1.0.0.1:53")
                     .timeout(dns_timeout)
@@ -85,7 +93,7 @@ impl DnsPool {
             .timeout(dns_timeout)
             .await?
             .ok()?;
-        self.send_conn.try_send(conn).unwrap();
+        self.send_conn.try_send((conn, Instant::now())).unwrap();
         Some(true_buf)
     }
 }
