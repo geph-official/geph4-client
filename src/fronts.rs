@@ -53,7 +53,7 @@ impl RpcTransport for MultiRpcTransport {
                 anyhow::Ok(
                     random_element
                         .call_raw(req)
-                        .timeout(Duration::from_secs(10))
+                        .timeout(Duration::from_secs(3))
                         .await
                         .context("timeout on one of the transports")??,
                 )
@@ -62,7 +62,7 @@ impl RpcTransport for MultiRpcTransport {
                 Ok(v) => return Ok(v),
                 Err(err) => {
                     log::warn!("binder front {idx} failed: {:?}", err);
-                    IDX.store(fastrand::usize(..), Ordering::Relaxed);
+                    IDX.fetch_add(1, Ordering::Relaxed);
                     if let Some(next) = backoff.next_backoff() {
                         smol::Timer::after(next).await;
                     } else {
