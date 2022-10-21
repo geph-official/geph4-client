@@ -4024,9 +4024,9 @@ dependencies = [
 
 [[package]]
 name = "sosistab"
-version = "0.5.4"
+version = "0.5.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aaa90b2e16a747e1f33253d7d187af89ca6993766bf02318872e470b7a44c46"
+checksum = "ed581a3d737fcd6e382b414c98c279f8cf784061ef17f165fa1683bee625fd61"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -4046,6 +4046,7 @@ dependencies = [
  "constant_time_eq",
  "dashmap 5.4.0",
  "dhat",
+ "eff-wordlist",
  "env_logger",
  "event-listener",
  "fastrand",
