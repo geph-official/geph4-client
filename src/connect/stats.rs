@@ -78,6 +78,8 @@ pub trait StatsControlProtocol {
             let mut accum = HashMap::new();
             let mut last = 0.0f32;
             let now = SystemTime::now();
+            accum.insert(now.duration_since(UNIX_EPOCH).unwrap().as_secs(), 0.0);
+            accum.insert(now.duration_since(UNIX_EPOCH).unwrap().as_secs() - 1, 0.0);
             for (&time, &total) in series.iter() {
                 if let Ok(dur) = now.duration_since(time) {
                     if dur.as_secs() > 600 {
@@ -104,7 +106,33 @@ pub trait StatsControlProtocol {
                 let series = s.recv_series;
                 diffify(series)
             }
-            Timeseries::Loss => todo!(),
+            Timeseries::Loss => (0..200)
+                .rev()
+                .map(|t| {
+                    let tstamp = SystemTime::now() - Duration::from_secs(t);
+                    let tt = tstamp.duration_since(UNIX_EPOCH).unwrap().as_secs();
+                    (
+                        tt,
+                        s.loss_series
+                            .get(SystemTime::now() - Duration::from_secs(t)),
+                    )
+                })
+                .collect_vec(),
+            Timeseries::Ping => (0..200)
+                .rev()
+                .filter_map(|t| {
+                    let tstamp = SystemTime::now() - Duration::from_secs(t);
+                    let tt = tstamp.duration_since(UNIX_EPOCH).unwrap().as_secs();
+                    let res = s
+                        .ping_series
+                        .get(SystemTime::now() - Duration::from_secs(t));
+                    if res > 10.0 {
+                        None
+                    } else {
+                        Some((tt, res * 1000.0))
+                    }
+                })
+                .collect_vec(),
         }
     }
 
@@ -124,4 +152,5 @@ pub enum Timeseries {
     RecvSpeed,
     SendSpeed,
     Loss,
+    Ping,
 }
