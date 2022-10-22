@@ -32,5 +32,5 @@ iptables -t nat -A OUTPUT -p tcp --dport 53 -j DNAT --to $GEPH_DNS
 # block ipv6 completely
 ip6tables -D OUTPUT -o lo -j ACCEPT
 ip6tables -A OUTPUT -o lo -j ACCEPT
-ip6tables -D OUTPUT -m owner -j REJECT
-ip6tables -A OUTPUT -m owner -j REJECT
+ip6tables -D OUTPUT  -j REJECT
+ip6tables -A OUTPUT  -j REJECT
