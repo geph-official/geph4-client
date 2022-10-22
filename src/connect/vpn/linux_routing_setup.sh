@@ -29,8 +29,8 @@ iptables -t nat -A OUTPUT -p tcp --dport 53 -j DNAT --to $GEPH_DNS
 # # clamp MTU
 # iptables -t mangle -D OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
 # iptables -t mangle -A OUTPUT -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --set-mss 1240
-# # block non-Geph ipv6 completely
-# ip6tables -D OUTPUT -o lo -j ACCEPT
-# ip6tables -A OUTPUT -o lo -j ACCEPT
+# block ipv6 completely
+ip6tables -D OUTPUT -o lo -j ACCEPT
+ip6tables -A OUTPUT -o lo -j ACCEPT
 # ip6tables -D OUTPUT -m owner ! --uid-owner `id -u` -j REJECT
 # ip6tables -A OUTPUT -m owner ! --uid-owner `id -u` -j REJECT
