@@ -167,7 +167,9 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
             loop {
                 smol::Timer::after(Duration::from_secs(120)).await;
                 let s = match TUNNEL.get_endpoint() {
-                    EndpointSource::Independent { .. } => unreachable!(),
+                    EndpointSource::Independent { .. } => {
+                        return
+                    },
                     EndpointSource::Binder(b) => {
                         CACHED_BINDER_CLIENT
                             .get_closest_exit(&b.exit_server.unwrap_or_default())
