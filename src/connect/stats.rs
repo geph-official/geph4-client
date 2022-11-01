@@ -6,6 +6,7 @@ use std::{
 };
 
 use async_trait::async_trait;
+use geph4_protocol::tunnel::ConnectionStatus;
 use itertools::Itertools;
 use nanorpc::nanorpc_derive;
 use nanorpc::RpcService;
@@ -39,12 +40,14 @@ pub static STATS_THREAD: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
 });
 
 /// Basic tunnel statistics.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BasicStats {
     pub total_sent_bytes: f32,
     pub total_recv_bytes: f32,
     pub last_loss: f32,
     pub last_ping: f32, // latency
+    pub protocol: String,
+    pub address: String,
 }
 
 #[derive(Copy, Clone)]
@@ -57,17 +60,32 @@ impl StatsControlProtocol for DummyImpl {}
 pub trait StatsControlProtocol {
     /// Obtains whether or not the daemon is connected.
     async fn is_connected(&self) -> bool {
-        TUNNEL.is_connected()
+        TUNNEL.status().connected()
     }
 
     /// Obtains statistics.
     async fn basic_stats(&self) -> BasicStats {
         let s = TUNNEL.get_stats().await;
+        let status = TUNNEL.status();
         BasicStats {
             total_recv_bytes: s.total_recv_bytes,
             total_sent_bytes: s.total_sent_bytes,
             last_loss: s.last_loss,
             last_ping: s.last_ping,
+            protocol: match &status {
+                ConnectionStatus::Connected {
+                    protocol,
+                    address: _,
+                } => protocol.clone().into(),
+                _ => "".into(),
+            },
+            address: match status {
+                ConnectionStatus::Connected {
+                    protocol: _,
+                    address,
+                } => address.into(),
+                _ => "".into(),
+            },
         }
     }
 

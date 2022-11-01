@@ -241,7 +241,15 @@ pub fn get_cached_binder_client(
     auth_opt: &AuthOpt,
 ) -> anyhow::Result<CachedBinderClient> {
     let mut dbpath = auth_opt.credential_cache.clone();
-    dbpath.push(&auth_opt.username);
+    // create a dbpath based on hashing the username together with the password
+    let quasi_user_id = hex::encode(
+        blake3::keyed_hash(
+            blake3::hash(auth_opt.password.as_bytes()).as_bytes(),
+            auth_opt.username.as_bytes(),
+        )
+        .as_bytes(),
+    );
+    dbpath.push(&quasi_user_id);
     std::fs::create_dir_all(&dbpath)?;
     let cbc = CachedBinderClient::new(
         {

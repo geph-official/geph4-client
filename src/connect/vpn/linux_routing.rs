@@ -54,7 +54,7 @@ pub fn setup_routing() {
             }
         });
 
-        while !TUNNEL.is_connected() {
+        while !TUNNEL.status().connected() {
             log::debug!("waiting for tunnel to connect...");
             std::thread::sleep(Duration::from_secs(1));
         }

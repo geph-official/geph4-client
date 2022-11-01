@@ -1806,6 +1806,7 @@ dependencies = [
  "backoff",
  "binary-search",
  "bincode",
+ "blake3 1.3.1",
  "bytes",
  "cached 0.23.0",
  "chrono",
@@ -1875,9 +1876,9 @@ dependencies = [
 
 [[package]]
 name = "geph4-protocol"
-version = "0.7.2"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "739de2bcd15891a9b9b84814d37605d5cdbc1fdc38c06f5a259416497ac226be"
+checksum = "f9cd64163ae9aece78288f1a5cf7bc1de6bcf49a33cd1d1e1bab29e2bbd1fd81"
 dependencies = [
  "acidjson",
  "anyhow",
@@ -1911,7 +1912,7 @@ dependencies = [
  "rsa-fdh",
  "serde",
  "serde_json",
- "serde_with",
+ "serde_with 2.0.1",
  "sha2",
  "smol",
  "smol-timeout",
@@ -2179,9 +2180,9 @@ checksum = "9a3a5bfb195931eeb336b2a7b4d761daec841b97f947d34394601737a7bba5e4"
 
 [[package]]
 name = "hyper"
-version = "0.14.20"
+version = "0.14.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "02c929dc5c39e335a03c405292728118860721b10190d98c2a0f0efd5baafbac"
+checksum = "abfba89e19b959ca163c7752ba59d737c1ceea53a5d31a149c805446fc958064"
 dependencies = [
  "bytes",
  "futures-channel",
@@ -2542,9 +2543,9 @@ dependencies = [
 
 [[package]]
 name = "nanorpc"
-version = "0.1.10"
+version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cadb798d33bf93c8bccc2caaac9cb2adb9a7cf93a92dc897979233f2662cbfe1"
+checksum = "81076363e771721de9b7afffdce190cfcbdeed60bd2ce5544ddf00c25d9cfb87"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2559,9 +2560,9 @@ dependencies = [
 
 [[package]]
 name = "nanorpc-derive"
-version = "0.1.2"
+version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1eb3c784f702cadee1941b0f693a321815f8f2335a4d8435eb5c987e6313825f"
+checksum = "14254411a854f28caa3a7840e5e373460f1ec85d0e6d53b427f6c779cbbabdfb"
 dependencies = [
  "quote",
  "syn",
@@ -3799,6 +3800,16 @@ dependencies = [
 
 [[package]]
 name = "serde_with"
+version = "1.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "678b5a069e50bf00ecd22d0cd8ddf7c236f68581b03db652061ed5eb13a312ff"
+dependencies = [
+ "serde",
+ "serde_with_macros 1.5.2",
+]
+
+[[package]]
+name = "serde_with"
 version = "2.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "368f2d60d049ea019a84dcd6687b0d1e0030fe663ae105039bdf967ed5e6a9a7"
@@ -3809,8 +3820,20 @@ dependencies = [
  "indexmap",
  "serde",
  "serde_json",
- "serde_with_macros",
+ "serde_with_macros 2.0.1",
  "time 0.3.16",
+]
+
+[[package]]
+name = "serde_with_macros"
+version = "1.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e182d6ec6f05393cc0e5ed1bf81ad6db3a8feedf8ee515ecdd369809bcce8082"
+dependencies = [
+ "darling 0.13.4",
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
@@ -4053,9 +4076,9 @@ dependencies = [
 
 [[package]]
 name = "sosistab"
-version = "0.5.21"
+version = "0.5.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3756da882b831ec1c70842868300404ab83aeed556818b5bac74e250e0ed1bec"
+checksum = "619ca24e903a69bb571fe0bdf133b7ef23921f1d88e0dbced0127d7d5853c474"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -4150,13 +4173,15 @@ dependencies = [
 
 [[package]]
 name = "stdcode"
-version = "0.1.10"
+version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e3391836b251929bfa3a7084fbe76fee6833b71214a48cf56e777115b4724867"
+checksum = "edfdcab0d6366126df8567d2bf735dd9ea36b0acb36262163e580f9d2a06d6fe"
 dependencies = [
  "bincode",
+ "bytes",
  "hex",
  "serde",
+ "serde_with 1.14.0",
 ]
 
 [[package]]

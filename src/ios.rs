@@ -11,19 +11,18 @@ use bytes::Bytes;
 use once_cell::sync::Lazy;
 use os_pipe::PipeReader;
 use parking_lot::Mutex;
-use smol::process::Command;
+
 use structopt::StructOpt;
 
 use crate::{
-    binderproxy::{self, binderproxy_once},
-    config::{override_config, CommonOpt, ConnectOpt},
+    binderproxy::binderproxy_once,
+    config::{override_config, CommonOpt},
     connect::{
         start_main_connect,
         vpn::{vpn_download, vpn_upload},
         TUNNEL,
     },
-    main_bridgetest,
-    sync::{self, sync_json, SyncOpt},
+    sync::{sync_json, SyncOpt},
     Opt,
 };
 
@@ -76,7 +75,7 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
                 start_main_connect();
                 loop {
                     smol::Timer::after(Duration::from_secs(1)).await;
-                    if TUNNEL.is_connected() {
+                    if TUNNEL.status().connected() {
                         break anyhow::Ok(String::from(""));
                     }
                 }
@@ -86,7 +85,7 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
                 anyhow::Ok(ret)
             }
             "is_running" => {
-                let ret = serde_json::to_string(&TUNNEL.is_connected())?;
+                let ret = serde_json::to_string(&TUNNEL.status().connected())?;
                 anyhow::Ok(ret)
             }
             "sync" => {

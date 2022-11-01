@@ -71,7 +71,7 @@ impl DnsPool {
             match lala {
                 Some(v) => v,
                 _ => TUNNEL
-                    .connect("1.0.0.1:53")
+                    .connect_stream("1.0.0.1:53")
                     .timeout(dns_timeout)
                     .await?
                     .ok()?,

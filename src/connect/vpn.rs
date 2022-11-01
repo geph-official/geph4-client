@@ -253,10 +253,10 @@ async fn vpn_up_loop(nat: Arc<GephNat>) -> anyhow::Result<()> {
 static FAKE_DNS_SERVER: AtomicU32 = AtomicU32::new(0);
 static REAL_DNS_SERVER: Ipv4Addr = Ipv4Addr::new(1, 1, 1, 1);
 
-fn mangle_dns_up(mut pkt: &mut [u8]) {
+fn mangle_dns_up(pkt: &mut [u8]) {
     let pkt_dest: Option<Ipv4Addr> =
-        pnet_packet::ipv4::Ipv4Packet::new(&pkt).map(|parsed| parsed.get_destination());
-    if let Some(pkt_dest) = pkt_dest {
+        pnet_packet::ipv4::Ipv4Packet::new(pkt).map(|parsed| parsed.get_destination());
+    if let Some(_pkt_dest) = pkt_dest {
         let mut mangled = false;
         if let Some(mut ip_pkt) = pnet_packet::ipv4::MutableIpv4Packet::new(pkt) {
             if let Some(udp_pkt) = pnet_packet::udp::MutableUdpPacket::new(ip_pkt.payload_mut()) {
@@ -275,9 +275,9 @@ fn mangle_dns_up(mut pkt: &mut [u8]) {
     }
 }
 
-fn mangle_dns_dn(mut pkt: &mut [u8]) {
+fn mangle_dns_dn(pkt: &mut [u8]) {
     let mut mangled = false;
-    if let Some(mut ip_pkt) = pnet_packet::ipv4::MutableIpv4Packet::new(&mut pkt) {
+    if let Some(mut ip_pkt) = pnet_packet::ipv4::MutableIpv4Packet::new(pkt) {
         if let Some(udp_pkt) = pnet_packet::udp::MutableUdpPacket::new(ip_pkt.payload_mut()) {
             if udp_pkt.get_source() == 53 {
                 mangled = true;

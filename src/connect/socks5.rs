@@ -68,7 +68,7 @@ async fn handle_socks5(s5client: smol::net::TcpStream, exclude_prc: bool) -> any
     } else {
         log::debug!("gonna use the tunnel now");
         let conn = TUNNEL
-            .connect(&addr)
+            .connect_stream(&addr)
             .timeout(Duration::from_secs(10))
             .await
             .context("open connection timeout")??;
