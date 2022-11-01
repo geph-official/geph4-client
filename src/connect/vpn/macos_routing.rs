@@ -8,7 +8,7 @@ use crate::connect::TUNNEL;
 
 static WHITELIST: Lazy<DashMap<IpAddr, smol::Task<()>>> = Lazy::new(DashMap::new);
 pub fn setup_routing(tun_name: &str) {
-    while !TUNNEL.is_connected() {
+    while !TUNNEL.status().connected() {
         log::debug!("waiting for connection before routing things through VPN...");
         std::thread::sleep(Duration::from_secs(1));
     }

@@ -27,7 +27,7 @@ pub fn start_routing() -> Infallible {
         }
     });
 
-    while !TUNNEL.is_connected() {
+    while !TUNNEL.status().connected() {
         log::debug!("waiting for tunnel to connect first...");
         std::thread::sleep(Duration::from_secs(1));
     }
