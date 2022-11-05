@@ -64,7 +64,7 @@ pub struct ConnectOpt {
     /// Number of TCP connections to use per session. This works around lossy links, per-connection rate limiting, etc.
     pub tcp_shard_count: usize,
 
-    #[structopt(long, default_value = "10")]
+    #[structopt(long, default_value = "30")]
     /// Lifetime of a single TCP connection. Geph will switch to a different TCP connection within this many seconds.
     pub tcp_shard_lifetime: u64,
 
