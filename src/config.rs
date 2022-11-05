@@ -52,7 +52,7 @@ pub struct ConnectOpt {
     /// Force a particular bridge
     pub force_bridge: Option<Ipv4Addr>,
 
-    #[structopt(long, default_value = "5")]
+    #[structopt(long, default_value = "1")]
     /// Number of local UDP ports to use per session. This works around situations where unlucky ECMP routing sends flows down a congested path even when other paths exist, by "averaging out" all the possible routes.
     pub udp_shard_count: usize,
 
@@ -60,11 +60,11 @@ pub struct ConnectOpt {
     /// Lifetime of a single UDP port. Geph will switch to a different port within this many seconds.
     pub udp_shard_lifetime: u64,
 
-    #[structopt(long, default_value = "4")]
+    #[structopt(long, default_value = "1")]
     /// Number of TCP connections to use per session. This works around lossy links, per-connection rate limiting, etc.
     pub tcp_shard_count: usize,
 
-    #[structopt(long, default_value = "1000")]
+    #[structopt(long, default_value = "10")]
     /// Lifetime of a single TCP connection. Geph will switch to a different TCP connection within this many seconds.
     pub tcp_shard_lifetime: u64,
 
