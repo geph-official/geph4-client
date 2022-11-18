@@ -23,6 +23,7 @@ pub async fn main_sync(opt: SyncOpt) -> anyhow::Result<()> {
     println!("{}", sync_json(opt).await?);
     Ok(())
 }
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
     if opt.force {
@@ -38,7 +39,7 @@ pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
         .into_iter()
         .map(|exit| DumbedDownExitDescriptor {
             hostname: exit.hostname.into(),
-            signing_key: hex::encode(&exit.signing_key),
+            signing_key: hex::encode(exit.signing_key),
             country_code: exit.country_code.into(),
             city_code: exit.city_code.into(),
             allowed_levels: exit
@@ -52,9 +53,10 @@ pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
         })
         .collect_vec();
     Ok(format!(
-        "{{\"exits\": {}, \"user\": {}}}",
+        "{{\"exits\": {}, \"user\": {}, \"version\": {:?}}}",
         serde_json::to_string(&exits)?,
-        serde_json::to_string(&user)?
+        serde_json::to_string(&user)?,
+        VERSION
     ))
 }
 

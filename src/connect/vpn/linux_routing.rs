@@ -67,7 +67,7 @@ pub fn setup_routing() {
         let mut child = Command::new("sh").arg("-c").arg(cmd).spawn().unwrap();
         child.wait().expect("iptables was not set up properly");
         // teardown process
-        let mut signals = Signals::new(&[libc::SIGABRT, libc::SIGTERM, libc::SIGINT])
+        let mut signals = Signals::new([libc::SIGABRT, libc::SIGTERM, libc::SIGINT])
             .expect("did not register signal handler properly");
         std::thread::spawn(move || {
             for _ in signals.forever() {

@@ -38,7 +38,7 @@ pub fn is_chinese_host(host: &str) -> bool {
     let exploded: Vec<_> = host.split('.').collect();
     // join & lookup in loop
     for i in 0..exploded.len() {
-        let candidate = (&exploded[i..]).join(".");
+        let candidate = (exploded[i..]).join(".");
         if DOMAINS.contains(&candidate) {
             return true;
         }
