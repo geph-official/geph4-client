@@ -60,7 +60,7 @@ pub struct ConnectOpt {
     /// Lifetime of a single UDP port. Geph will switch to a different port within this many seconds.
     pub udp_shard_lifetime: u64,
 
-    #[structopt(long, default_value = "1")]
+    #[structopt(long, default_value = "8")]
     /// Number of TCP connections to use per session. This works around lossy links, per-connection rate limiting, etc.
     pub tcp_shard_count: usize,
 
