@@ -56,7 +56,7 @@ pub struct ConnectOpt {
     /// Number of local UDP ports to use per session. This works around situations where unlucky ECMP routing sends flows down a congested path even when other paths exist, by "averaging out" all the possible routes.
     pub udp_shard_count: usize,
 
-    #[structopt(long, default_value = "1")]
+    #[structopt(long, default_value = "30")]
     /// Lifetime of a single UDP port. Geph will switch to a different port within this many seconds.
     pub udp_shard_lifetime: u64,
 
@@ -150,7 +150,7 @@ pub struct CommonOpt {
 
     #[structopt(
         long,
-        default_value = "loving-bell-981479.netlify.app,1049933718.rsc.cdn77.org,gephbinder-4.azureedge.net,dtnins2n354c4.cloudfront.net"
+        default_value = "svitania-naidallszei.netlify.app,1049933718.rsc.cdn77.org,gephbinder-4.azureedge.net,dtnins2n354c4.cloudfront.net"
     )]
     /// HTTP(S) actual host of the binder
     binder_http_hosts: String,
