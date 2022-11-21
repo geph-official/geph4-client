@@ -62,11 +62,14 @@ fn download_loop() -> Infallible {
 }
 
 fn upload_loop() {
-    let mut handle = windivert::PacketHandle::open("outbound and not loopback", 0).unwrap();
+    let handle = windivert::PacketHandle::open("outbound and not loopback", -100).unwrap();
     loop {
         let pkt = handle.receive();
         match pkt {
             Ok(mut pkt) => {
+                if pkt.len() > 1300 {
+                    continue;
+                }
                 let pkt_dest: Option<Ipv4Addr> =
                     pnet_packet::ipv4::Ipv4Packet::new(&pkt).map(|parsed| parsed.get_destination());
                 if let Some(pkt_dest) = pkt_dest {
