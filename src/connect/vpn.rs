@@ -184,6 +184,7 @@ pub fn vpn_upload(pkt: Bytes) {
 
 /// Downloads a packet through the global VPN
 pub async fn vpn_download() -> Bytes {
+    log::trace!("called vpn_download");
     Lazy::force(&VPN_TASK);
     DOWN_CHANNEL.1.recv_async().await.unwrap()
 }

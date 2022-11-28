@@ -128,6 +128,7 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
             CONNECT_CONFIG.use_tcp,
             CONNECT_CONFIG.use_bridges
         );
+        smol::Timer::after(Duration::from_secs(1)).await;
         let stats_printer_fut = async {
             print_stats_loop().await;
             Ok(())
@@ -167,9 +168,7 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
             loop {
                 smol::Timer::after(Duration::from_secs(120)).await;
                 let s = match TUNNEL.get_endpoint() {
-                    EndpointSource::Independent { .. } => {
-                        return
-                    },
+                    EndpointSource::Independent { .. } => return,
                     EndpointSource::Binder(b) => {
                         CACHED_BINDER_CLIENT
                             .get_closest_exit(&b.exit_server.unwrap_or_default())
