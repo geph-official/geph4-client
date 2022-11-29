@@ -16,7 +16,6 @@ use std::{
     sync::atomic::{AtomicU32, Ordering},
 };
 
-#[cfg(unix)]
 use std::io::{Read, Write};
 
 #[cfg(unix)]
