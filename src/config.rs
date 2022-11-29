@@ -123,6 +123,7 @@ pub enum VpnMode {
     TunNoRoute,
     TunRoute,
     WinDivert,
+    Stdio,
 }
 
 impl FromStr for VpnMode {
@@ -133,6 +134,7 @@ impl FromStr for VpnMode {
             "tun-no-route" => Ok(Self::TunNoRoute),
             "tun-route" => Ok(Self::TunRoute),
             "windivert" => Ok(Self::WinDivert),
+            "stdio" => Ok(Self::Stdio),
 
             x => anyhow::bail!("unrecognized VPN mode {}", x),
         }

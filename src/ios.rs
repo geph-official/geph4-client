@@ -56,6 +56,7 @@ fn config_logging_ios() {
 }
 
 fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
+    smolscale::permanently_single_threaded();
     config_logging_ios();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("IOS geph4-client v{} starting...", version);
@@ -148,7 +149,7 @@ pub extern "C" fn call_geph(
                     log::debug!("call_geph failed: writing to buffer failed!");
                     -1
                 } else {
-                    err.to_string().len() as c_int
+                    -(err.to_string().len() as c_int)
                 }
             } else {
                 log::debug!("call_geph failed: buffer not big enough!");

@@ -7,8 +7,14 @@ mod macos_routing;
 #[cfg(windows)]
 mod windows_routing;
 
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::{convert::Infallible, num::NonZeroU32, sync::Arc, thread::JoinHandle, time::Duration};
+use std::{
+    convert::Infallible, io::BufWriter, num::NonZeroU32, sync::Arc, thread::JoinHandle,
+    time::Duration,
+};
+use std::{
+    io::BufReader,
+    sync::atomic::{AtomicU32, Ordering},
+};
 
 #[cfg(unix)]
 use std::io::{Read, Write};
@@ -19,6 +25,7 @@ use std::os::unix::prelude::{AsRawFd, FromRawFd};
 use anyhow::Context;
 
 use async_net::Ipv4Addr;
+use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
 use geph4_protocol::VpnMessage;
 use geph_nat::GephNat;
@@ -87,6 +94,29 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
         .name("vpn".into())
         .spawn(|| {
             match CONNECT_CONFIG.vpn_mode {
+                Some(VpnMode::Stdio) => {
+                    // every packet is prepended with u16le length
+                    std::thread::spawn(|| {
+                        let mut stdin = BufReader::new(std::io::stdin().lock());
+                        // upload
+                        loop {
+                            let len = stdin.read_u16::<LittleEndian>().unwrap() as usize;
+                            let mut buffer = vec![0u8; len];
+                            stdin.read_exact(&mut buffer).unwrap();
+                            vpn_upload(buffer.into())
+                        }
+                    });
+                    // download
+                    let mut stdout = BufWriter::new(std::io::stdout().lock());
+                    loop {
+                        let down_pkt = vpn_download_blocking();
+                        stdout
+                            .write_u16::<LittleEndian>(down_pkt.len() as u16)
+                            .unwrap();
+                        stdout.write_all(&down_pkt).unwrap();
+                        stdout.flush().unwrap();
+                    }
+                }
                 Some(VpnMode::InheritedFd) => {
                     #[cfg(unix)]
                     {
@@ -204,6 +234,7 @@ static DOWN_CHANNEL: Lazy<(flume::Sender<Bytes>, flume::Receiver<Bytes>)> =
 static VPN_TASK: Lazy<smol::Task<Infallible>> = Lazy::new(|| {
     smolscale::spawn(async {
         loop {
+            smol::Timer::after(Duration::from_secs(10)).await;
             let init_ip = TUNNEL.get_vpn_client_ip().await;
             let nat = Arc::new(GephNat::new(
                 NAT_TABLE_SIZE,
