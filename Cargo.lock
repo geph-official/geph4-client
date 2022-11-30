@@ -1898,6 +1898,7 @@ dependencies = [
  "socket2 0.3.19",
  "socksv5",
  "sosistab",
+ "static_vcruntime",
  "strip-ansi-escapes",
  "strsim 0.10.0",
  "structopt",
@@ -4325,6 +4326,12 @@ checksum = "e113fb6f3de07a243d434a56ec6f186dfd51cb08448239fe7bcae73f87ff28ff"
 dependencies = [
  "version_check",
 ]
+
+[[package]]
+name = "static_vcruntime"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "954e3e877803def9dc46075bf4060147c55cd70db97873077232eae0269dc89b"
 
 [[package]]
 name = "stdcode"

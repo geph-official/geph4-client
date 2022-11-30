@@ -1,5 +1,5 @@
 use std::{
-    ffi::{CStr, CString},
+    ffi::CStr,
     format,
     io::{BufRead, BufReader, Write},
     os::raw::{c_char, c_int, c_uchar},
@@ -157,7 +157,7 @@ pub extern "C" fn call_geph(
             }
         },
     };
-    return output;
+    output
 }
 
 #[no_mangle]
