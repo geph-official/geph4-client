@@ -4,9 +4,9 @@ use std::{
     time::Duration,
 };
 
+use crate::tunnel::TunnelStatus;
 use async_net::{IpAddr, Ipv4Addr};
 use dashmap::DashSet;
-use geph4_protocol::tunnel::TunnelStatus;
 use once_cell::sync::Lazy;
 use pnet_packet::{ip::IpNextHeaderProtocols, MutablePacket};
 
