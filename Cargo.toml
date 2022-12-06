@@ -20,7 +20,7 @@ static_vcruntime = "2.0"
 
 [dependencies]
 anyhow = "1.0.65"
-geph4-protocol= "0.8"
+geph4-protocol= "0.9"
 # geph4-protocol = {path="../geph4-protocol"}
 async-h1= "2.3.3"
 bincode = "1.3.3"
@@ -102,6 +102,7 @@ default-net = "0.11.0"
 eff-wordlist = "1.0.2"
 blake3 = "1.3.1"
 byteorder = "1.4.3"
+smol_str = "0.1.23"
 #jemallocator-global = "0.3.0"
 
 # tracing-subscriber = "0.2.15"
@@ -116,6 +117,7 @@ winapi = { version = "0.3.9", features = ["minwindef", "mmsystem", "timeapi"] }
 [profile.dev]
 panic = "abort"
 opt-level=0
+incremental = true
 
 [profile.release-dbg]
 inherits="release"
@@ -125,5 +127,6 @@ debug=2
 panic = "abort"
 opt-level=3
 debug=0
-# lto=true
-# strip="debuginfo"
+lto='thin'
+strip="debuginfo"
+incremental = true

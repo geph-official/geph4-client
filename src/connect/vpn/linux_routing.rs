@@ -1,8 +1,8 @@
 use std::{process::Command, time::Duration};
 
+use crate::tunnel::TunnelStatus;
 use async_net::{IpAddr, Ipv4Addr};
 use dashmap::DashMap;
-use geph4_protocol::tunnel::TunnelStatus;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use signal_hook::iterator::Signals;

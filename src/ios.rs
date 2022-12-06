@@ -106,6 +106,7 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
                 log::debug!("binder resp = {resp}");
                 anyhow::Ok(resp)
             }
+            "version" => anyhow::Ok(String::from(version)),
             _ => anyhow::bail!("function {func} does not exist"),
         }
     })

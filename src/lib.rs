@@ -13,6 +13,7 @@ mod connect;
 pub mod ios;
 mod main_bridgetest;
 mod sync;
+mod tunnel;
 
 pub fn dispatch() -> anyhow::Result<()> {
     config_logging();

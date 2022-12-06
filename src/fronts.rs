@@ -47,7 +47,7 @@ impl RpcTransport for MultiRpcTransport {
             static IDX: AtomicUsize = AtomicUsize::new(0);
             let idx = IDX.load(Ordering::Relaxed) % self.0.len();
             let random_element = &self.0[idx];
-            log::debug!("selecting binder front {idx}");
+            log::debug!("selecting binder front {idx} for method {:?}", req.method);
             let req = req.clone();
             let vv = async {
                 anyhow::Ok(

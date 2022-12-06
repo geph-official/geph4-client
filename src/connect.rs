@@ -4,21 +4,20 @@ use async_compat::Compat;
 
 use china::test_china;
 use futures_util::future::select_all;
-use geph4_protocol::{
-    self,
-    binder::client::CachedBinderClient,
-    tunnel::{
-        activity::wait_activity, BinderTunnelParams, ClientTunnel, ConnectionOptions,
-        EndpointSource, TunnelStatus,
-    },
-};
+use geph4_protocol::{self, binder::client::CachedBinderClient};
 
 use once_cell::sync::Lazy;
 
 use parking_lot::RwLock;
 use smol::{prelude::*, Task};
 
-use crate::config::{get_cached_binder_client, ConnectOpt, Opt, CONFIG};
+use crate::{
+    config::{get_cached_binder_client, ConnectOpt, Opt, CONFIG},
+    tunnel::{
+        activity::wait_activity, BinderTunnelParams, ClientTunnel, ConnectionOptions,
+        EndpointSource, TunnelStatus,
+    },
+};
 
 use crate::china;
 

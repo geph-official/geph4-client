@@ -5,8 +5,8 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use crate::tunnel::ConnectionStatus;
 use async_trait::async_trait;
-use geph4_protocol::tunnel::ConnectionStatus;
 use itertools::Itertools;
 use nanorpc::nanorpc_derive;
 use nanorpc::RpcService;
