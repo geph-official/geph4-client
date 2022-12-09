@@ -103,9 +103,6 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
     async fn print_stats_loop() {
         loop {
             wait_activity(Duration::from_secs(200)).await;
-            // let stats = TUNNEL.get_stats().await;
-            // log::info!("** recv_loss = {:.2}% **", stats.last_loss * 100.0);
-            // smol::Timer::after(Duration::from_secs(30)).await;
         }
     }
 
