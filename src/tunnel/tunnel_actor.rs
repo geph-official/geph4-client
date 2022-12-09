@@ -7,17 +7,16 @@ use super::{
 };
 use anyhow::Context;
 use geph4_protocol::{
-    binder::protocol::{BlindToken, Level},
-    VpnMessage,
+    binder::protocol::BlindToken, client_exit::CLIENT_EXIT_PSEUDOHOST, VpnMessage,
 };
-use mizaru::UnblindedSignature;
+
 // use parking_lot::RwLock;
 use smol::{
     channel::{Receiver, Sender},
     prelude::*,
 };
 use smol_timeout::TimeoutExt;
-use sosistab::Multiplex;
+
 use std::{
     sync::{atomic::Ordering, Arc},
     time::Duration,
@@ -40,9 +39,7 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
     ctx.vpn_client_ip.store(0, Ordering::Relaxed);
     notify_activity();
 
-    let protosess = get_session(ctx.clone(), None).await?;
-    let protosess_remaddr = protosess.remote_addr();
-    let tunnel_mux = Arc::new(protosess.multiplex());
+    let tunnel_mux = get_session(ctx.clone()).await?;
 
     if let EndpointSource::Binder(binder_tunnel_params) = ctx.endpoint {
         // authenticate
@@ -54,29 +51,28 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
     }
 
     // negotiate vpn
-    let client_id: u128 = rand::random();
-    log::info!("negotiating VPN with client id {}...", client_id);
-    let vpn_client_ip = loop {
-        log::debug!("trying...");
-        let hello = VpnMessage::ClientHello { client_id };
-        tunnel_mux
-            .send_urel(bincode::serialize(&hello)?.as_slice())
-            .await?;
-        let resp = tunnel_mux.recv_urel().timeout(Duration::from_secs(1)).await;
-        if let Some(resp) = resp {
-            let resp = resp?;
-            let resp: VpnMessage = bincode::deserialize(&resp)?;
-            match resp {
-                VpnMessage::ServerHello { client_ip, .. } => break client_ip,
-                _ => continue,
-            }
-        }
-    };
-    log::info!("negotiated IP address {}!", vpn_client_ip);
-    log::info!("TUNNEL_ACTOR MAIN LOOP through {}", protosess_remaddr);
+    // let client_id: u128 = rand::random();
+    // log::info!("negotiating VPN with client id {}...", client_id);
+    // let vpn_client_ip = loop {
+    //     log::debug!("trying...");
+    //     let hello = VpnMessage::ClientHello { client_id };
+    //     tunnel_mux
+    //         .send_urel(bincode::serialize(&hello)?.as_slice())
+    //         .await?;
+    //     let resp = tunnel_mux.recv_urel().timeout(Duration::from_secs(1)).await;
+    //     if let Some(resp) = resp {
+    //         let resp = resp?;
+    //         let resp: VpnMessage = bincode::deserialize(&resp)?;
+    //         match resp {
+    //             VpnMessage::ServerHello { client_ip, .. } => break client_ip,
+    //             _ => continue,
+    //         }
+    //     }
+    // };
+    // log::info!("negotiated IP address {}!", vpn_client_ip);
+    log::info!("TUNNEL_ACTOR MAIN LOOP!");
 
-    ctx.vpn_client_ip
-        .store(vpn_client_ip.into(), Ordering::Relaxed);
+    ctx.vpn_client_ip.store(12345, Ordering::Relaxed);
 
     let (send_death, recv_death) = smol::channel::unbounded();
 
@@ -87,62 +83,48 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
             anyhow::bail!(e)
         })
         .or(watchdog_loop(ctx1.clone(), tunnel_mux.clone()))
-        .or(vpn_up_loop(tunnel_mux.clone(), ctx.recv_vpn_outgoing))
-        .or(vpn_down_loop(tunnel_mux, ctx.send_vpn_incoming))
+        // .or(vpn_up_loop(tunnel_mux.clone(), ctx.recv_vpn_outgoing))
+        // .or(vpn_down_loop(tunnel_mux, ctx.send_vpn_incoming))
         .await
 }
 
 /// authenticates a muxed session
 async fn authenticate_session(
-    session: &sosistab::Multiplex,
-    token: &BlindToken,
+    _session: &sosistab2::Multiplex,
+    _token: &BlindToken,
 ) -> anyhow::Result<()> {
-    log::debug!("opening conn for auth info...");
-    let mut auth_conn = session.open_conn(None).await?;
-    log::debug!("sending auth info...");
-    geph4_aioutils::write_pascalish(
-        &mut auth_conn,
-        &(
-            &token.unblinded_digest,
-            &bincode::deserialize::<UnblindedSignature>(&token.unblinded_signature_bincode)?,
-            match token.level {
-                Level::Free => "free",
-                Level::Plus => "plus",
-            },
-        ),
-    )
-    .await?;
-    log::debug!("sent auth info!");
-    let _: u8 = geph4_aioutils::read_pascalish(&mut auth_conn).await?;
+    log::warn!("AUTHENTICATION IS A DUMMY NOW");
     Ok(())
 }
 
 async fn vpn_up_loop(
-    mux: Arc<Multiplex>,
-    recv_outgoing: Receiver<VpnMessage>,
+    _mux: Arc<sosistab2::Multiplex>,
+    _recv_outgoing: Receiver<VpnMessage>,
 ) -> anyhow::Result<()> {
-    loop {
-        if let Ok(msg) = recv_outgoing.recv().await {
-            mux.send_urel(&bincode::serialize(&msg)?[..]).await?;
-        }
-    }
+    todo!()
+    // loop {
+    //     if let Ok(msg) = recv_outgoing.recv().await {
+    //         mux.send_urel(&bincode::serialize(&msg)?[..]).await?;
+    //     }
+    // }
 }
 
 async fn vpn_down_loop(
-    mux: Arc<Multiplex>,
-    send_incoming: Sender<VpnMessage>,
+    _mux: Arc<sosistab2::Multiplex>,
+    _send_incoming: Sender<VpnMessage>,
 ) -> anyhow::Result<()> {
-    loop {
-        let bts = mux.recv_urel().await.context("downstream failed")?;
-        let msg = bincode::deserialize(&bts).context("invalid downstream data")?;
-        send_incoming.try_send(msg)?;
-    }
+    todo!()
+    // loop {
+    //     let bts = mux.recv_urel().await.context("downstream failed")?;
+    //     let msg = bincode::deserialize(&bts).context("invalid downstream data")?;
+    //     send_incoming.try_send(msg)?;
+    // }
 }
 
 // handles socks5 connection requests
 async fn connection_handler_loop(
     ctx: TunnelCtx,
-    mux: Arc<Multiplex>,
+    mux: Arc<sosistab2::Multiplex>,
     send_death: Sender<anyhow::Error>,
 ) -> anyhow::Result<()> {
     loop {
@@ -157,7 +139,7 @@ async fn connection_handler_loop(
         smolscale::spawn(async move {
             let start = Instant::now();
             let remote = mux
-                .open_conn(Some(conn_host.clone()))
+                .open_conn(&conn_host)
                 .timeout(Duration::from_secs(10))
                 .await;
             match remote {
@@ -197,12 +179,15 @@ async fn connection_handler_loop(
 }
 
 // keeps the connection alive
-async fn watchdog_loop(ctx: TunnelCtx, tunnel_mux: Arc<Multiplex>) -> anyhow::Result<()> {
+async fn watchdog_loop(
+    _ctx: TunnelCtx,
+    tunnel_mux: Arc<sosistab2::Multiplex>,
+) -> anyhow::Result<()> {
     loop {
         wait_activity(Duration::from_secs(600)).await;
         let start = Instant::now();
         if tunnel_mux
-            .open_conn(None)
+            .open_conn(CLIENT_EXIT_PSEUDOHOST)
             .timeout(Duration::from_secs(10))
             .await
             .is_none()
@@ -212,10 +197,7 @@ async fn watchdog_loop(ctx: TunnelCtx, tunnel_mux: Arc<Multiplex>) -> anyhow::Re
         } else {
             let ping = start.elapsed();
             log::debug!("** watchdog completed in {:?} **", ping);
-            ctx.tunnel_stats.last_ping_ms.store(
-                ping.as_millis() as u32,
-                std::sync::atomic::Ordering::Relaxed,
-            );
+
             smol::Timer::after(Duration::from_secs(3)).await;
         }
     }

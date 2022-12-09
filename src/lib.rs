@@ -3,7 +3,6 @@ use std::ops::Deref;
 mod config;
 mod fronts;
 
-pub mod serialize;
 mod socks2http;
 
 use crate::config::{Opt, CONFIG};

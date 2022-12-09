@@ -4,7 +4,8 @@ use smol::{
     prelude::*,
 };
 use smol_timeout::TimeoutExt;
-use sosistab::RelConn;
+use sosistab2::MuxStream;
+
 use std::time::Duration;
 use std::{sync::Arc, time::Instant};
 
@@ -41,8 +42,8 @@ pub async fn dns_loop(addr: SocketAddr) -> anyhow::Result<()> {
 
 /// A DNS connection pool
 pub struct DnsPool {
-    send_conn: Sender<(RelConn, Instant)>,
-    recv_conn: Receiver<(RelConn, Instant)>,
+    send_conn: Sender<(MuxStream, Instant)>,
+    recv_conn: Receiver<(MuxStream, Instant)>,
 }
 
 impl DnsPool {

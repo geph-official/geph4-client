@@ -14,8 +14,7 @@ use smol::{prelude::*, Task};
 use crate::{
     config::{get_cached_binder_client, ConnectOpt, Opt, CONFIG},
     tunnel::{
-        activity::wait_activity, BinderTunnelParams, ClientTunnel, ConnectionOptions,
-        EndpointSource, TunnelStatus,
+        activity::wait_activity, BinderTunnelParams, ClientTunnel, EndpointSource, TunnelStatus,
     },
 };
 
@@ -95,27 +94,18 @@ pub static TUNNEL: Lazy<ClientTunnel> = Lazy::new(|| {
         }
     };
     log::debug!("gonna construct the tunnel");
-    ClientTunnel::new(
-        ConnectionOptions {
-            udp_shard_count: CONNECT_CONFIG.udp_shard_count,
-            udp_shard_lifetime: CONNECT_CONFIG.udp_shard_lifetime,
-            tcp_shard_count: CONNECT_CONFIG.tcp_shard_count,
-            tcp_shard_lifetime: CONNECT_CONFIG.tcp_shard_lifetime,
-            use_tcp: CONNECT_CONFIG.use_tcp,
-        },
-        endpoint,
-        |status| TUNNEL_STATUS_CALLBACK.read()(status),
-    )
+    ClientTunnel::new(endpoint, |status| TUNNEL_STATUS_CALLBACK.read()(status))
 });
 
 static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
+    Lazy::force(&TUNNEL);
     /// Prints stats in a loop.
     async fn print_stats_loop() {
         loop {
             wait_activity(Duration::from_secs(200)).await;
-            let stats = TUNNEL.get_stats().await;
-            log::info!("** recv_loss = {:.2}% **", stats.last_loss * 100.0);
-            smol::Timer::after(Duration::from_secs(30)).await;
+            // let stats = TUNNEL.get_stats().await;
+            // log::info!("** recv_loss = {:.2}% **", stats.last_loss * 100.0);
+            // smol::Timer::after(Duration::from_secs(30)).await;
         }
     }
 
