@@ -10,6 +10,7 @@ use once_cell::sync::Lazy;
 
 use parking_lot::RwLock;
 use smol::{prelude::*, Task};
+use smol_timeout::TimeoutExt;
 
 use crate::{
     config::{get_cached_binder_client, ConnectOpt, Opt, CONFIG},
@@ -50,16 +51,15 @@ static CONNECT_CONFIG: Lazy<ConnectOpt> = Lazy::new(|| match CONFIG.deref() {
 static SHOULD_USE_BRIDGES: Lazy<bool> = Lazy::new(|| {
     smol::future::block_on(async {
         // Test china
-        let is_china = test_china().await;
+        let is_china = test_china().timeout(Duration::from_secs(2)).await;
         match is_china {
-            Err(e) => {
+            Some(Err(_)) | None => {
                 log::warn!(
-                    "could not tell whether or not we're in China ({}), so assuming that we are!",
-                    e
+                    "could not tell whether or not we're in China , so assuming that we are!",
                 );
                 true
             }
-            Ok(true) => {
+            Some(Ok(true)) => {
                 log::info!("we are in CHINA :O");
                 true
             }
