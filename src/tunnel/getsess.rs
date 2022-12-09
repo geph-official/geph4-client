@@ -69,7 +69,9 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             // add *all* the bridges!
             let sess_id = format!("sess-{}", rand::thread_rng().gen::<u128>());
             for bridge in bridges.into_iter() {
-                log::debug!("processing {:?}", bridge);
+                if binder_tunnel_params.use_bridges && bridge.alloc_group == "direct" {
+                    continue;
+                }
                 match connect_once(bridge, &sess_id).await {
                     Ok(pipe) => {
                         log::debug!(
@@ -90,6 +92,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             // weak here to prevent a reference cycle!
             let weak_multiplex = Arc::downgrade(&multiplex);
             let ccache = binder_tunnel_params.ccache.clone();
+            let binder_tunnel_params = binder_tunnel_params.clone();
             multiplex.add_drop_friend(smolscale::spawn(async move {
                 loop {
                     let interval = Duration::from_secs_f64(rand::thread_rng().gen_range(2.0, 5.0));
@@ -105,6 +108,9 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                             .context("cannot get bridges")?;
                         bridges.shuffle(&mut rand::thread_rng());
                         if let Some(first) = bridges.first() {
+                            if binder_tunnel_params.use_bridges && first.alloc_group == "direct" {
+                                return Ok(());
+                            }
                             let pipe = connect_once(first.clone(), &sess_id).await?;
                             if let Some(multiplex) = weak_multiplex.upgrade() {
                                 log::debug!(
