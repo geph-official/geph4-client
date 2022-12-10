@@ -6,16 +6,22 @@ use super::{
     TunnelCtx,
 };
 use anyhow::Context;
+use async_trait::async_trait;
 use geph4_protocol::{
-    binder::protocol::BlindToken, client_exit::CLIENT_EXIT_PSEUDOHOST, VpnMessage,
+    binder::protocol::BlindToken,
+    client_exit::{ClientExitClient, CLIENT_EXIT_PSEUDOHOST},
+    VpnMessage,
 };
 
+use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 // use parking_lot::RwLock;
 use smol::{
     channel::{Receiver, Sender},
+    io::BufReader,
     prelude::*,
 };
 use smol_timeout::TimeoutExt;
+use sosistab2::MuxStream;
 
 use std::{
     sync::{atomic::Ordering, Arc},
@@ -90,11 +96,45 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
 
 /// authenticates a muxed session
 async fn authenticate_session(
-    _session: &sosistab2::Multiplex,
-    _token: &BlindToken,
+    session: &sosistab2::Multiplex,
+    token: &BlindToken,
 ) -> anyhow::Result<()> {
-    log::warn!("AUTHENTICATION IS A DUMMY NOW");
+    let tport = MuxStreamTransport::new(session.open_conn(CLIENT_EXIT_PSEUDOHOST).await?);
+    let client = ClientExitClient::from(tport);
+    if !client.validate(token.clone()).await? {
+        anyhow::bail!("invalid authentication token")
+    }
     Ok(())
+}
+
+struct MuxStreamTransport {
+    write: smol::lock::Mutex<MuxStream>,
+    read: smol::lock::Mutex<BufReader<MuxStream>>,
+}
+
+impl MuxStreamTransport {
+    fn new(stream: MuxStream) -> Self {
+        Self {
+            write: stream.clone().into(),
+            read: BufReader::new(stream).into(),
+        }
+    }
+}
+
+#[async_trait]
+impl RpcTransport for MuxStreamTransport {
+    type Error = anyhow::Error;
+
+    async fn call_raw(&self, jrpc: JrpcRequest) -> anyhow::Result<JrpcResponse> {
+        let mut write = self.write.lock().await;
+        write.write_all(&serde_json::to_vec(&jrpc)?).await?;
+        write.write_all(b"\n").await?;
+        let mut in_line = String::new();
+        let mut read = self.read.lock().await;
+        read.read_line(&mut in_line).await?;
+        let incoming: JrpcResponse = serde_json::from_str(&in_line)?;
+        Ok(incoming)
+    }
 }
 
 async fn vpn_up_loop(
