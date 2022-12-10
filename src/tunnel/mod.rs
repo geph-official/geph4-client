@@ -1,5 +1,6 @@
 use async_net::SocketAddr;
-use geph4_protocol::{binder::client::CachedBinderClient, VpnMessage};
+use bytes::Bytes;
+use geph4_protocol::binder::client::CachedBinderClient;
 use parking_lot::RwLock;
 use smol::channel::{Receiver, Sender};
 use smol_str::SmolStr;
@@ -43,8 +44,8 @@ pub(crate) struct TunnelCtx {
     pub vpn_client_ip: Arc<AtomicU32>,
 
     pub connect_status: Arc<RwLock<ConnectionStatus>>,
-    recv_vpn_outgoing: Receiver<VpnMessage>,
-    send_vpn_incoming: Sender<VpnMessage>,
+    recv_vpn_outgoing: Receiver<Bytes>,
+    send_vpn_incoming: Sender<Bytes>,
 
     status_callback: Arc<dyn Fn(TunnelStatus) + Send + Sync + 'static>,
 }
@@ -80,8 +81,8 @@ pub struct ClientTunnel {
     client_ip_addr: Arc<AtomicU32>,
     connect_status: Arc<RwLock<ConnectionStatus>>,
 
-    send_vpn_outgoing: Sender<VpnMessage>,
-    recv_vpn_incoming: Receiver<VpnMessage>,
+    send_vpn_outgoing: Sender<Bytes>,
+    recv_vpn_incoming: Receiver<Bytes>,
 
     open_socks5_conn: Sender<(String, Sender<MuxStream>)>,
 
@@ -144,13 +145,13 @@ impl ClientTunnel {
         Ok(recv.recv().await?)
     }
 
-    pub async fn send_vpn(&self, msg: VpnMessage) -> anyhow::Result<()> {
+    pub async fn send_vpn(&self, msg: Bytes) -> anyhow::Result<()> {
         notify_activity();
         self.send_vpn_outgoing.send(msg).await?;
         Ok(())
     }
 
-    pub async fn recv_vpn(&self) -> anyhow::Result<VpnMessage> {
+    pub async fn recv_vpn(&self) -> anyhow::Result<Bytes> {
         let msg = self.recv_vpn_incoming.recv().await?;
         Ok(msg)
     }

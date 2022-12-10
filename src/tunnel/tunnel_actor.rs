@@ -1,4 +1,4 @@
-use crate::tunnel::EndpointSource;
+use crate::tunnel::{ConnectionStatus, EndpointSource};
 
 use super::{
     activity::{notify_activity, wait_activity},
@@ -6,7 +6,9 @@ use super::{
     TunnelCtx,
 };
 use anyhow::Context;
+use async_net::Ipv4Addr;
 use async_trait::async_trait;
+use bytes::Bytes;
 use geph4_protocol::{
     binder::protocol::BlindToken,
     client_exit::{ClientExitClient, CLIENT_EXIT_PSEUDOHOST},
@@ -42,43 +44,32 @@ pub(crate) async fn tunnel_actor(ctx: TunnelCtx) -> anyhow::Result<()> {
 
 async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
     let ctx1 = ctx.clone();
-    ctx.vpn_client_ip.store(0, Ordering::Relaxed);
+    ctx.vpn_client_ip.store(0, Ordering::SeqCst);
     notify_activity();
 
     let tunnel_mux = get_session(ctx.clone()).await?;
 
-    if let EndpointSource::Binder(binder_tunnel_params) = ctx.endpoint {
+    if let EndpointSource::Binder(binder_tunnel_params) = ctx.endpoint.clone() {
         // authenticate
         let token = binder_tunnel_params.ccache.get_auth_token().await?.1;
-        authenticate_session(&tunnel_mux, &token)
+        let ipv4 = authenticate_session(&tunnel_mux, &token)
             .timeout(Duration::from_secs(15))
             .await
             .ok_or_else(|| anyhow::anyhow!("authentication timed out"))??;
+        ctx.vpn_client_ip.store(ipv4.into(), Ordering::SeqCst);
+    } else {
+        ctx.vpn_client_ip.store(12345, Ordering::SeqCst);
     }
 
-    // negotiate vpn
-    // let client_id: u128 = rand::random();
-    // log::info!("negotiating VPN with client id {}...", client_id);
-    // let vpn_client_ip = loop {
-    //     log::debug!("trying...");
-    //     let hello = VpnMessage::ClientHello { client_id };
-    //     tunnel_mux
-    //         .send_urel(bincode::serialize(&hello)?.as_slice())
-    //         .await?;
-    //     let resp = tunnel_mux.recv_urel().timeout(Duration::from_secs(1)).await;
-    //     if let Some(resp) = resp {
-    //         let resp = resp?;
-    //         let resp: VpnMessage = bincode::deserialize(&resp)?;
-    //         match resp {
-    //             VpnMessage::ServerHello { client_ip, .. } => break client_ip,
-    //             _ => continue,
-    //         }
-    //     }
-    // };
-    // log::info!("negotiated IP address {}!", vpn_client_ip);
     log::info!("TUNNEL_ACTOR MAIN LOOP!");
-
-    ctx.vpn_client_ip.store(12345, Ordering::Relaxed);
+    *ctx.connect_status.write() = ConnectionStatus::Connected {
+        protocol: "sosistab2".into(),
+        address: "dynamic".into(),
+    };
+    let ctx2 = ctx.clone();
+    scopeguard::defer!({
+        *ctx2.connect_status.write() = ConnectionStatus::Connecting;
+    });
 
     let (send_death, recv_death) = smol::channel::unbounded();
 
@@ -89,8 +80,8 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
             anyhow::bail!(e)
         })
         .or(watchdog_loop(ctx1.clone(), tunnel_mux.clone()))
-        // .or(vpn_up_loop(tunnel_mux.clone(), ctx.recv_vpn_outgoing))
-        // .or(vpn_down_loop(tunnel_mux, ctx.send_vpn_incoming))
+        .or(vpn_up_loop(tunnel_mux.clone(), ctx.recv_vpn_outgoing))
+        .or(vpn_down_loop(tunnel_mux, ctx.send_vpn_incoming))
         .await
 }
 
@@ -98,13 +89,17 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
 async fn authenticate_session(
     session: &sosistab2::Multiplex,
     token: &BlindToken,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Ipv4Addr> {
     let tport = MuxStreamTransport::new(session.open_conn(CLIENT_EXIT_PSEUDOHOST).await?);
     let client = ClientExitClient::from(tport);
     if !client.validate(token.clone()).await? {
         anyhow::bail!("invalid authentication token")
     }
-    Ok(())
+    let addr = client
+        .get_vpn_ipv4()
+        .await?
+        .context("server did not provide VPN address")?;
+    Ok(addr)
 }
 
 struct MuxStreamTransport {
@@ -138,27 +133,25 @@ impl RpcTransport for MuxStreamTransport {
 }
 
 async fn vpn_up_loop(
-    _mux: Arc<sosistab2::Multiplex>,
-    _recv_outgoing: Receiver<VpnMessage>,
+    mux: Arc<sosistab2::Multiplex>,
+    recv_outgoing: Receiver<Bytes>,
 ) -> anyhow::Result<()> {
-    todo!()
-    // loop {
-    //     if let Ok(msg) = recv_outgoing.recv().await {
-    //         mux.send_urel(&bincode::serialize(&msg)?[..]).await?;
-    //     }
-    // }
+    let wire = mux.open_conn(CLIENT_EXIT_PSEUDOHOST).await?;
+    loop {
+        let to_send = recv_outgoing.recv().await?;
+        wire.send_urel(to_send).await?;
+    }
 }
 
 async fn vpn_down_loop(
-    _mux: Arc<sosistab2::Multiplex>,
-    _send_incoming: Sender<VpnMessage>,
+    mux: Arc<sosistab2::Multiplex>,
+    send_incoming: Sender<Bytes>,
 ) -> anyhow::Result<()> {
-    todo!()
-    // loop {
-    //     let bts = mux.recv_urel().await.context("downstream failed")?;
-    //     let msg = bincode::deserialize(&bts).context("invalid downstream data")?;
-    //     send_incoming.try_send(msg)?;
-    // }
+    let wire = mux.open_conn(CLIENT_EXIT_PSEUDOHOST).await?;
+    loop {
+        let received = wire.recv_urel().await?;
+        send_incoming.send(received).await?;
+    }
 }
 
 // handles socks5 connection requests

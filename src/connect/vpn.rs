@@ -26,7 +26,7 @@ use anyhow::Context;
 use async_net::Ipv4Addr;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
-use geph4_protocol::VpnMessage;
+
 use geph_nat::GephNat;
 use governor::{Quota, RateLimiter};
 use once_cell::sync::Lazy;
@@ -275,7 +275,7 @@ async fn vpn_up_loop(nat: Arc<GephNat>) -> anyhow::Result<()> {
             let mangled_msg = nat.mangle_upstream_pkt(&bts);
 
             if let Some(body) = mangled_msg {
-                TUNNEL.send_vpn(VpnMessage::Payload(body)).await? // will this question mark make the whole function return if something fails?
+                TUNNEL.send_vpn(body).await?
             };
         }
     }
@@ -359,13 +359,11 @@ async fn vpn_down_loop(nat: Arc<GephNat>) -> anyhow::Result<()> {
         if count % 1000 == 1 {
             log::debug!("VPN received {} pkts ", count);
         }
-        if let geph4_protocol::VpnMessage::Payload(bts) = incoming {
-            let mangled_incoming = nat.mangle_downstream_pkt(&bts);
-            if let Some(mangled_bts) = mangled_incoming {
-                let mut mangled_bts = mangled_bts.to_vec();
-                mangle_dns_dn(&mut mangled_bts);
-                let _ = DOWN_CHANNEL.0.try_send(mangled_bts.into());
-            }
+        let mangled_incoming = nat.mangle_downstream_pkt(&incoming);
+        if let Some(mangled_bts) = mangled_incoming {
+            let mut mangled_bts = mangled_bts.to_vec();
+            mangle_dns_dn(&mut mangled_bts);
+            let _ = DOWN_CHANNEL.0.try_send(mangled_bts.into());
         }
     }
 }

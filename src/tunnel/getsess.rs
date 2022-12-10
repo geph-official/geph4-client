@@ -3,7 +3,7 @@ use rand::{seq::SliceRandom, Rng};
 use smol_timeout::TimeoutExt;
 use sosistab2::{MuxPublic, MuxSecret, ObfsUdpPipe, ObfsUdpPublic, Pipe};
 
-use crate::tunnel::activity::wait_activity;
+use crate::tunnel::{activity::wait_activity, TunnelStatus};
 
 use super::{EndpointSource, TunnelCtx};
 use anyhow::Context;
@@ -57,10 +57,12 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             let e2e_key: MuxPublic = {
                 let mut seen = None;
                 for bridge in bridges.iter() {
-                    if let Ok(val) =
-                        bincode::deserialize::<(ObfsUdpPublic, MuxPublic)>(&bridge.sosistab_key)
-                    {
-                        seen = Some(val.1)
+                    if bridge.protocol == "sosistab2-obfsudp" {
+                        if let Ok(val) =
+                            bincode::deserialize::<(ObfsUdpPublic, MuxPublic)>(&bridge.sosistab_key)
+                        {
+                            seen = Some(val.1)
+                        }
                     }
                 }
                 seen.context("cannot deduce the sosistab2 MuxPublic of this exit")?
@@ -77,8 +79,9 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                 }
                 let sess_id = sess_id.clone();
                 let multiplex = multiplex.clone();
+                let ctx = ctx.clone();
                 smolscale::spawn(async move {
-                    match connect_once(bridge, &sess_id).await {
+                    match connect_once(ctx, bridge, &sess_id).await {
                         Ok(pipe) => {
                             log::debug!(
                                 "add initial pipe {} / {}",
@@ -100,12 +103,13 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             let ccache = binder_tunnel_params.ccache.clone();
             let binder_tunnel_params = binder_tunnel_params.clone();
             multiplex.add_drop_friend(smolscale::spawn(async move {
+                let mut dead_count = 0;
                 loop {
                     let interval = Duration::from_secs_f64(rand::thread_rng().gen_range(1.0, 3.0));
                     wait_activity(interval).await;
                     if let Some(multiplex) = weak_multiplex.upgrade() {
-                        let dead_count = multiplex.clear_dead_pipes();
-                        if dead_count > 0 {
+                        dead_count += multiplex.clear_dead_pipes();
+                        while dead_count > 0 {
                             let fallible = async {
                                 let mut bridges = ccache
                                     .get_bridges_v2(&selected_exit.hostname, false)
@@ -118,7 +122,8 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                                     {
                                         return Ok(());
                                     }
-                                    let pipe = connect_once(first.clone(), &sess_id).await?;
+                                    let pipe =
+                                        connect_once(ctx.clone(), first.clone(), &sess_id).await?;
                                     log::debug!(
                                         "add later pipe {} / {}",
                                         pipe.protocol(),
@@ -126,6 +131,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                                     );
                                     multiplex.add_pipe(pipe);
                                 }
+                                dead_count -= 1;
                                 anyhow::Ok(())
                             };
                             if let Err(err) = fallible.await {
@@ -141,12 +147,21 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
     }
 }
 
-async fn connect_once(desc: BridgeDescriptor, meta: &str) -> anyhow::Result<Box<dyn Pipe>> {
+async fn connect_once(
+    ctx: TunnelCtx,
+    desc: BridgeDescriptor,
+    meta: &str,
+) -> anyhow::Result<Box<dyn Pipe>> {
     match desc.protocol.as_str() {
         "sosistab2-obfsudp" => {
             log::debug!("trying to connect to {}", desc.endpoint);
+            (ctx.status_callback)(TunnelStatus::PreConnect {
+                addr: desc.endpoint,
+                protocol: "sosistab2-obfsudp".into(),
+            });
             let keys: (ObfsUdpPublic, MuxPublic) =
                 bincode::deserialize(&desc.sosistab_key).context("cannot decode keys")?;
+
             let connection = ObfsUdpPipe::connect(desc.endpoint, keys.0, meta)
                 .timeout(Duration::from_secs(10))
                 .await
