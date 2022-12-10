@@ -65,66 +65,73 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                 }
                 seen.context("cannot deduce the sosistab2 MuxPublic of this exit")?
             };
-            let multiplex = sosistab2::Multiplex::new(MuxSecret::generate(), Some(e2e_key));
+            let multiplex = Arc::new(sosistab2::Multiplex::new(
+                MuxSecret::generate(),
+                Some(e2e_key),
+            ));
             // add *all* the bridges!
             let sess_id = format!("sess-{}", rand::thread_rng().gen::<u128>());
             for bridge in bridges.into_iter() {
                 if binder_tunnel_params.use_bridges && bridge.alloc_group == "direct" {
                     continue;
                 }
-                match connect_once(bridge, &sess_id).await {
-                    Ok(pipe) => {
-                        log::debug!(
-                            "add initial pipe {} / {}",
-                            pipe.protocol(),
-                            pipe.peer_addr()
-                        );
-                        multiplex.add_pipe(pipe);
+                let sess_id = sess_id.clone();
+                let multiplex = multiplex.clone();
+                smolscale::spawn(async move {
+                    match connect_once(bridge, &sess_id).await {
+                        Ok(pipe) => {
+                            log::debug!(
+                                "add initial pipe {} / {}",
+                                pipe.protocol(),
+                                pipe.peer_addr()
+                            );
+                            multiplex.add_pipe(pipe);
+                        }
+                        Err(err) => {
+                            log::warn!("pipe creation failed: {:?}", err)
+                        }
                     }
-                    Err(err) => {
-                        log::warn!("pipe creation failed: {:?}", err)
-                    }
-                }
+                })
+                .detach();
             }
 
-            // add to the multiplex a task that always tries to add more pipes
-            let multiplex = Arc::new(multiplex);
             // weak here to prevent a reference cycle!
             let weak_multiplex = Arc::downgrade(&multiplex);
             let ccache = binder_tunnel_params.ccache.clone();
             let binder_tunnel_params = binder_tunnel_params.clone();
             multiplex.add_drop_friend(smolscale::spawn(async move {
                 loop {
-                    let interval = Duration::from_secs_f64(rand::thread_rng().gen_range(2.0, 5.0));
-                    log::debug!(
-                        "sleeping at least {:.2}s before adding fresh pipes...",
-                        interval.as_secs_f64()
-                    );
+                    let interval = Duration::from_secs_f64(rand::thread_rng().gen_range(1.0, 3.0));
                     wait_activity(interval).await;
-                    let fallible = async {
-                        let mut bridges = ccache
-                            .get_bridges_v2(&selected_exit.hostname, false)
-                            .await
-                            .context("cannot get bridges")?;
-                        bridges.shuffle(&mut rand::thread_rng());
-                        if let Some(first) = bridges.first() {
-                            if binder_tunnel_params.use_bridges && first.alloc_group == "direct" {
-                                return Ok(());
-                            }
-                            let pipe = connect_once(first.clone(), &sess_id).await?;
-                            if let Some(multiplex) = weak_multiplex.upgrade() {
-                                log::debug!(
-                                    "add later pipe {} / {}",
-                                    pipe.protocol(),
-                                    pipe.peer_addr()
-                                );
-                                multiplex.add_pipe(pipe);
+                    if let Some(multiplex) = weak_multiplex.upgrade() {
+                        let dead_count = multiplex.clear_dead_pipes();
+                        if dead_count > 0 {
+                            let fallible = async {
+                                let mut bridges = ccache
+                                    .get_bridges_v2(&selected_exit.hostname, false)
+                                    .await
+                                    .context("cannot get bridges")?;
+                                bridges.shuffle(&mut rand::thread_rng());
+                                if let Some(first) = bridges.first() {
+                                    if binder_tunnel_params.use_bridges
+                                        && first.alloc_group == "direct"
+                                    {
+                                        return Ok(());
+                                    }
+                                    let pipe = connect_once(first.clone(), &sess_id).await?;
+                                    log::debug!(
+                                        "add later pipe {} / {}",
+                                        pipe.protocol(),
+                                        pipe.peer_addr()
+                                    );
+                                    multiplex.add_pipe(pipe);
+                                }
+                                anyhow::Ok(())
+                            };
+                            if let Err(err) = fallible.await {
+                                log::warn!("{:?}", err)
                             }
                         }
-                        anyhow::Ok(())
-                    };
-                    if let Err(err) = fallible.await {
-                        log::warn!("{:?}", err)
                     }
                 }
             }));
@@ -137,10 +144,11 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
 async fn connect_once(desc: BridgeDescriptor, meta: &str) -> anyhow::Result<Box<dyn Pipe>> {
     match desc.protocol.as_str() {
         "sosistab2-obfsudp" => {
+            log::debug!("trying to connect to {}", desc.endpoint);
             let keys: (ObfsUdpPublic, MuxPublic) =
                 bincode::deserialize(&desc.sosistab_key).context("cannot decode keys")?;
             let connection = ObfsUdpPipe::connect(desc.endpoint, keys.0, meta)
-                .timeout(Duration::from_secs(3))
+                .timeout(Duration::from_secs(10))
                 .await
                 .context("pipe connection timeout")??;
             Ok(Box::new(connection))

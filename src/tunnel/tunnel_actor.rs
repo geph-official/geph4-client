@@ -180,7 +180,7 @@ async fn connection_handler_loop(
             let start = Instant::now();
             let remote = mux
                 .open_conn(&conn_host)
-                .timeout(Duration::from_secs(10))
+                .timeout(Duration::from_secs(60))
                 .await;
             match remote {
                 Some(Ok(remote)) => {
@@ -228,7 +228,7 @@ async fn watchdog_loop(
         let start = Instant::now();
         if tunnel_mux
             .open_conn(CLIENT_EXIT_PSEUDOHOST)
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(60))
             .await
             .is_none()
         {
