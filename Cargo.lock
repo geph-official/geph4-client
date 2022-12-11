@@ -1806,6 +1806,7 @@ dependencies = [
  "socksv5",
  "sosistab2",
  "static_vcruntime",
+ "stdcode",
  "strip-ansi-escapes",
  "strsim 0.10.0",
  "structopt",

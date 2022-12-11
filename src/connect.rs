@@ -98,7 +98,6 @@ pub static TUNNEL: Lazy<ClientTunnel> = Lazy::new(|| {
 });
 
 static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
-    Lazy::force(&TUNNEL);
     /// Prints stats in a loop.
     async fn print_stats_loop() {
         loop {

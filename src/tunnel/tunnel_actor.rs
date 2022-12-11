@@ -56,6 +56,7 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
             .timeout(Duration::from_secs(15))
             .await
             .ok_or_else(|| anyhow::anyhow!("authentication timed out"))??;
+        log::info!("VPN private IP assigned: {ipv4}");
         ctx.vpn_client_ip.store(ipv4.into(), Ordering::SeqCst);
     } else {
         ctx.vpn_client_ip.store(12345, Ordering::SeqCst);
@@ -80,8 +81,11 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
             anyhow::bail!(e)
         })
         .or(watchdog_loop(ctx1.clone(), tunnel_mux.clone()))
-        .or(vpn_up_loop(tunnel_mux.clone(), ctx.recv_vpn_outgoing))
-        .or(vpn_down_loop(tunnel_mux, ctx.send_vpn_incoming))
+        .or(vpn_loop(
+            tunnel_mux.clone(),
+            ctx.send_vpn_incoming,
+            ctx.recv_vpn_outgoing,
+        ))
         .await
 }
 
@@ -132,26 +136,31 @@ impl RpcTransport for MuxStreamTransport {
     }
 }
 
-async fn vpn_up_loop(
+async fn vpn_loop(
     mux: Arc<sosistab2::Multiplex>,
+    send_incoming: Sender<Bytes>,
     recv_outgoing: Receiver<Bytes>,
 ) -> anyhow::Result<()> {
     let wire = mux.open_conn(CLIENT_EXIT_PSEUDOHOST).await?;
-    loop {
-        let to_send = recv_outgoing.recv().await?;
-        wire.send_urel(to_send).await?;
-    }
-}
-
-async fn vpn_down_loop(
-    mux: Arc<sosistab2::Multiplex>,
-    send_incoming: Sender<Bytes>,
-) -> anyhow::Result<()> {
-    let wire = mux.open_conn(CLIENT_EXIT_PSEUDOHOST).await?;
-    loop {
-        let received = wire.recv_urel().await?;
-        send_incoming.send(received).await?;
-    }
+    let uploop = async {
+        loop {
+            let to_send = recv_outgoing.recv().await?;
+            // log::debug!("send urel {}", to_send.len());
+            wire.send_urel(stdcode::serialize(&vec![to_send])?.into())
+                .await?;
+        }
+    };
+    let dnloop = async {
+        loop {
+            let received = wire.recv_urel().await?;
+            // log::debug!("recv urel {}", received.len());
+            let received: Vec<Bytes> = stdcode::deserialize(&received)?;
+            for received in received {
+                send_incoming.send(received).await?;
+            }
+        }
+    };
+    uploop.race(dnloop).await
 }
 
 // handles socks5 connection requests

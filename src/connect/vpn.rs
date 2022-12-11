@@ -196,6 +196,7 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
                 }
                 None => {
                     log::info!("not starting VPN mode");
+                    Lazy::force(&TUNNEL);
                     loop {
                         std::thread::park()
                     }
@@ -233,12 +234,9 @@ static DOWN_CHANNEL: Lazy<(flume::Sender<Bytes>, flume::Receiver<Bytes>)> =
 static VPN_TASK: Lazy<smol::Task<Infallible>> = Lazy::new(|| {
     smolscale::spawn(async {
         loop {
-            smol::Timer::after(Duration::from_secs(10)).await;
             let init_ip = TUNNEL.get_vpn_client_ip().await;
-            let nat = Arc::new(GephNat::new(
-                NAT_TABLE_SIZE,
-                TUNNEL.get_vpn_client_ip().await,
-            ));
+            log::info!("VPN task initializing IP to {init_ip}");
+            let nat = Arc::new(GephNat::new(NAT_TABLE_SIZE, init_ip));
             let ip_change_fut = async move {
                 loop {
                     let i = TUNNEL.get_vpn_client_ip().await;
