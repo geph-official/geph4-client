@@ -3,11 +3,11 @@ use rand::{seq::SliceRandom, Rng};
 use smol_timeout::TimeoutExt;
 use sosistab2::{MuxPublic, MuxSecret, ObfsUdpPipe, ObfsUdpPublic, Pipe};
 
-use crate::tunnel::{activity::wait_activity, TunnelStatus};
+use crate::connect::tunnel::{activity::wait_activity, TunnelStatus};
 
 use super::{EndpointSource, TunnelCtx};
 use anyhow::Context;
-use async_net::SocketAddr;
+use std::net::SocketAddr;
 
 use std::{convert::TryFrom, sync::Arc, time::Duration};
 
@@ -106,7 +106,8 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                 let mut dead_count = 0;
                 loop {
                     let interval = Duration::from_secs_f64(rand::thread_rng().gen_range(1.0, 3.0));
-                    wait_activity(interval).await;
+                    wait_activity(Duration::from_secs(300)).await;
+                    smol::Timer::after(interval).await;
                     if let Some(multiplex) = weak_multiplex.upgrade() {
                         dead_count += multiplex.clear_dead_pipes();
                         while dead_count > 0 {

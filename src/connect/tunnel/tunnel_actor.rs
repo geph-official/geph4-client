@@ -1,4 +1,7 @@
-use crate::tunnel::{ConnectionStatus, EndpointSource};
+use crate::connect::{
+    stats::{StatItem, STATS_GATHERER, STATS_RECV_BYTES, STATS_SEND_BYTES},
+    tunnel::{ConnectionStatus, EndpointSource},
+};
 
 use super::{
     activity::{notify_activity, wait_activity},
@@ -6,24 +9,23 @@ use super::{
     TunnelCtx,
 };
 use anyhow::Context;
-use async_net::Ipv4Addr;
 use async_trait::async_trait;
 use bytes::Bytes;
 use geph4_protocol::{
     binder::protocol::BlindToken,
     client_exit::{ClientExitClient, CLIENT_EXIT_PSEUDOHOST},
-    VpnMessage,
 };
+use std::{net::Ipv4Addr, time::SystemTime};
 
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
-// use parking_lot::RwLock;
+
 use smol::{
     channel::{Receiver, Sender},
     io::BufReader,
     prelude::*,
 };
 use smol_timeout::TimeoutExt;
-use sosistab2::MuxStream;
+use sosistab2::{Multiplex, MuxStream, Pipe};
 
 use std::{
     sync::{atomic::Ordering, Arc},
@@ -39,6 +41,33 @@ pub(crate) async fn tunnel_actor(ctx: TunnelCtx) -> anyhow::Result<()> {
             log::warn!("tunnel_actor restarting: {:?}", err);
             smol::Timer::after(Duration::from_secs(1)).await;
         }
+    }
+}
+
+async fn print_stats_loop(mux: Arc<Multiplex>) {
+    loop {
+        wait_activity(Duration::from_secs(30)).await;
+        if let Some(pipe) = mux.best_pipe() {
+            let item = StatItem {
+                time: SystemTime::now(),
+                endpoint: pipe.peer_addr().into(),
+                protocol: pipe.protocol().into(),
+                stats: pipe.get_stats(),
+                send_bytes: STATS_SEND_BYTES.load(Ordering::Relaxed),
+                recv_bytes: STATS_RECV_BYTES.load(Ordering::Relaxed),
+            };
+            log::info!(
+                "CONN {} / PROT {} / PING {:.1} +/- {:.2} ms / LOSS {:.2}% / TRAF {:.2} MB",
+                item.endpoint,
+                item.protocol,
+                item.stats.latency.as_secs_f64() * 1000.0,
+                item.stats.jitter.as_secs_f64() * 1000.0,
+                item.stats.loss * 100.0,
+                (item.send_bytes + item.recv_bytes) as f64 / 1_000_000.0
+            );
+            STATS_GATHERER.push(item);
+        }
+        smol::Timer::after(Duration::from_secs(1)).await;
     }
 }
 
@@ -73,7 +102,7 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
     });
 
     let (send_death, recv_death) = smol::channel::unbounded();
-
+    let _lala = smolscale::spawn(print_stats_loop(tunnel_mux.clone()));
     connection_handler_loop(ctx1.clone(), tunnel_mux.clone(), send_death)
         .or(async {
             // kill the whole session if any one connection fails
@@ -240,7 +269,7 @@ async fn watchdog_loop(
             let ping = start.elapsed();
             log::debug!("** watchdog completed in {:?} **", ping);
 
-            smol::Timer::after(Duration::from_secs(3)).await;
+            smol::Timer::after(Duration::from_secs(10)).await;
         }
     }
 }

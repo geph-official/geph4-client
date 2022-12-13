@@ -12,7 +12,6 @@ mod connect;
 pub mod ios;
 mod main_bridgetest;
 mod sync;
-mod tunnel;
 
 pub fn dispatch() -> anyhow::Result<()> {
     config_logging();
@@ -35,12 +34,12 @@ pub fn dispatch() -> anyhow::Result<()> {
 }
 
 fn config_logging() {
-    log::debug!("TRYING TO CONFIG LOGGING HERE");
     if let Err(e) = env_logger::Builder::from_env(
         env_logger::Env::default()
             .default_filter_or("geph4client=debug,geph4_protocol=debug,warn,geph_nat=debug"),
     )
     .format_timestamp_millis()
+    .format_target(false)
     .try_init()
     {
         log::debug!("{}", e);

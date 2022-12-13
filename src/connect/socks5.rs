@@ -1,12 +1,19 @@
-use std::time::Duration;
+use std::{sync::atomic::Ordering, time::Duration};
 
 use anyhow::Context;
-use async_net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use futures_util::TryFutureExt;
 use psl::Psl;
 use smol_timeout::TimeoutExt;
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
-use crate::{china, connect::TUNNEL};
+use crate::{
+    china,
+    connect::{
+        stats::{STATS_RECV_BYTES, STATS_SEND_BYTES},
+        tunnel::activity::notify_activity,
+        TUNNEL,
+    },
+};
 
 /// Handles a socks5 client from localhost
 async fn handle_socks5(s5client: smol::net::TcpStream, exclude_prc: bool) -> anyhow::Result<()> {
@@ -80,8 +87,14 @@ async fn handle_socks5(s5client: smol::net::TcpStream, exclude_prc: bool) -> any
         )
         .await?;
         smol::future::race(
-            geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_| {}),
-            geph4_aioutils::copy_with_stats(s5client, conn, |_| {}),
+            geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |n| {
+                STATS_RECV_BYTES.fetch_add(n as u64, Ordering::Relaxed);
+                notify_activity();
+            }),
+            geph4_aioutils::copy_with_stats(s5client, conn, |n| {
+                STATS_SEND_BYTES.fetch_add(n as u64, Ordering::Relaxed);
+                notify_activity();
+            }),
         )
         .await?;
     }

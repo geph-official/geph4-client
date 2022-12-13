@@ -1,11 +1,11 @@
 use std::{process::Command, time::Duration};
 
-use crate::tunnel::TunnelStatus;
-use async_net::{IpAddr, Ipv4Addr};
+use crate::connect::tunnel::TunnelStatus;
 use dashmap::DashMap;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 use signal_hook::iterator::Signals;
+use std::net::{IpAddr, Ipv4Addr};
 
 use crate::connect::{CONNECT_CONFIG, TUNNEL, TUNNEL_STATUS_CALLBACK};
 

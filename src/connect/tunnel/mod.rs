@@ -1,9 +1,9 @@
-use async_net::SocketAddr;
 use bytes::Bytes;
 use geph4_protocol::binder::client::CachedBinderClient;
 use parking_lot::RwLock;
 use smol::channel::{Receiver, Sender};
 use smol_str::SmolStr;
+use std::net::SocketAddr;
 
 use sosistab2::MuxStream;
 use std::{
@@ -170,20 +170,4 @@ impl ClientTunnel {
     pub fn get_endpoint(&self) -> EndpointSource {
         self.endpoint.clone()
     }
-
-    pub async fn get_stats(&self) -> Stats {
-        todo!()
-    }
-}
-
-pub struct Stats {
-    // pub sent_series: TimeSeries,
-    // pub recv_series: TimeSeries,
-    // pub loss_series: TimeSeries,
-    // pub ping_series: TimeSeries,
-
-    // pub total_sent_bytes: f32,
-    // pub total_recv_bytes: f32,
-    // pub last_loss: f32,
-    // pub last_ping: f32, // latency
 }

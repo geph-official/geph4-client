@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use anyhow::Context;
-use async_net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr};
 use http_types::{Method, Request, Url};
 use once_cell::sync::Lazy;
 use treebitmap::IpLookupTable;

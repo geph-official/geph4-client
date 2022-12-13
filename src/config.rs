@@ -5,12 +5,12 @@ use std::{
 };
 
 use crate::fronts::parse_fronts;
-use async_net::{Ipv4Addr, SocketAddr};
 use bytes::Bytes;
 use geph4_protocol::binder::client::{CachedBinderClient, DynBinderClient};
 use geph4_protocol::binder::protocol::BinderClient;
 use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
+use std::net::{Ipv4Addr, SocketAddr};
 use structopt::StructOpt;
 
 static INIT_CONFIG: OnceCell<Opt> = OnceCell::new();

@@ -1,4 +1,4 @@
-use async_net::SocketAddr;
+use std::net::SocketAddr;
 use smol::{
     channel::{Receiver, Sender},
     prelude::*,

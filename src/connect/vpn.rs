@@ -23,9 +23,9 @@ use std::os::unix::prelude::{AsRawFd, FromRawFd};
 
 use anyhow::Context;
 
-use async_net::Ipv4Addr;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use bytes::Bytes;
+use std::net::Ipv4Addr;
 
 use geph_nat::GephNat;
 use governor::{Quota, RateLimiter};
@@ -39,9 +39,9 @@ use pnet_packet::{
 };
 use smol::prelude::*;
 
-use crate::config::VpnMode;
+use crate::{config::VpnMode, connect::stats::STATS_RECV_BYTES};
 
-use super::{CONNECT_CONFIG, TUNNEL};
+use super::{stats::STATS_SEND_BYTES, CONNECT_CONFIG, TUNNEL};
 
 /// The VPN shuffling task
 pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
@@ -209,6 +209,7 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
 /// Uploads a packet through the global VPN
 pub fn vpn_upload(pkt: Bytes) {
     Lazy::force(&VPN_TASK);
+    STATS_SEND_BYTES.fetch_add(pkt.len() as u64, Ordering::Relaxed);
     let _ = UP_CHANNEL.0.try_send(pkt);
 }
 
@@ -216,13 +217,17 @@ pub fn vpn_upload(pkt: Bytes) {
 pub async fn vpn_download() -> Bytes {
     log::trace!("called vpn_download");
     Lazy::force(&VPN_TASK);
-    DOWN_CHANNEL.1.recv_async().await.unwrap()
+    let pkt = DOWN_CHANNEL.1.recv_async().await.unwrap();
+    STATS_RECV_BYTES.fetch_add(pkt.len() as u64, Ordering::Relaxed);
+    pkt
 }
 
 /// Downloads a packet through the global VPN, blockingly
 pub fn vpn_download_blocking() -> Bytes {
     Lazy::force(&VPN_TASK);
-    DOWN_CHANNEL.1.recv().unwrap()
+    let pkt = DOWN_CHANNEL.1.recv().unwrap();
+    STATS_SEND_BYTES.fetch_add(pkt.len() as u64, Ordering::Relaxed);
+    pkt
 }
 
 // Up and down channels

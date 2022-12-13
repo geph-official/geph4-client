@@ -14,9 +14,7 @@ use smol_timeout::TimeoutExt;
 
 use crate::{
     config::{get_cached_binder_client, ConnectOpt, Opt, CONFIG},
-    tunnel::{
-        activity::wait_activity, BinderTunnelParams, ClientTunnel, EndpointSource, TunnelStatus,
-    },
+    connect::tunnel::{BinderTunnelParams, ClientTunnel, EndpointSource, TunnelStatus},
 };
 
 use crate::china;
@@ -25,6 +23,7 @@ mod dns;
 mod port_forwarder;
 mod socks5;
 mod stats;
+mod tunnel;
 pub(crate) mod vpn;
 
 /// Main function for `connect` subcommand
@@ -98,13 +97,6 @@ pub static TUNNEL: Lazy<ClientTunnel> = Lazy::new(|| {
 });
 
 static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
-    /// Prints stats in a loop.
-    async fn print_stats_loop() {
-        loop {
-            wait_activity(Duration::from_secs(200)).await;
-        }
-    }
-
     smolscale::spawn(async {
         // print out config file
         log::info!(
@@ -114,10 +106,7 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
             CONNECT_CONFIG.use_bridges
         );
         smol::Timer::after(Duration::from_secs(1)).await;
-        let stats_printer_fut = async {
-            print_stats_loop().await;
-            Ok(())
-        };
+
         // http proxy
         let _socks2h = smolscale::spawn(Compat::new(crate::socks2http::run_tokio(
             CONNECT_CONFIG.http_listen,
@@ -172,11 +161,7 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
 
         // ready, set, go!
         Lazy::force(&vpn::VPN_SHUFFLE_TASK);
-        stats_printer_fut
-            .race(socks5_fut)
-            .race(dns_fut)
-            .await
-            .unwrap();
+        socks5_fut.race(dns_fut).await.unwrap();
         panic!("something died")
     })
 });

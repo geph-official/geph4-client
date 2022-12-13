@@ -1,13 +1,25 @@
-use std::{convert::Infallible, thread::JoinHandle, time::Duration};
+mod gatherer;
+
+use std::{
+    collections::HashMap,
+    convert::Infallible,
+    sync::atomic::{AtomicU64, Ordering},
+    thread::JoinHandle,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
 
 use async_trait::async_trait;
+use itertools::Itertools;
+use smol_str::SmolStr;
 
+use self::gatherer::StatsGatherer;
+pub use gatherer::StatItem;
 use nanorpc::nanorpc_derive;
 use nanorpc::RpcService;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
-use super::{CONNECT_CONFIG, TUNNEL};
+use super::{tunnel::activity::notify_activity, CONNECT_CONFIG, TUNNEL};
 
 /// The main stats-serving thread.
 pub static STATS_THREAD: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
@@ -40,8 +52,8 @@ pub struct BasicStats {
     pub total_recv_bytes: f32,
     pub last_loss: f32,
     pub last_ping: f32, // latency
-    pub protocol: String,
-    pub address: String,
+    pub protocol: SmolStr,
+    pub address: SmolStr,
 }
 
 #[derive(Copy, Clone)]
@@ -59,95 +71,88 @@ pub trait StatsControlProtocol {
 
     /// Obtains statistics.
     async fn basic_stats(&self) -> BasicStats {
-        todo!()
-        // let s = TUNNEL.get_stats().await;
-        // let status = TUNNEL.status();
-        // BasicStats {
-        //     total_recv_bytes: s.total_recv_bytes,
-        //     total_sent_bytes: s.total_sent_bytes,
-        //     last_loss: s.last_loss,
-        //     last_ping: s.last_ping,
-        //     protocol: match &status {
-        //         ConnectionStatus::Connected {
-        //             protocol,
-        //             address: _,
-        //         } => protocol.clone().into(),
-        //         _ => "".into(),
-        //     },
-        //     address: match status {
-        //         ConnectionStatus::Connected {
-        //             protocol: _,
-        //             address,
-        //         } => address.into(),
-        //         _ => "".into(),
-        //     },
-        // }
+        loop {
+            let stats = STATS_GATHERER.all_items().last().cloned();
+            if let Some(stats) = stats {
+                return BasicStats {
+                    address: stats.endpoint,
+                    protocol: stats.protocol,
+                    last_loss: stats.stats.loss as _,
+                    last_ping: stats.stats.latency.as_secs_f32() * 1000.0,
+                    total_recv_bytes: STATS_RECV_BYTES.load(Ordering::Relaxed) as f32,
+                    total_sent_bytes: STATS_SEND_BYTES.load(Ordering::Relaxed) as f32,
+                };
+            }
+            smol::Timer::after(Duration::from_millis(100)).await;
+        }
     }
 
     /// Obtains time-series statistics.
-    async fn timeseries_stats(&self, _series: Timeseries) -> Vec<(u64, f32)> {
-        todo!()
-        // let s = TUNNEL.get_stats().await;
-        // let diffify = |series: sosistab::TimeSeries| {
-        //     let mut accum = HashMap::new();
-        //     let mut last = 0.0f32;
-        //     let now = SystemTime::now();
-        //     accum.insert(now.duration_since(UNIX_EPOCH).unwrap().as_secs(), 0.0);
-        //     accum.insert(now.duration_since(UNIX_EPOCH).unwrap().as_secs() - 1, 0.0);
-        //     for (&time, &total) in series.iter() {
-        //         if let Ok(dur) = now.duration_since(time) {
-        //             if dur.as_secs() > 600 {
-        //                 continue;
-        //             }
-        //         }
-        //         let bucket = time.duration_since(UNIX_EPOCH).unwrap().as_secs();
-        //         let diff = (total - last).max(0.0);
-        //         last = total;
-        //         *accum.entry(bucket).or_default() += diff;
-        //     }
-        //     let first = accum.keys().min().copied().unwrap_or_default();
-        //     let end = accum.keys().max().copied().unwrap_or_default();
-        //     (first..end)
-        //         .map(|i| (i, accum.get(&i).copied().unwrap_or_default()))
-        //         .collect_vec()
-        // };
-        // match series {
-        //     Timeseries::SendSpeed => {
-        //         let series = s.sent_series;
-        //         diffify(series)
-        //     }
-        //     Timeseries::RecvSpeed => {
-        //         let series = s.recv_series;
-        //         diffify(series)
-        //     }
-        //     Timeseries::Loss => (0..200)
-        //         .rev()
-        //         .map(|t| {
-        //             let tstamp = SystemTime::now() - Duration::from_secs(t);
-        //             let tt = tstamp.duration_since(UNIX_EPOCH).unwrap().as_secs();
-        //             (
-        //                 tt,
-        //                 s.loss_series
-        //                     .get(SystemTime::now() - Duration::from_secs(t)),
-        //             )
-        //         })
-        //         .collect_vec(),
-        //     Timeseries::Ping => (0..200)
-        //         .rev()
-        //         .filter_map(|t| {
-        //             let tstamp = SystemTime::now() - Duration::from_secs(t);
-        //             let tt = tstamp.duration_since(UNIX_EPOCH).unwrap().as_secs();
-        //             let res = s
-        //                 .ping_series
-        //                 .get(SystemTime::now() - Duration::from_secs(t));
-        //             if res > 10.0 {
-        //                 None
-        //             } else {
-        //                 Some((tt, res * 1000.0))
-        //             }
-        //         })
-        //         .collect_vec(),
-        // }
+    async fn timeseries_stats(&self, series: Timeseries) -> Vec<(u64, f32)> {
+        let s = STATS_GATHERER.all_items();
+        let diffify = |series: Vec<(SystemTime, f32)>| {
+            series
+                .windows(2)
+                .map(|v| {
+                    if let [(t1, v1), (t2, v2)] = v {
+                        let t1 = t1.duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
+                        let t2 = t2.duration_since(UNIX_EPOCH).unwrap().as_secs_f64();
+                        let dt = (t2 - t1) as f32;
+                        (((t1 + t2) / 2.0) as _, (*v2 - *v1) / dt)
+                    } else {
+                        unreachable!()
+                    }
+                })
+                .collect_vec()
+        };
+        match series {
+            Timeseries::SendSpeed => {
+                let series = s
+                    .iter()
+                    .map(|item| (item.time, item.send_bytes as f32))
+                    .collect_vec();
+                diffify(series)
+            }
+            Timeseries::RecvSpeed => {
+                let series = s
+                    .iter()
+                    .map(|item| (item.time, item.recv_bytes as f32))
+                    .collect_vec();
+                diffify(series)
+            }
+            Timeseries::Loss => {
+                let zoomed = if s.len() > 200 {
+                    s.clone().slice(s.len() - 200..)
+                } else {
+                    s
+                };
+                zoomed
+                    .into_iter()
+                    .map(|i| {
+                        (
+                            i.time.duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                            i.stats.loss as f32,
+                        )
+                    })
+                    .collect_vec()
+            }
+            Timeseries::Ping => {
+                let zoomed = if s.len() > 200 {
+                    s.clone().slice(s.len() - 200..)
+                } else {
+                    s
+                };
+                zoomed
+                    .into_iter()
+                    .map(|i| {
+                        (
+                            i.time.duration_since(UNIX_EPOCH).unwrap().as_secs(),
+                            i.stats.latency.as_secs_f32() * 1000.0,
+                        )
+                    })
+                    .collect_vec()
+            }
+        }
     }
 
     /// Turns off the daemon.
@@ -168,3 +173,9 @@ pub enum Timeseries {
     Loss,
     Ping,
 }
+
+pub static STATS_GATHERER: Lazy<StatsGatherer> = Lazy::new(Default::default);
+
+pub static STATS_SEND_BYTES: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
+
+pub static STATS_RECV_BYTES: Lazy<AtomicU64> = Lazy::new(|| AtomicU64::new(0));
