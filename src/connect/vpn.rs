@@ -226,7 +226,7 @@ pub async fn vpn_download() -> Bytes {
 pub fn vpn_download_blocking() -> Bytes {
     Lazy::force(&VPN_TASK);
     let pkt = DOWN_CHANNEL.1.recv().unwrap();
-    STATS_SEND_BYTES.fetch_add(pkt.len() as u64, Ordering::Relaxed);
+    STATS_RECV_BYTES.fetch_add(pkt.len() as u64, Ordering::Relaxed);
     pkt
 }
 
