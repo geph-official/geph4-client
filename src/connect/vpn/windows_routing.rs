@@ -5,10 +5,10 @@ use std::{
 };
 
 use crate::connect::tunnel::TunnelStatus;
-use async_net::{IpAddr, Ipv4Addr};
 use dashmap::DashSet;
 use once_cell::sync::Lazy;
 use pnet_packet::{ip::IpNextHeaderProtocols, MutablePacket};
+use std::net::{IpAddr, Ipv4Addr};
 
 use crate::connect::{vpn::vpn_upload, TUNNEL, TUNNEL_STATUS_CALLBACK};
 
