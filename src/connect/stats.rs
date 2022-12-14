@@ -1,7 +1,6 @@
 mod gatherer;
 
 use std::{
-    collections::HashMap,
     convert::Infallible,
     sync::atomic::{AtomicU64, Ordering},
     thread::JoinHandle,
@@ -19,7 +18,7 @@ use nanorpc::RpcService;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
-use super::{tunnel::activity::notify_activity, CONNECT_CONFIG, TUNNEL};
+use super::{CONNECT_CONFIG, TUNNEL};
 
 /// The main stats-serving thread.
 pub static STATS_THREAD: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {

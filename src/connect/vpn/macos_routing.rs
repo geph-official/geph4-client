@@ -1,8 +1,8 @@
 use std::time::Duration;
 
-use async_net::IpAddr;
 use dashmap::DashMap;
 use once_cell::sync::Lazy;
+use std::net::IpAddr;
 
 use crate::connect::TUNNEL;
 

@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use crate::tunnel::TunnelStatus;
+use crate::connect::tunnel::TunnelStatus;
 use async_net::{IpAddr, Ipv4Addr};
 use dashmap::DashSet;
 use once_cell::sync::Lazy;
