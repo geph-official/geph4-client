@@ -1,7 +1,8 @@
 use geph4_protocol::binder::protocol::BridgeDescriptor;
+use native_tls::{Protocol, TlsConnector};
 use rand::{seq::SliceRandom, Rng};
 use smol_timeout::TimeoutExt;
-use sosistab2::{MuxPublic, MuxSecret, ObfsUdpPipe, ObfsUdpPublic, Pipe};
+use sosistab2::{MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
 
 use crate::connect::tunnel::{activity::wait_activity, TunnelStatus};
 
@@ -169,8 +170,29 @@ async fn connect_once(
                 .context("pipe connection timeout")??;
             Ok(Box::new(connection))
         }
+        "sosistab2-obfstls" => {
+            let mut config = TlsConnector::builder();
+            config
+                .danger_accept_invalid_certs(true)
+                .danger_accept_invalid_hostnames(true)
+                .min_protocol_version(Some(Protocol::Tlsv12))
+                .max_protocol_version(Some(Protocol::Tlsv12))
+                .use_sni(true);
+            let fake_domain = format!(
+                "{}.{}{}.com",
+                eff_wordlist::short::random_word(),
+                eff_wordlist::large::random_word(),
+                eff_wordlist::large::random_word()
+            );
+            let connection =
+                ObfsTlsPipe::connect(desc.endpoint, &fake_domain, config, desc.sosistab_key, meta)
+                    .timeout(Duration::from_secs(10))
+                    .await
+                    .context("pipe connection timeout")??;
+            Ok(Box::new(connection))
+        }
         other => {
-            anyhow::bail!("unsupported protocol {other}")
+            anyhow::bail!("unknown protocol {other}")
         }
     }
 }
