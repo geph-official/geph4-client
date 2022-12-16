@@ -9,57 +9,57 @@ license="GPL-3.0-only"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [patch.crates-io]
-sosistab2={path="../sosistab2"}
+# sosistab2={path="../sosistab2"}
 
 [lib]
 name = "geph4client"
 crate-type = ["staticlib", "lib"]
 
 [build-dependencies]
-static_vcruntime = "2.0"
+static_vcruntime = "2.0.0"
 
 [dependencies]
-anyhow = "1.0.65"
-geph4-protocol= "0.11"
+anyhow = "1.0.66"
+geph4-protocol= "0.11.0"
 
 async-h1= "2.3.3"
 bincode = "1.3.3"
 flume = "0.10.14"
   
-os_pipe = "1.1.1"
+os_pipe = "1.1.2"
 dirs = "3.0.2"
 ed25519-dalek={ version = "1.0.1", features = ["serde"] }
-futures-util= "0.3.24"
+futures-util= "0.3.25"
 hex = "0.4.3"
 http-types = "2.12.0"
 log = "0.4.17"
-once_cell= "1.15.0"
+once_cell= "1.16.0"
 parking_lot = { version = "0.11.2", features = ["serde"] }
 rand= "0.7.3"
-regex= "1.6.0"
+regex= "1.7.0"
 rsa-fdh = "0.5.0"
 
 scopeguard = "1.1.0"
-serde = { version = "1.0.145", features = ["derive"] }
-serde_json = "1.0.86"
+serde = { version = "1.0.150", features = ["derive"] }
+serde_json = "1.0.89"
 sha2 = "0.9.9"
-smol = "1.2.5"
+smol = "1.3.0"
 smol-timeout = "0.6.0"
 socksv5 = "0.2.0"
 
 strsim = "0.10.0"
 structopt = "0.3.26"
 x25519-dalek={ version = "1.2.0", features = ["serde"] }
-chrono = "0.4.22"
+chrono = "0.4.23"
 
 socket2= "0.3.19"
 treebitmap={ package = "ip_network_table-deps-treebitmap", version = "0.5.0" }
 pnet_packet= "0.27.2"
 governor= "0.3.2"
 async-dup= "1.2.2"
-bytes= { version = "1.2.1", features = ["serde"] }
+bytes= { version = "1.3.0", features = ["serde"] }
 tap= "1.0.1"
-smolscale= "0.3.42"
+smolscale= "0.3.52"
 async-compat= "0.2.1"
 im= "15.1.0"
 event-listener= "2.5.3"
@@ -68,42 +68,42 @@ rustls= "0.19.1"
 webpki-roots= "0.21.1"
 strip-ansi-escapes= "0.1.1"
 
-geph-nat = "0.1.3"
+geph-nat = "0.1.6"
 mizaru = "0.1.3"
-geph4-aioutils = "0.1.3"
+geph4-aioutils = "0.1.4"
 # alloc_geiger = "0.1"
 
 # socks2http
-tokio = { version = "1.21.2", features = ["rt","net", "io-util"] }
-hyper = { version = "0.14.20", features = ["http1", "client", "server", "tcp", "stream"] }
+tokio = { version = "1.23.0", features = ["rt","net", "io-util"] }
+hyper = { version = "0.14.23", features = ["http1", "client", "server", "tcp", "stream"] }
 pin-project = "1.0.12"
 http = "0.2.8"
-psl = "2.1.2"
-async-trait = "0.1.57"
+psl = "2.1.3"
+async-trait = "0.1.59"
 tracing = "0.1.37"
-env_logger = "0.9.1"
+env_logger = "0.9.3"
 rlimit = "0.6.2"
 binary-search = "0.1.2"
 fastrand = "1.8.0"
 
-nanorpc = "0.1.8"
+nanorpc = "0.1.12"
 
-native-tls={ version = "0.2.10", features = ["vendored"] }
+native-tls={ version = "0.2.11", features = ["vendored"] }
 itertools = "0.10.5"
 whoami = "1.2.3"
 tiny_http = "0.12.0"
 thiserror = "1.0.37"
 backoff = "0.4.0"
 shutdown_hooks = "0.1.0"
-libc = "0.2.135"
+libc = "0.2.138"
 signal-hook = "0.3.14"
 dashmap = "5.4.0"
 default-net = "0.11.0"
 eff-wordlist = "1.0.2"
-blake3 = "1.3.1"
+blake3 = "1.3.3"
 byteorder = "1.4.3"
 smol_str = "0.1.23"
-sosistab2 = "0.3"
+sosistab2 = "0.3.11"
 stdcode = "0.1.13"
 #jemallocator-global = "0.3.0"
 
