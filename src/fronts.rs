@@ -42,7 +42,9 @@ impl RpcTransport for MultiRpcTransport {
         &self,
         req: nanorpc::JrpcRequest,
     ) -> Result<nanorpc::JrpcResponse, Self::Error> {
-        let mut backoff = ExponentialBackoffBuilder::new().build();
+        let mut backoff = ExponentialBackoffBuilder::new()
+            .with_max_elapsed_time(Some(Duration::from_secs(10)))
+            .build();
         loop {
             static IDX: AtomicUsize = AtomicUsize::new(0);
             let idx = IDX.load(Ordering::Relaxed) % self.0.len();

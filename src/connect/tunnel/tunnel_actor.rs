@@ -46,8 +46,8 @@ pub(crate) async fn tunnel_actor(ctx: TunnelCtx) -> anyhow::Result<()> {
 
 async fn print_stats_loop(mux: Arc<Multiplex>) {
     loop {
-        wait_activity(Duration::from_secs(30)).await;
-        if let Some(pipe) = mux.best_pipe() {
+        wait_activity(Duration::from_secs(300)).await;
+        if let Some(pipe) = mux.last_recv_pipe() {
             let item = StatItem {
                 time: SystemTime::now(),
                 endpoint: pipe.peer_addr().into(),
@@ -57,7 +57,7 @@ async fn print_stats_loop(mux: Arc<Multiplex>) {
                 recv_bytes: STATS_RECV_BYTES.load(Ordering::Relaxed),
             };
             log::info!(
-                "CONN {} / PROT {} / PING {:.1} +/- {:.2} ms / LOSS {:.2}% / TRAF {:.2} MB",
+                "RECV-CONN {} / PROT {} / PING {:.1} +/- {:.2} ms / LOSS {:.2}% / TRAF {:.2} MB",
                 item.endpoint,
                 item.protocol,
                 item.stats.latency.as_secs_f64() * 1000.0,
@@ -66,8 +66,19 @@ async fn print_stats_loop(mux: Arc<Multiplex>) {
                 (item.send_bytes + item.recv_bytes) as f64 / 1_000_000.0
             );
             STATS_GATHERER.push(item);
+            if let Some(pipe) = mux.last_send_pipe() {
+                let stats = pipe.get_stats();
+                log::info!(
+                    "SEND-CONN {} / PROT {} / PING {:.1} +/- {:.2} ms / LOSS {:.2}%",
+                    pipe.peer_addr(),
+                    pipe.protocol(),
+                    stats.latency.as_secs_f64() * 1000.0,
+                    stats.jitter.as_secs_f64() * 1000.0,
+                    stats.loss * 100.0
+                );
+            }
         }
-        smol::Timer::after(Duration::from_secs(1)).await;
+        smol::Timer::after(Duration::from_secs(5)).await;
     }
 }
 
@@ -259,7 +270,7 @@ async fn watchdog_loop(
         let start = Instant::now();
         if tunnel_mux
             .open_conn(CLIENT_EXIT_PSEUDOHOST)
-            .timeout(Duration::from_secs(60))
+            .timeout(Duration::from_secs(20))
             .await
             .is_none()
         {

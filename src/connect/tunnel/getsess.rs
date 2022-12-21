@@ -75,9 +75,6 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             // add *all* the bridges!
             let sess_id = format!("sess-{}", rand::thread_rng().gen::<u128>());
             for bridge in bridges.into_iter() {
-                if binder_tunnel_params.use_bridges && bridge.alloc_group == "direct" {
-                    continue;
-                }
                 let sess_id = sess_id.clone();
                 let multiplex = multiplex.clone();
                 let ctx = ctx.clone();
@@ -112,6 +109,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                     if let Some(multiplex) = weak_multiplex.upgrade() {
                         dead_count += multiplex.clear_dead_pipes();
                         while dead_count > 0 {
+                            log::debug!("*** DEAD COUNT {dead_count} ***");
                             let fallible = async {
                                 let mut bridges = ccache
                                     .get_bridges_v2(&selected_exit.hostname, false)
@@ -154,6 +152,11 @@ async fn connect_once(
     desc: BridgeDescriptor,
     meta: &str,
 ) -> anyhow::Result<Box<dyn Pipe>> {
+    if let EndpointSource::Binder(params) = &ctx.endpoint {
+        if params.use_bridges && desc.is_direct {
+            anyhow::bail!("skipping direct connection")
+        }
+    }
     match desc.protocol.as_str() {
         "sosistab2-obfsudp" => {
             log::debug!("trying to connect to {}", desc.endpoint);
