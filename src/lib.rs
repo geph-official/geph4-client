@@ -9,11 +9,17 @@ use crate::config::{Opt, CONFIG};
 mod binderproxy;
 mod china;
 mod connect;
+
+// #[cfg(target_os = "ios")]
 pub mod ios;
+
+mod debugpak;
 mod main_bridgetest;
 mod sync;
 
 pub fn dispatch() -> anyhow::Result<()> {
+    std::env::remove_var("http_proxy");
+    std::env::remove_var("https_proxy");
     config_logging();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);

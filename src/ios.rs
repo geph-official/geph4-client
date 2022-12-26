@@ -61,7 +61,7 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
     let version = env!("CARGO_PKG_VERSION");
     log::info!("IOS geph4-client v{} starting...", version);
 
-    smolscale::block_on(async move {
+    smol::future::block_on(async move {
         let func = func.as_str();
         // let args: Vec<&str> = args.into_iter().map(|s| s.as_str()).collect();
 
@@ -120,12 +120,16 @@ pub extern "C" fn call_geph(
     buffer: *mut c_char,
     buflen: c_int,
 ) -> c_int {
+    std::env::set_var("SMOLSCALE_USE_AGEX", "1");
     let inner = || {
         let func = unsafe { CStr::from_ptr(func) }.to_str()?.to_owned();
         let opt = unsafe { CStr::from_ptr(opt) };
         log::debug!("func = {:?}, opt = {:?}", func, opt);
         let args: Vec<String> = serde_json::from_str(opt.to_str()?)?;
-        anyhow::Ok(dispatch_ios(func, args)?)
+        let result = std::panic::catch_unwind(|| dispatch_ios(func, args)).map_err(|e| {
+            anyhow::anyhow!("a panic happened: {}", panic_message::panic_message(&e))
+        })?;
+        anyhow::Ok(result?)
     };
 
     let output = match inner() {
@@ -167,7 +171,7 @@ pub extern "C" fn upload_packet(pkt: *const c_uchar, len: c_int) {
         let slice = std::slice::from_raw_parts(pkt as *mut u8, len as usize);
         let owned = slice.to_vec();
         let bytes: Bytes = owned.into();
-        vpn_upload(bytes);
+        // vpn_upload(bytes);
     }
 }
 

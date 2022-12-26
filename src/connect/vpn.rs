@@ -270,6 +270,7 @@ async fn vpn_up_loop(nat: Arc<GephNat>) -> anyhow::Result<()> {
     );
     loop {
         let mut bts = UP_CHANNEL.1.recv_async().await.unwrap().to_vec();
+        log::debug!("received 1 pkt from UP_CHANNEL!!!!");
         mangle_dns_up(&mut bts);
         // ACK decimation
         if ack_decimate(&bts).is_some() && limiter.check().is_err() {

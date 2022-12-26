@@ -1,4 +1,5 @@
 use geph4_protocol::binder::protocol::BridgeDescriptor;
+use itertools::Itertools;
 use native_tls::{Protocol, TlsConnector};
 use rand::{seq::SliceRandom, Rng};
 use smol_timeout::TimeoutExt;
@@ -79,7 +80,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                 let multiplex = multiplex.clone();
                 let ctx = ctx.clone();
                 smolscale::spawn(async move {
-                    match connect_once(ctx, bridge, &sess_id).await {
+                    match connect_once(ctx, bridge.clone(), &sess_id).await {
                         Ok(pipe) => {
                             log::debug!(
                                 "add initial pipe {} / {}",
@@ -89,7 +90,12 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                             multiplex.add_pipe(pipe);
                         }
                         Err(err) => {
-                            log::warn!("pipe creation failed: {:?}", err)
+                            log::warn!(
+                                "pipe creation failed for {} ({}): {:?}",
+                                bridge.endpoint,
+                                bridge.protocol,
+                                err
+                            )
                         }
                     }
                 })
@@ -106,36 +112,75 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                     let interval = Duration::from_secs_f64(rand::thread_rng().gen_range(1.0, 3.0));
                     wait_activity(Duration::from_secs(300)).await;
                     smol::Timer::after(interval).await;
-                    if let Some(multiplex) = weak_multiplex.upgrade() {
-                        dead_count += multiplex.clear_dead_pipes();
-                        while dead_count > 0 {
-                            log::debug!("*** DEAD COUNT {dead_count} ***");
-                            let fallible = async {
-                                let mut bridges = ccache
-                                    .get_bridges_v2(&selected_exit.hostname, false)
-                                    .await
-                                    .context("cannot get bridges")?;
-                                bridges.shuffle(&mut rand::thread_rng());
-                                if let Some(first) = bridges.first() {
-                                    if binder_tunnel_params.use_bridges
-                                        && first.alloc_group == "direct"
-                                    {
-                                        return Ok(());
+                    let dead_pipes = if let Some(multiplex) = weak_multiplex.upgrade() {
+                        multiplex.clear_dead_pipes()
+                    } else {
+                        return;
+                    };
+                    if !dead_pipes.is_empty() {
+                        log::debug!(
+                            "dead pipes: {:?}",
+                            dead_pipes
+                                .iter()
+                                .map(|dp| (dp.protocol(), dp.peer_addr()))
+                                .collect_vec()
+                        );
+                        let pipe_tasks = dead_pipes
+                            .into_iter()
+                            .map(|pipe| {
+                                let ccache = ccache.clone();
+                                let ctx = ctx.clone();
+                                let selected_exit = selected_exit.clone();
+                                let sess_id = sess_id.clone();
+                                smolscale::spawn(async move {
+                                    for iteration in 0u64.. {
+                                        let ctx = ctx.clone();
+                                        let fallible = async {
+                                            let bridges = ccache
+                                                .get_bridges_v2(&selected_exit.hostname, false)
+                                                .await?;
+                                            if bridges.is_empty() {
+                                                anyhow::bail!("empty bridge list")
+                                            }
+                                            let selected_bridge = bridges
+                                                .iter()
+                                                .find(|s| {
+                                                    s.exit_hostname == pipe.peer_addr()
+                                                        && iteration == 0
+                                                })
+                                                .unwrap_or_else(|| {
+                                                    &bridges[rand::thread_rng()
+                                                        .gen_range(0, bridges.len())]
+                                                });
+
+                                            let connected = connect_once(
+                                                ctx,
+                                                selected_bridge.clone(),
+                                                &sess_id,
+                                            )
+                                            .await?;
+                                            anyhow::Ok(connected)
+                                        };
+                                        match fallible.await {
+                                            Ok(val) => return val,
+                                            Err(err) => {
+                                                log::warn!("error reconnecting a pipe: {:?}", err)
+                                            }
+                                        }
                                     }
-                                    let pipe =
-                                        connect_once(ctx.clone(), first.clone(), &sess_id).await?;
-                                    log::debug!(
-                                        "add later pipe {} / {}",
-                                        pipe.protocol(),
-                                        pipe.peer_addr()
-                                    );
-                                    multiplex.add_pipe(pipe);
-                                }
-                                dead_count -= 1;
-                                anyhow::Ok(())
-                            };
-                            if let Err(err) = fallible.await {
-                                log::warn!("{:?}", err)
+                                    unreachable!()
+                                })
+                            })
+                            .collect_vec();
+                        for task in pipe_tasks {
+                            let pipe = task.await;
+                            log::debug!(
+                                "add later pipe {} / {}",
+                                pipe.protocol(),
+                                pipe.peer_addr()
+                            );
+                            if let Some(multiplex) = weak_multiplex.upgrade() {
+                                multiplex.add_pipe(pipe);
                             }
                         }
                     }

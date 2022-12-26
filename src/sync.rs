@@ -16,7 +16,7 @@ pub struct SyncOpt {
 
     /// Forces synchronization of fresh data.
     #[structopt(long)]
-    force: bool,
+    pub force: bool,
 }
 
 pub async fn main_sync(opt: SyncOpt) -> anyhow::Result<()> {
