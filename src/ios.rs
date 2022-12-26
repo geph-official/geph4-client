@@ -12,6 +12,7 @@ use once_cell::sync::Lazy;
 use os_pipe::PipeReader;
 use parking_lot::Mutex;
 
+use smol::channel::Receiver;
 use structopt::StructOpt;
 
 use crate::{
@@ -19,16 +20,15 @@ use crate::{
     config::{override_config, CommonOpt},
     connect::{
         start_main_connect,
-        vpn::{vpn_download, vpn_upload},
+        vpn::{vpn_download, vpn_upload, VPN_SHUFFLE_TASK},
         TUNNEL,
     },
     sync::{sync_json, SyncOpt},
     Opt,
 };
 
-static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
-    let (read, write) = os_pipe::pipe().unwrap();
-    let write = Mutex::new(write);
+static LOG_LINES: Lazy<Receiver<String>> = Lazy::new(|| {
+    let (send, recv) = smol::channel::unbounded();
     env_logger::Builder::from_env(
         env_logger::Env::default().default_filter_or("geph4client=debug,geph4_protocol=debug,warn"),
     )
@@ -41,13 +41,13 @@ static LOG_LINES: Lazy<Mutex<BufReader<PipeReader>>> = Lazy::new(|| {
             record.module_path().unwrap_or("none"),
             record.args()
         );
-        let mut write = write.lock();
         writeln!(buf, "{}", line).unwrap();
-        writeln!(write, "{}", line)
+        send.send_blocking(line).unwrap();
+        Ok(())
     })
     .init();
 
-    Mutex::new(BufReader::new(read))
+    recv
 });
 
 fn config_logging_ios() {
@@ -79,18 +79,11 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
                     e
                 })?;
                 log::info!("parsed Opt: {:?}", opt);
-                smol::Timer::after(Duration::from_secs(1)).await;
                 override_config(opt);
                 log::info!("override config done");
-                smol::Timer::after(Duration::from_secs(1)).await;
                 start_main_connect();
                 log::info!("called the start_main_connect");
-                loop {
-                    smol::Timer::after(Duration::from_secs(1)).await;
-                    if TUNNEL.status().connected() {
-                        break anyhow::Ok(String::from(""));
-                    }
-                }
+                return Ok("".into());
             }
             "sync" => {
                 let sync_opt = SyncOpt::from_iter(
@@ -167,16 +160,18 @@ pub extern "C" fn call_geph(
 
 #[no_mangle]
 pub extern "C" fn upload_packet(pkt: *const c_uchar, len: c_int) {
+    // Lazy::force(&VPN_SHUFFLE_TASK);
     unsafe {
         let slice = std::slice::from_raw_parts(pkt as *mut u8, len as usize);
         let owned = slice.to_vec();
         let bytes: Bytes = owned.into();
-        // vpn_upload(bytes);
+        vpn_upload(bytes);
     }
 }
 
 #[no_mangle]
 pub extern "C" fn download_packet(buffer: *mut c_uchar, buflen: c_int) -> c_int {
+    // Lazy::force(&VPN_SHUFFLE_TASK);
     let pkt = smol::future::block_on(vpn_download());
     let pkt_ref = pkt.as_ref();
     unsafe {
@@ -199,10 +194,7 @@ pub extern "C" fn download_packet(buffer: *mut c_uchar, buflen: c_int) -> c_int 
 #[no_mangle]
 // returns one line of logs
 pub extern "C" fn get_logs(buffer: *mut c_char, buflen: c_int) -> c_int {
-    let mut line = String::new();
-    if LOG_LINES.lock().read_line(&mut line).is_err() {
-        return -1;
-    }
+    let line = LOG_LINES.recv_blocking().unwrap();
 
     unsafe {
         let mut slice: &mut [u8] =

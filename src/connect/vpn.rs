@@ -236,26 +236,34 @@ static UP_CHANNEL: Lazy<(flume::Sender<Bytes>, flume::Receiver<Bytes>)> =
 static DOWN_CHANNEL: Lazy<(flume::Sender<Bytes>, flume::Receiver<Bytes>)> =
     Lazy::new(|| flume::bounded(100));
 
-static VPN_TASK: Lazy<smol::Task<Infallible>> = Lazy::new(|| {
-    smolscale::spawn(async {
-        loop {
-            let init_ip = TUNNEL.get_vpn_client_ip().await;
-            log::info!("VPN task initializing IP to {init_ip}");
-            let nat = Arc::new(GephNat::new(NAT_TABLE_SIZE, init_ip));
-            let ip_change_fut = async move {
+static VPN_TASK: Lazy<std::thread::JoinHandle<()>> = Lazy::new(|| {
+    std::thread::spawn(|| {
+        match std::panic::catch_unwind(|| {
+            smol::future::block_on(async {
                 loop {
-                    let i = TUNNEL.get_vpn_client_ip().await;
-                    if i != init_ip {
-                        anyhow::bail!("new IP: {i}")
-                    }
-                    smol::Timer::after(Duration::from_secs(5)).await;
+                    log::info!("VPN task about to get client IP...");
+                    let init_ip = TUNNEL.get_vpn_client_ip().await;
+                    log::info!("VPN task initializing IP to {init_ip}");
+                    let nat = Arc::new(GephNat::new(NAT_TABLE_SIZE, init_ip));
+                    let ip_change_fut = async move {
+                        loop {
+                            let i = TUNNEL.get_vpn_client_ip().await;
+                            if i != init_ip {
+                                anyhow::bail!("new IP: {i}")
+                            }
+                            smol::Timer::after(Duration::from_secs(5)).await;
+                        }
+                    };
+                    let res = vpn_up_loop(nat.clone())
+                        .or(vpn_down_loop(nat))
+                        .or(ip_change_fut)
+                        .await;
+                    log::warn!("vpn loops somehow died: {:?}", res);
                 }
-            };
-            let res = vpn_up_loop(nat.clone())
-                .or(vpn_down_loop(nat))
-                .or(ip_change_fut)
-                .await;
-            log::warn!("vpn loops somehow died: {:?}", res);
+            })
+        }) {
+            Ok(inner) => log::error!("VPN Task loop returned?!! {:?}", inner),
+            Err(e) => log::error!("VPN_TASK just panicked with {:?}", e),
         }
     })
 });
@@ -270,7 +278,6 @@ async fn vpn_up_loop(nat: Arc<GephNat>) -> anyhow::Result<()> {
     );
     loop {
         let mut bts = UP_CHANNEL.1.recv_async().await.unwrap().to_vec();
-        log::debug!("received 1 pkt from UP_CHANNEL!!!!");
         mangle_dns_up(&mut bts);
         // ACK decimation
         if ack_decimate(&bts).is_some() && limiter.check().is_err() {

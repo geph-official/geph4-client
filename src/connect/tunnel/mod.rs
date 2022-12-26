@@ -159,8 +159,9 @@ impl ClientTunnel {
     pub async fn get_vpn_client_ip(&self) -> Ipv4Addr {
         loop {
             let current_state = self.client_ip_addr.load(Ordering::Relaxed);
+            log::debug!("current state: {current_state}");
             if current_state == 0 {
-                smol::Timer::after(Duration::from_millis(50)).await;
+                smol::Timer::after(Duration::from_millis(500)).await;
             } else {
                 return Ipv4Addr::from(current_state);
             }
