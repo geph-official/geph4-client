@@ -1,0 +1,94 @@
+name: Rust
+
+on:
+  push:
+
+jobs:
+  ci:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: i686-pc-windows-msvc
+            use-cross: false
+
+          # - os: windows-latest
+          #   target: x86_64-pc-windows-msvc
+          #   use-cross: false
+
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            use-cross: false
+
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            use-cross: false
+
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            use-cross: true
+
+          - os: ubuntu-latest
+            target: aarch64-linux-android
+            use-cross: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+          target: ${{ matrix.target }}
+
+      - name: Install musl-gcc
+        if: |
+          matrix.target == 'x86_64-unknown-linux-musl' ||
+          matrix.target == 'aarch64-unknown-linux-musl'
+        run: sudo apt install musl-tools
+
+      - name: Build
+        uses: actions-rs/cargo@v1
+        with:
+          use-cross: ${{ matrix.use-cross }}
+          command: build
+          args: --target ${{ matrix.target }} --release --locked --verbose
+
+      - name: move
+        run: mv target/${{ matrix.target }}/release/geph4-client* ./
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: ${{ matrix.target }}
+          path: geph4-client*
+
+      - name: Package Linux
+        if: matrix.os == 'ubuntu-latest'
+        run: tar czf geph4-client-${{ matrix.target }}.tar.gz geph4-client
+
+      - name: Package Windows
+        if: matrix.os == 'windows-latest'
+        run: 7z a geph4-client-${{ matrix.target }}.zip geph4-client.exe
+
+#       - name: Get current time
+#         uses: srfrnk/current-time@master
+#         id: current-time
+#         with:
+#           format: YYYY.MM.DD
+
+      - name: archive
+        uses: softprops/action-gh-release@v1
+        with:
+          files: geph4-client-${{ matrix.target }}*
+
+#       - name: Release
+#         uses: softprops/action-gh-release@v1
+#         with:
+#           name: Release
+#           tag_name: Release
+#           files: geph4-client-${{ matrix.target }}*
