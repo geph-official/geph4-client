@@ -67,9 +67,6 @@ fn upload_loop() {
         let pkt = handle.receive();
         match pkt {
             Ok(mut pkt) => {
-                if pkt.len() > 1300 {
-                    continue;
-                }
                 let pkt_dest: Option<Ipv4Addr> =
                     pnet_packet::ipv4::Ipv4Packet::new(&pkt).map(|parsed| parsed.get_destination());
                 if let Some(pkt_dest) = pkt_dest {

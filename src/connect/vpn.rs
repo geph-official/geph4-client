@@ -53,7 +53,7 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
         let up_thread = std::thread::Builder::new()
             .name("vpn-up".into())
             .spawn(move || {
-                let mut bts = [0u8; 2048];
+                let mut bts = [0u8; 65536];
                 loop {
                     let n = up_file.read(&mut bts).expect("vpn up thread failed");
 
@@ -76,7 +76,7 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
                 log::trace!("vpn dn {}", bts.len());
                 #[cfg(target_os = "macos")]
                 {
-                    let mut buf = [0u8; 4096];
+                    let mut buf = [0u8; 65536];
                     buf[4..][..bts.len()].copy_from_slice(&bts);
                     buf[3] = 0x02;
                     let _ = down_file.write(&buf[..bts.len() + 4]);
@@ -140,7 +140,7 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
                         let device = {
                             use tun::Device;
                             let device = ::tun::platform::Device::new(
-                                ::tun::Configuration::default().mtu(1280).up(),
+                                ::tun::Configuration::default().mtu(16384).up(),
                             )
                             .expect("could not initialize TUN device");
                             std::process::Command::new("ifconfig")
@@ -161,7 +161,7 @@ pub static VPN_SHUFFLE_TASK: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
                                 .address("100.64.89.64")
                                 .netmask("255.255.255.0")
                                 .destination("100.64.0.1")
-                                .mtu(1280)
+                                .mtu(16384)
                                 .up(),
                         )
                         .expect("could not initialize TUN device");
