@@ -10,7 +10,7 @@ use structopt::StructOpt;
 #[derive(Debug, StructOpt, Deserialize, Serialize, Clone)]
 pub struct BinderProxyOpt {
     #[structopt(flatten)]
-    common: CommonOpt,
+    pub common: CommonOpt,
 }
 
 pub async fn main_binderproxy(opt: BinderProxyOpt) -> anyhow::Result<()> {

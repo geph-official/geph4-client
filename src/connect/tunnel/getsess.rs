@@ -1,7 +1,7 @@
 use geph4_protocol::binder::protocol::BridgeDescriptor;
 use itertools::Itertools;
 use native_tls::{Protocol, TlsConnector};
-use rand::{seq::SliceRandom, Rng};
+use rand::{Rng};
 use smol_timeout::TimeoutExt;
 use sosistab2::{MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
 
@@ -105,9 +105,9 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             // weak here to prevent a reference cycle!
             let weak_multiplex = Arc::downgrade(&multiplex);
             let ccache = binder_tunnel_params.ccache.clone();
-            let binder_tunnel_params = binder_tunnel_params.clone();
+            let _binder_tunnel_params = binder_tunnel_params.clone();
             multiplex.add_drop_friend(smolscale::spawn(async move {
-                let mut dead_count = 0;
+                let _dead_count = 0;
                 loop {
                     let interval = Duration::from_secs_f64(rand::thread_rng().gen_range(1.0, 3.0));
                     wait_activity(Duration::from_secs(300)).await;

@@ -30,6 +30,7 @@ pub enum Opt {
     BridgeTest(crate::main_bridgetest::BridgeTestOpt),
     Sync(crate::sync::SyncOpt),
     BinderProxy(crate::binderproxy::BinderProxyOpt),
+    Debugpack(crate::debugpack::DebugPackOpt),
 }
 
 #[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
@@ -180,6 +181,9 @@ pub struct CommonOpt {
     )]
     /// mizaru master key of the binder, for PLUS
     binder_mizaru_plus: mizaru::PublicKey,
+
+    #[structopt(long, default_value = "file::memory:?cache=shared")]
+    pub debugpack_path: String,
 }
 
 impl CommonOpt {

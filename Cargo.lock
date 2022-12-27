@@ -709,6 +709,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "cap"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42cf69039bc11cbca6ec9076caa0147dc68b267a6eb6b2b3f7ccf97e986d3f01"
+
+[[package]]
 name = "cargo-platform"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1765,6 +1771,7 @@ dependencies = [
  "byteorder",
  "bytes",
  "cached 0.23.0",
+ "cap",
  "chrono",
  "dashmap 5.4.0",
  "default-net",
@@ -2356,6 +2363,7 @@ version = "0.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29f835d03d717946d28b1d1ed632eb6f0e24a299388ee623d0c23118d3e8a7fa"
 dependencies = [
+ "cc",
  "pkg-config",
  "vcpkg",
 ]

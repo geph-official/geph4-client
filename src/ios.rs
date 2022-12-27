@@ -1,7 +1,8 @@
 use std::{
     ffi::CStr,
     format,
-    io::{BufRead, BufReader, Write},
+    io::Write,
+    ops::Deref,
     os::raw::{c_char, c_int, c_uchar},
     sync::Arc,
     time::Duration,
@@ -9,8 +10,6 @@ use std::{
 
 use bytes::Bytes;
 use once_cell::sync::Lazy;
-use os_pipe::PipeReader;
-use parking_lot::Mutex;
 
 use smol::channel::Receiver;
 use structopt::StructOpt;
@@ -20,9 +19,9 @@ use crate::{
     config::{override_config, CommonOpt},
     connect::{
         start_main_connect,
-        vpn::{vpn_download, vpn_upload, VPN_SHUFFLE_TASK},
-        TUNNEL,
+        vpn::{vpn_download, vpn_upload},
     },
+    debugpack::{self, DebugPackOpt, DEBUGPACK, TIMESERIES_LOOP},
     sync::{sync_json, SyncOpt},
     Opt,
 };
@@ -33,7 +32,6 @@ static LOG_LINES: Lazy<Receiver<String>> = Lazy::new(|| {
         env_logger::Env::default().default_filter_or("geph4client=debug,geph4_protocol=debug,warn"),
     )
     .format_timestamp_millis()
-    // .target(env_logger::Target::Pipe(Box::new(std::io::sink())))
     .format(move |buf, record| {
         let line = format!(
             "[{} {}]: {}",
@@ -42,7 +40,8 @@ static LOG_LINES: Lazy<Receiver<String>> = Lazy::new(|| {
             record.args()
         );
         writeln!(buf, "{}", line).unwrap();
-        send.send_blocking(line).unwrap();
+        let _ = DEBUGPACK.deref().add_logline(&line);
+        let _ = send.send_blocking(line);
         Ok(())
     })
     .init();
@@ -57,6 +56,7 @@ fn config_logging_ios() {
 
 fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
     smolscale::permanently_single_threaded();
+    Lazy::force(&TIMESERIES_LOOP);
     config_logging_ios();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("IOS geph4-client v{} starting...", version);
@@ -83,7 +83,7 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
                 log::info!("override config done");
                 start_main_connect();
                 log::info!("called the start_main_connect");
-                return Ok("".into());
+                Ok("".into())
             }
             "sync" => {
                 let sync_opt = SyncOpt::from_iter(
@@ -98,6 +98,13 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
                 let resp = binderproxy_once(binder_client, line).await?;
                 log::debug!("binder resp = {resp}");
                 anyhow::Ok(resp)
+            }
+            "debugpack" => {
+                let dp_opt = DebugPackOpt::from_iter(
+                    std::iter::once(String::from("debugpak")).chain(args.into_iter()),
+                );
+                debugpack::export_debugpak(&dp_opt.export_to)?;
+                anyhow::Ok(dp_opt.export_to)
             }
             "version" => anyhow::Ok(String::from(version)),
             _ => anyhow::bail!("function {func} does not exist"),

@@ -107,7 +107,8 @@ sosistab2 = "0.5"
 stdcode = "0.1.13"
 # jemallocator-global = "0.3.2"
 panic-message = "0.3.0"
-rusqlite = "0.28.0"
+rusqlite = { version="0.28.0", features=["backup","bundled"] }
+cap = "0.1.1"
 
 # tracing-subscriber = "0.2.15"
 
