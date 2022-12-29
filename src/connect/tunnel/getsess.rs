@@ -1,7 +1,7 @@
 use geph4_protocol::binder::protocol::BridgeDescriptor;
 use itertools::Itertools;
 use native_tls::{Protocol, TlsConnector};
-use rand::{Rng};
+use rand::Rng;
 use smol_timeout::TimeoutExt;
 use sosistab2::{MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
 
@@ -107,7 +107,6 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             let ccache = binder_tunnel_params.ccache.clone();
             let _binder_tunnel_params = binder_tunnel_params.clone();
             multiplex.add_drop_friend(smolscale::spawn(async move {
-                let _dead_count = 0;
                 loop {
                     let interval = Duration::from_secs_f64(rand::thread_rng().gen_range(1.0, 3.0));
                     wait_activity(Duration::from_secs(300)).await;
@@ -225,7 +224,7 @@ async fn connect_once(
                 .danger_accept_invalid_hostnames(true)
                 .min_protocol_version(Some(Protocol::Tlsv12))
                 .max_protocol_version(Some(Protocol::Tlsv12))
-                .use_sni(true);
+                .use_sni(false);
             let fake_domain = format!(
                 "{}.{}{}.com",
                 eff_wordlist::short::random_word(),

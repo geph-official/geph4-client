@@ -65,7 +65,7 @@ fn config_logging() {
             record.args()
         );
         writeln!(buf, "{}", line).unwrap();
-        let _ = DEBUGPACK.deref().add_logline(&line);
+        let _ = DEBUGPACK.add_logline(&line);
         Ok(())
     })
     .format_target(false)

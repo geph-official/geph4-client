@@ -15,7 +15,7 @@ use smol::channel::Receiver;
 use structopt::StructOpt;
 
 use crate::{
-    binderproxy::binderproxy_once,
+    binderproxy::{binderproxy_once, BinderProxyOpt},
     config::{override_config, CommonOpt},
     connect::{
         start_main_connect,
@@ -40,7 +40,22 @@ static LOG_LINES: Lazy<Receiver<String>> = Lazy::new(|| {
             record.args()
         );
         writeln!(buf, "{}", line).unwrap();
-        let _ = DEBUGPACK.deref().add_logline(&line);
+        let _ = DEBUGPACK.add_logline(&line);
+        // match DEBUGPACK.add_logline(&line) {
+        //     Ok(n) => {
+        //         let _ = send.send_blocking(format!("ADD_LOGLINE wrote {} rows!", n));
+        //         let _ = DEBUGPACK.loglines_count().and_then(|loglines_size| {
+        //             let _ = send.send_blocking(format!(
+        //                 "LOGLINES currently has {} entries!",
+        //                 loglines_size
+        //             ));
+        //             Ok(0)
+        //         });
+        //     }
+        //     Err(e) => {
+        //         let _ = send.send_blocking(format!("ERROR SEEN: {:?}", e));
+        //     }
+        // };
         let _ = send.send_blocking(line);
         Ok(())
     })
@@ -56,8 +71,6 @@ fn config_logging_ios() {
 
 fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
     smolscale::permanently_single_threaded();
-    Lazy::force(&TIMESERIES_LOOP);
-    config_logging_ios();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("IOS geph4-client v{} starting...", version);
 
@@ -81,11 +94,21 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
                 log::info!("parsed Opt: {:?}", opt);
                 override_config(opt);
                 log::info!("override config done");
+                config_logging_ios();
+                Lazy::force(&TIMESERIES_LOOP); // must be called *after* CONFIG is set
+
                 start_main_connect();
                 log::info!("called the start_main_connect");
                 Ok("".into())
             }
             "sync" => {
+                let opt = Opt::from_iter_safe(
+                    vec![String::from("geph4-client"), String::from("sync")]
+                        .into_iter()
+                        .chain(args.clone().into_iter()),
+                )?;
+                override_config(opt);
+
                 let sync_opt = SyncOpt::from_iter(
                     std::iter::once(String::from("sync")).chain(args.into_iter()),
                 );
@@ -93,6 +116,12 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
                 anyhow::Ok(ret)
             }
             "binder_rpc" => {
+                let opt = Opt::from_iter_safe(
+                    vec![String::from("geph4-client"), String::from("binder-proxy")]
+                        .into_iter()
+                        .chain(args.clone().into_iter()),
+                )?;
+                override_config(opt);
                 let binder_client = Arc::new(CommonOpt::from_iter(vec![""]).get_binder_client());
                 let line = args[0].clone();
                 let resp = binderproxy_once(binder_client, line).await?;
@@ -100,6 +129,13 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
                 anyhow::Ok(resp)
             }
             "debugpack" => {
+                let opt = Opt::from_iter_safe(
+                    vec![String::from("geph4-client"), String::from("debugpack")]
+                        .into_iter()
+                        .chain(args.clone().into_iter()),
+                )?;
+                override_config(opt);
+
                 let dp_opt = DebugPackOpt::from_iter(
                     std::iter::once(String::from("debugpak")).chain(args.into_iter()),
                 );

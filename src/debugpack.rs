@@ -56,8 +56,7 @@ pub static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
 pub static TIMESERIES_LOOP: Lazy<Task<()>> = Lazy::new(|| {
     smolscale::spawn(async {
         loop {
-            let allocated = ALLOCATOR.allocated();
-            let _ = DEBUGPACK.add_timeseries("memory", allocated as f64);
+            let _ = DEBUGPACK.add_timeseries("memory", ALLOCATOR.allocated() as f64);
             let _ = DEBUGPACK.add_timeseries("uptime", START_TIME.elapsed().as_secs_f64());
 
             smol::Timer::after(Duration::from_secs(1)).await;
@@ -88,14 +87,23 @@ impl DebugPack {
         })
     }
 
-    pub fn add_logline(&self, logline: &str) -> anyhow::Result<()> {
-        self.conn.lock().execute(
-            "insert into loglines (timestamp, line) values (datetime(), ?)",
+    pub fn add_logline(&self, logline: &str) -> anyhow::Result<usize> {
+        match self.conn.lock().execute(
+            "insert into loglines (timestamp, line) values (datetime(), ?1)",
             params![logline],
-        )?;
-        Ok(())
+        ) {
+            Ok(n) => Ok(n),
+            Err(e) => anyhow::bail!(e),
+        }
     }
 
+    pub fn loglines_count(&self) -> anyhow::Result<i32> {
+        let size: i32 = self
+            .conn
+            .lock()
+            .query_row("select count(*) from loglines", [], |row| row.get(0))?;
+        Ok(size)
+    }
     pub fn add_timeseries(&self, key: &str, value: f64) -> anyhow::Result<()> {
         self.conn.lock().execute(
             "insert into timeseries (timestamp, key, value) values (datetime(), ?1, ?2)",
