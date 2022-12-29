@@ -2,7 +2,6 @@ use std::{
     ffi::CStr,
     format,
     io::Write,
-    ops::Deref,
     os::raw::{c_char, c_int, c_uchar},
     sync::Arc,
     time::Duration,
@@ -15,7 +14,7 @@ use smol::channel::Receiver;
 use structopt::StructOpt;
 
 use crate::{
-    binderproxy::{binderproxy_once, BinderProxyOpt},
+    binderproxy::binderproxy_once,
     config::{override_config, CommonOpt},
     connect::{
         start_main_connect,
