@@ -4,6 +4,7 @@ use native_tls::{Protocol, TlsConnector};
 use rand::Rng;
 use smol_timeout::TimeoutExt;
 use sosistab2::{MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
+use tap::Tap;
 
 use crate::connect::tunnel::{activity::wait_activity, TunnelStatus};
 
@@ -105,7 +106,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             // weak here to prevent a reference cycle!
             let weak_multiplex = Arc::downgrade(&multiplex);
             let ccache = binder_tunnel_params.ccache.clone();
-            let _binder_tunnel_params = binder_tunnel_params.clone();
+            let binder_tunnel_params = binder_tunnel_params.clone();
             multiplex.add_drop_friend(smolscale::spawn(async move {
                 loop {
                     let interval = Duration::from_secs_f64(rand::thread_rng().gen_range(1.0, 3.0));
@@ -124,6 +125,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                                 .map(|dp| (dp.protocol(), dp.peer_addr()))
                                 .collect_vec()
                         );
+
                         let pipe_tasks = dead_pipes
                             .into_iter()
                             .map(|pipe| {
@@ -137,7 +139,14 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                                         let fallible = async {
                                             let bridges = ccache
                                                 .get_bridges_v2(&selected_exit.hostname, false)
-                                                .await?;
+                                                .await?
+                                                .tap_mut(|b| {
+                                                    if !binder_tunnel_params.use_bridges {
+                                                        b.extend_from_slice(
+                                                            &selected_exit.direct_routes,
+                                                        )
+                                                    }
+                                                });
                                             if bridges.is_empty() {
                                                 anyhow::bail!("empty bridge list")
                                             }
