@@ -37,7 +37,7 @@ pub fn dispatch() -> anyhow::Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
 
-    smolscale::permanently_single_threaded();
+    // smolscale::permanently_single_threaded();
 
     smolscale::block_on(async move {
         match CONFIG.deref() {
@@ -53,7 +53,7 @@ pub fn dispatch() -> anyhow::Result<()> {
     })
 }
 
-static LONGEST_LINE_EVER: AtomicUsize = AtomicUsize::new(60);
+static LONGEST_LINE_EVER: AtomicUsize = AtomicUsize::new(0);
 
 fn config_logging() {
     if let Err(e) = env_logger::Builder::from_env(
@@ -79,7 +79,7 @@ fn config_logging() {
             + &preamble;
         let line = format!("{} {}", preamble, record.args());
         writeln!(buf, "{}", line).unwrap();
-        let _ = DEBUGPACK.add_logline(&String::from_utf8_lossy(
+        DEBUGPACK.add_logline(&String::from_utf8_lossy(
             &strip_ansi_escapes::strip(line).unwrap(),
         ));
         Ok(())

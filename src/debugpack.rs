@@ -8,7 +8,7 @@ use once_cell::sync::Lazy;
 use parking_lot::Mutex;
 use rusqlite::{backup, params, Connection};
 use serde::{Deserialize, Serialize};
-use smol::Task;
+use smol::{channel::Sender, Task};
 use structopt::StructOpt;
 
 use crate::{
@@ -27,6 +27,8 @@ pub struct DebugPackOpt {
 
 pub struct DebugPack {
     conn: Arc<Mutex<Connection>>,
+    send_log: Sender<String>,
+    send_timeseries: Sender<(String, f64)>,
 }
 
 pub static DEBUGPACK: Lazy<Arc<DebugPack>> = Lazy::new(|| {
@@ -56,8 +58,8 @@ pub static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
 pub static TIMESERIES_LOOP: Lazy<Task<()>> = Lazy::new(|| {
     smolscale::spawn(async {
         loop {
-            let _ = DEBUGPACK.add_timeseries("memory", ALLOCATOR.allocated() as f64);
-            let _ = DEBUGPACK.add_timeseries("uptime", START_TIME.elapsed().as_secs_f64());
+            DEBUGPACK.add_timeseries("memory", ALLOCATOR.allocated() as f64);
+            DEBUGPACK.add_timeseries("uptime", START_TIME.elapsed().as_secs_f64());
 
             smol::Timer::after(Duration::from_secs(1)).await;
         }
@@ -82,34 +84,46 @@ impl DebugPack {
             [],
         )?;
 
+        let (send_log, recv_log) = smol::channel::bounded(10);
+        let db_path2 = db_path.to_string();
+        std::thread::spawn(move || {
+            let conn = Connection::open(db_path2).unwrap();
+            while let Ok(next) = recv_log.recv_blocking() {
+                if let Err(err) = conn.execute(
+                    "insert into loglines (timestamp, line) values (datetime(), ?1)",
+                    params![next],
+                ) {
+                    log::error!("cannot write logline: {}", err)
+                }
+            }
+        });
+        let (send_timeseries, recv_timeseries) = smol::channel::bounded(10);
+        let db_path2 = db_path.to_string();
+        std::thread::spawn(move || {
+            let conn = Connection::open(db_path2).unwrap();
+            while let Ok((key, value)) = recv_timeseries.recv_blocking() {
+                if let Err(err) = conn.execute(
+                    "insert into timeseries (timestamp, key, value) values (datetime(), ?1, ?2)",
+                    params![key, value],
+                ) {
+                    log::error!("cannot write logline: {}", err)
+                }
+            }
+        });
+
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
+            send_log,
+            send_timeseries,
         })
     }
 
-    pub fn add_logline(&self, logline: &str) -> anyhow::Result<usize> {
-        match self.conn.lock().execute(
-            "insert into loglines (timestamp, line) values (datetime(), ?1)",
-            params![logline],
-        ) {
-            Ok(n) => Ok(n),
-            Err(e) => anyhow::bail!(e),
-        }
+    pub fn add_logline(&self, logline: &str) {
+        let _ = self.send_log.try_send(logline.into());
     }
 
-    pub fn loglines_count(&self) -> anyhow::Result<i32> {
-        let size: i32 = self
-            .conn
-            .lock()
-            .query_row("select count(*) from loglines", [], |row| row.get(0))?;
-        Ok(size)
-    }
-    pub fn add_timeseries(&self, key: &str, value: f64) -> anyhow::Result<()> {
-        self.conn.lock().execute(
-            "insert into timeseries (timestamp, key, value) values (datetime(), ?1, ?2)",
-            params![key, value],
-        )?;
-        Ok(())
+    pub fn add_timeseries(&self, key: &str, value: f64) {
+        let _ = self.send_timeseries.try_send((key.to_string(), value));
     }
 
     pub fn backup(&self, dest: &str) -> anyhow::Result<()> {

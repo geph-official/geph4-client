@@ -39,7 +39,7 @@ static LOG_LINES: Lazy<Receiver<String>> = Lazy::new(|| {
             record.args()
         );
         writeln!(buf, "{}", line).unwrap();
-        let _ = DEBUGPACK.add_logline(&line);
+        DEBUGPACK.add_logline(&line);
         // match DEBUGPACK.add_logline(&line) {
         //     Ok(n) => {
         //         let _ = send.send_blocking(format!("ADD_LOGLINE wrote {} rows!", n));
