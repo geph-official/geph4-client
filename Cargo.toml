@@ -36,7 +36,7 @@ log = "0.4.17"
 once_cell= "1.16.0"
 parking_lot = { version = "0.11.2", features = ["serde"] }
 rand= "0.7.3"
-regex= "1.7.0"
+regex = "1.7.0"
 rsa-fdh = "0.5.0"
 
 scopeguard = "1.1.0"
@@ -134,5 +134,5 @@ opt-level=3
 panic = "unwind"
 # opt-level=0
 # debug=0
-# lto='thin'
-# strip="debuginfo"
+lto='thin'
+strip="debuginfo"

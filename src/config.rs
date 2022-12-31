@@ -9,6 +9,7 @@ use bytes::Bytes;
 use geph4_protocol::binder::client::{CachedBinderClient, DynBinderClient};
 use geph4_protocol::binder::protocol::BinderClient;
 use once_cell::sync::{Lazy, OnceCell};
+
 use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddr};
 use structopt::StructOpt;
@@ -109,8 +110,8 @@ pub struct ConnectOpt {
     pub vpn_mode: Option<VpnMode>,
 
     #[structopt(long)]
-    /// Whether or not to force TCP mode.
-    pub use_tcp: bool,
+    /// Forces the protocol selected to match the given regex.
+    pub force_protocol: Option<String>,
 
     #[structopt(long)]
     /// SSH-style local-remote port forwarding. For example, "0.0.0.0:8888:::example.com:22" will forward local port 8888 to example.com:22. Must be in form host:port:::host:port! May have multiple ones.

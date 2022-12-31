@@ -89,6 +89,7 @@ pub static TUNNEL: Lazy<ClientTunnel> = Lazy::new(|| {
                 exit_server: CONNECT_CONFIG.exit_server.clone(),
                 use_bridges: *SHOULD_USE_BRIDGES,
                 force_bridge: CONNECT_CONFIG.force_bridge,
+                force_protocol: CONNECT_CONFIG.force_protocol.clone(),
             })
         }
     };
@@ -100,9 +101,9 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
     smolscale::spawn(async {
         // print out config file
         log::info!(
-            "connect mode starting: exit = {:?}, use_tcp = {}, use_bridges = {}",
+            "connect mode starting: exit = {:?}, force_protocol = {:?}, use_bridges = {}",
             CONNECT_CONFIG.exit_server,
-            CONNECT_CONFIG.use_tcp,
+            CONNECT_CONFIG.force_protocol,
             CONNECT_CONFIG.use_bridges
         );
         smol::Timer::after(Duration::from_secs(1)).await;

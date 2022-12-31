@@ -94,7 +94,7 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
         // authenticate
         let token = binder_tunnel_params.ccache.get_auth_token().await?.1;
         let ipv4 = authenticate_session(&tunnel_mux, &token)
-            .timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(60))
             .await
             .ok_or_else(|| anyhow::anyhow!("authentication timed out"))??;
         log::info!("VPN private IP assigned: {ipv4}");

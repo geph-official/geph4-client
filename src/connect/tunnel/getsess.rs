@@ -2,6 +2,7 @@ use geph4_protocol::binder::protocol::BridgeDescriptor;
 use itertools::Itertools;
 use native_tls::{Protocol, TlsConnector};
 use rand::Rng;
+use regex::Regex;
 use smol_timeout::TimeoutExt;
 use sosistab2::{MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
 use tap::Tap;
@@ -154,7 +155,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                                                 .iter()
                                                 .find(|s| {
                                                     s.exit_hostname == pipe.peer_addr()
-                                                        && iteration == 0
+                                                        && iteration > 3
                                                 })
                                                 .unwrap_or_else(|| {
                                                     &bridges[rand::thread_rng()
@@ -209,6 +210,12 @@ async fn connect_once(
         if params.use_bridges && desc.is_direct {
             anyhow::bail!("skipping direct connection")
         }
+        if let Some(regex) = &params.force_protocol {
+            let compiled = Regex::new(regex).context("invalid protocol force")?;
+            if !compiled.is_match(&desc.protocol) {
+                anyhow::bail!("skipping non-matching protocol")
+            }
+        }
     }
     match desc.protocol.as_str() {
         "sosistab2-obfsudp" => {
@@ -233,7 +240,7 @@ async fn connect_once(
                 .danger_accept_invalid_hostnames(true)
                 .min_protocol_version(Some(Protocol::Tlsv12))
                 .max_protocol_version(Some(Protocol::Tlsv12))
-                .use_sni(false);
+                .use_sni(true);
             let fake_domain = format!(
                 "{}.{}{}.com",
                 eff_wordlist::short::random_word(),
