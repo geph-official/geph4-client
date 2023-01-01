@@ -130,7 +130,7 @@ impl DebugPack {
         let mut dst = Connection::open(dest)?;
         let src = self.conn.lock();
         let backup = backup::Backup::new(&src, &mut dst)?;
-        backup.run_to_completion(5, Duration::from_millis(100), None)?;
+        backup.run_to_completion(100, Duration::from_millis(1), None)?;
         Ok(())
     }
 }
