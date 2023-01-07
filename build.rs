@@ -8,6 +8,5 @@ fn main() {
             Path::new(&dir).join("windows-lib").display()
         );
         println!("cargo:rustc-link-lib=WinDivert");
-        static_vcruntime::metabuild();
     }
 }

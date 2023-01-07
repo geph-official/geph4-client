@@ -186,7 +186,6 @@ async fn vpn_loop(
     let uploop = async {
         loop {
             let to_send = recv_outgoing.recv().await?;
-            // log::debug!("send urel {}", to_send.len());
             wire.send_urel(stdcode::serialize(&vec![to_send])?.into())
                 .await?;
         }
@@ -194,7 +193,6 @@ async fn vpn_loop(
     let dnloop = async {
         loop {
             let received = wire.recv_urel().await?;
-            // log::debug!("recv urel {}", received.len());
             let received: Vec<Bytes> = stdcode::deserialize(&received)?;
             for received in received {
                 send_incoming.send(received).await?;
@@ -267,7 +265,9 @@ async fn watchdog_loop(
     tunnel_mux: Arc<sosistab2::Multiplex>,
 ) -> anyhow::Result<()> {
     loop {
+        let timer = smol::Timer::after(Duration::from_secs(10));
         wait_activity(Duration::from_secs(600)).await;
+        timer.await;
         let start = Instant::now();
         if tunnel_mux
             .open_conn(CLIENT_EXIT_PSEUDOHOST)
@@ -280,8 +280,6 @@ async fn watchdog_loop(
         } else {
             let ping = start.elapsed();
             log::debug!("** watchdog completed in {:?} **", ping);
-
-            smol::Timer::after(Duration::from_secs(10)).await;
         }
     }
 }

@@ -15,8 +15,6 @@ license="GPL-3.0-only"
 name = "geph4client"
 crate-type = ["staticlib", "lib"]
 
-[build-dependencies]
-static_vcruntime = "2.0.0"
  
 [dependencies]
 anyhow = "1.0.68"
@@ -131,8 +129,9 @@ inherits="dev"
 opt-level=3
 
 [profile.release]
-panic = "unwind"
-# opt-level=0
+panic = "abort"
+opt-level='z'
 # debug=0
-lto='thin'
-strip="debuginfo"
+lto=true
+strip=true
+codegen-units = 1

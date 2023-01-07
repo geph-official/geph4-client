@@ -57,8 +57,6 @@ pub(crate) struct TunnelCtx {
 pub enum TunnelStatus {
     /// Just about to connect to a given address, with the given protocol
     PreConnect { addr: SocketAddr, protocol: SmolStr },
-    /// Sucessfully connected to the given address and protocol. This means that the tunnel is now using going through this endpoint.
-    PostConnect { addr: SocketAddr, protocol: SmolStr },
 }
 
 /// A ConnectionStatus shows the status of the tunnel.
