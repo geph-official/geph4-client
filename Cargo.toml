@@ -18,7 +18,7 @@ crate-type = ["staticlib", "lib"]
  
 [dependencies]
 anyhow = "1.0.68"
-geph4-protocol= "0.11.1"
+geph4-protocol= "0.12"
 
 async-h1= "2.3.3"
 bincode = "1.3.3"

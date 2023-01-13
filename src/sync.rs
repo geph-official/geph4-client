@@ -50,6 +50,7 @@ pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
                     Level::Plus => "plus".to_string(),
                 })
                 .collect_vec(),
+            load: exit.load,
         })
         .collect_vec();
     Ok(format!(
@@ -67,4 +68,5 @@ struct DumbedDownExitDescriptor {
     country_code: String,
     city_code: String,
     allowed_levels: Vec<String>,
+    load: f64,
 }
