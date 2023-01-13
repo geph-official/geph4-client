@@ -546,21 +546,6 @@ dependencies = [
 
 [[package]]
 name = "blake3"
-version = "0.3.8"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b64485778c4f16a6a5a9d335e80d449ac6c70cdd6a06d2af18a6f6f775a125b3"
-dependencies = [
- "arrayref",
- "arrayvec 0.5.2",
- "cc",
- "cfg-if 0.1.10",
- "constant_time_eq 0.1.5",
- "crypto-mac 0.8.0",
- "digest 0.9.0",
-]
-
-[[package]]
-name = "blake3"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42ae2468a89544a466886840aa467a25b766499f4f04bf7d9fcd10ecee9fccef"
@@ -569,7 +554,7 @@ dependencies = [
  "arrayvec 0.7.2",
  "cc",
  "cfg-if 1.0.0",
- "constant_time_eq 0.2.4",
+ "constant_time_eq",
  "digest 0.10.6",
 ]
 
@@ -914,12 +899,6 @@ checksum = "fbdcdcb6d86f71c5e97409ad45898af11cbc995b4ee8112d59095a28d376c935"
 
 [[package]]
 name = "constant_time_eq"
-version = "0.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "245097e9a4535ee1e3e3931fcfcd55a796a44c643e8596ff6566d68f09b87bbc"
-
-[[package]]
-name = "constant_time_eq"
 version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f3ad85c1f65dc7b37604eb0e89748faf0b9653065f2a8ef69f96a687ec1e9279"
@@ -1042,16 +1021,6 @@ checksum = "1bfb12502f3fc46cca1bb51ac28df9d618d813cdc3d2f25b9fe775a34af26bb3"
 dependencies = [
  "generic-array",
  "typenum",
-]
-
-[[package]]
-name = "crypto-mac"
-version = "0.8.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b584a330336237c1eecd3e94266efb216c56ed91225d634cb2991c5f3fd1aeab"
-dependencies = [
- "generic-array",
- "subtle",
 ]
 
 [[package]]
@@ -1778,7 +1747,7 @@ dependencies = [
  "backoff",
  "binary-search",
  "bincode",
- "blake3 1.3.3",
+ "blake3",
  "byteorder",
  "bytes",
  "cached 0.23.0",
@@ -1868,7 +1837,7 @@ dependencies = [
  "async-trait",
  "base64",
  "bincode",
- "blake3 1.3.3",
+ "blake3",
  "bytes",
  "chacha20poly1305",
  "dashmap 5.4.0",
@@ -2102,7 +2071,7 @@ version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c1441c6b1e930e2817404b5046f1f989899143a12bf92de603b69f4e0aee1e15"
 dependencies = [
- "crypto-mac 0.10.1",
+ "crypto-mac",
  "digest 0.9.0",
 ]
 
@@ -4139,9 +4108,9 @@ dependencies = [
 
 [[package]]
 name = "sosistab2"
-version = "0.5.12"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb5f0e8067943febfba2ab0e9b4f37a2d3a5fcbb7e91f13b938a3195531f5aa0"
+checksum = "0bf4e6f9d636aa9e7b38dcc91dab577edfe15ed4f9cf178da3fccec7942487dd"
 dependencies = [
  "anyhow",
  "arc-swap",
@@ -4150,7 +4119,7 @@ dependencies = [
  "async-native-tls",
  "async-trait",
  "bipe",
- "blake3 0.3.8",
+ "blake3",
  "bytes",
  "cached 0.26.2",
  "concurrent-queue 1.2.4",

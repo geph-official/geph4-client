@@ -61,7 +61,7 @@ pub static TIMESERIES_LOOP: Lazy<Task<()>> = Lazy::new(|| {
             DEBUGPACK.add_timeseries("memory", ALLOCATOR.allocated() as f64);
             DEBUGPACK.add_timeseries("uptime", START_TIME.elapsed().as_secs_f64());
 
-            smol::Timer::after(Duration::from_secs(1)).await;
+            smol::Timer::after(Duration::from_secs(10)).await;
         }
     })
 });
@@ -82,6 +82,15 @@ impl DebugPack {
                 timestamp timestamp,
                 line text)",
             [],
+        )?;
+
+        conn.execute(
+            "delete from loglines where datetime(timestamp, '+1 day') < datetime()",
+            params![],
+        )?;
+        conn.execute(
+            "delete from timeseries where datetime(timestamp, '+1 day') < datetime()",
+            params![],
         )?;
 
         let (send_log, recv_log) = smol::channel::bounded(10);
