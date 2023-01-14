@@ -4,9 +4,9 @@ use std::{
     time::Duration,
 };
 
+use crate::tunnel::TunnelStatus;
 use async_net::{IpAddr, Ipv4Addr};
 use dashmap::DashSet;
-use geph4_protocol::tunnel::TunnelStatus;
 use once_cell::sync::Lazy;
 use pnet_packet::{ip::IpNextHeaderProtocols, MutablePacket};
 
@@ -27,7 +27,7 @@ pub fn start_routing() -> Infallible {
         }
     });
 
-    while !TUNNEL.is_connected() {
+    while !TUNNEL.status().connected() {
         log::debug!("waiting for tunnel to connect first...");
         std::thread::sleep(Duration::from_secs(1));
     }
@@ -62,11 +62,14 @@ fn download_loop() -> Infallible {
 }
 
 fn upload_loop() {
-    let mut handle = windivert::PacketHandle::open("outbound and not loopback", 0).unwrap();
+    let handle = windivert::PacketHandle::open("outbound and not loopback", -100).unwrap();
     loop {
         let pkt = handle.receive();
         match pkt {
             Ok(mut pkt) => {
+                if pkt.len() > 1300 {
+                    continue;
+                }
                 let pkt_dest: Option<Ipv4Addr> =
                     pnet_packet::ipv4::Ipv4Packet::new(&pkt).map(|parsed| parsed.get_destination());
                 if let Some(pkt_dest) = pkt_dest {

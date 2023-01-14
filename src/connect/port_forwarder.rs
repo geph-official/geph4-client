@@ -14,7 +14,7 @@ pub async fn port_forwarder(desc: String) {
 
         let remote_addr = exploded[1].to_owned();
         smolscale::spawn(async move {
-            let remote = TUNNEL.connect(&remote_addr).await.ok()?;
+            let remote = TUNNEL.connect_stream(&remote_addr).await.ok()?;
             smol::future::race(
                 smol::io::copy(remote.clone(), conn.clone()),
                 smol::io::copy(conn, remote),

@@ -47,13 +47,13 @@ impl RpcTransport for MultiRpcTransport {
             static IDX: AtomicUsize = AtomicUsize::new(0);
             let idx = IDX.load(Ordering::Relaxed) % self.0.len();
             let random_element = &self.0[idx];
-            log::debug!("selecting binder front {idx}");
+            log::debug!("selecting binder front {idx} for method {:?}", req.method);
             let req = req.clone();
             let vv = async {
                 anyhow::Ok(
                     random_element
                         .call_raw(req)
-                        .timeout(Duration::from_secs(10))
+                        .timeout(Duration::from_secs(3))
                         .await
                         .context("timeout on one of the transports")??,
                 )
@@ -62,7 +62,7 @@ impl RpcTransport for MultiRpcTransport {
                 Ok(v) => return Ok(v),
                 Err(err) => {
                     log::warn!("binder front {idx} failed: {:?}", err);
-                    IDX.store(fastrand::usize(..), Ordering::Relaxed);
+                    IDX.fetch_add(1, Ordering::Relaxed);
                     if let Some(next) = backoff.next_backoff() {
                         smol::Timer::after(next).await;
                     } else {

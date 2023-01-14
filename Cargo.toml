@@ -1,6 +1,6 @@
 [package]
 name = "geph4-client"
-version = "4.6.0-beta.1"
+version = "4.6.6"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2021"
 description="Geph client"
@@ -8,18 +8,24 @@ license="GPL-3.0-only"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[patch.crates-io]
+# sosistab={path="../sosistab"}
+
 [lib]
 name = "geph4client"
 crate-type = ["staticlib", "lib"]
 
+[build-dependencies]
+static_vcruntime = "2.0"
+
 [dependencies]
 anyhow = "1.0.65"
-geph4-protocol= "0.6.2"
+geph4-protocol= "0.9"
 # geph4-protocol = {path="../geph4-protocol"}
 async-h1= "2.3.3"
 bincode = "1.3.3"
 flume = "0.10.14"
-
+ 
 os_pipe = "1.1.1"
 dirs = "3.0.2"
 ed25519-dalek={ version = "1.0.1", features = ["serde"] }
@@ -40,7 +46,7 @@ sha2 = "0.9.9"
 smol = "1.2.5"
 smol-timeout = "0.6.0"
 socksv5 = "0.2.0"
-sosistab= "0.4.50"
+sosistab= "0.5"
 strsim = "0.10.0"
 structopt = "0.3.26"
 x25519-dalek={ version = "1.2.0", features = ["serde"] }
@@ -92,7 +98,12 @@ shutdown_hooks = "0.1.0"
 libc = "0.2.135"
 signal-hook = "0.3.14"
 dashmap = "5.4.0"
-
+default-net = "0.11.0"
+eff-wordlist = "1.0.2"
+blake3 = "1.3.1"
+byteorder = "1.4.3"
+smol_str = "0.1.23"
+#jemallocator-global = "0.3.0"
 
 # tracing-subscriber = "0.2.15"
 
@@ -105,7 +116,8 @@ winapi = { version = "0.3.9", features = ["minwindef", "mmsystem", "timeapi"] }
 
 [profile.dev]
 panic = "abort"
-opt-level=1
+opt-level=0
+incremental = true
 
 [profile.release-dbg]
 inherits="release"
@@ -115,5 +127,6 @@ debug=2
 panic = "abort"
 opt-level=3
 debug=0
-# lto=true
-# strip="debuginfo"
+lto='thin'
+strip="debuginfo"
+incremental = true

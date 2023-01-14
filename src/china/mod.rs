@@ -9,7 +9,7 @@ use treebitmap::IpLookupTable;
 /// List of all Chinese domains.
 static DOMAINS: Lazy<HashSet<String>> = Lazy::new(|| {
     let ss = include_str!("china-domains.txt");
-    ss.split('\n')
+    ss.split_ascii_whitespace()
         .filter(|v| v.len() > 1)
         .map(|v| v.to_string())
         .collect()
@@ -38,7 +38,7 @@ pub fn is_chinese_host(host: &str) -> bool {
     let exploded: Vec<_> = host.split('.').collect();
     // join & lookup in loop
     for i in 0..exploded.len() {
-        let candidate = (&exploded[i..]).join(".");
+        let candidate = (exploded[i..]).join(".");
         if DOMAINS.contains(&candidate) {
             return true;
         }

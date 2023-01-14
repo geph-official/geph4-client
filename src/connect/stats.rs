@@ -5,6 +5,7 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use crate::tunnel::ConnectionStatus;
 use async_trait::async_trait;
 use itertools::Itertools;
 use nanorpc::nanorpc_derive;
@@ -39,12 +40,14 @@ pub static STATS_THREAD: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
 });
 
 /// Basic tunnel statistics.
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BasicStats {
     pub total_sent_bytes: f32,
     pub total_recv_bytes: f32,
     pub last_loss: f32,
     pub last_ping: f32, // latency
+    pub protocol: String,
+    pub address: String,
 }
 
 #[derive(Copy, Clone)]
@@ -57,17 +60,32 @@ impl StatsControlProtocol for DummyImpl {}
 pub trait StatsControlProtocol {
     /// Obtains whether or not the daemon is connected.
     async fn is_connected(&self) -> bool {
-        TUNNEL.is_connected()
+        TUNNEL.status().connected()
     }
 
     /// Obtains statistics.
     async fn basic_stats(&self) -> BasicStats {
         let s = TUNNEL.get_stats().await;
+        let status = TUNNEL.status();
         BasicStats {
             total_recv_bytes: s.total_recv_bytes,
             total_sent_bytes: s.total_sent_bytes,
             last_loss: s.last_loss,
             last_ping: s.last_ping,
+            protocol: match &status {
+                ConnectionStatus::Connected {
+                    protocol,
+                    address: _,
+                } => protocol.clone().into(),
+                _ => "".into(),
+            },
+            address: match status {
+                ConnectionStatus::Connected {
+                    protocol: _,
+                    address,
+                } => address.into(),
+                _ => "".into(),
+            },
         }
     }
 
@@ -78,6 +96,8 @@ pub trait StatsControlProtocol {
             let mut accum = HashMap::new();
             let mut last = 0.0f32;
             let now = SystemTime::now();
+            accum.insert(now.duration_since(UNIX_EPOCH).unwrap().as_secs(), 0.0);
+            accum.insert(now.duration_since(UNIX_EPOCH).unwrap().as_secs() - 1, 0.0);
             for (&time, &total) in series.iter() {
                 if let Ok(dur) = now.duration_since(time) {
                     if dur.as_secs() > 600 {
@@ -104,7 +124,33 @@ pub trait StatsControlProtocol {
                 let series = s.recv_series;
                 diffify(series)
             }
-            Timeseries::Loss => todo!(),
+            Timeseries::Loss => (0..200)
+                .rev()
+                .map(|t| {
+                    let tstamp = SystemTime::now() - Duration::from_secs(t);
+                    let tt = tstamp.duration_since(UNIX_EPOCH).unwrap().as_secs();
+                    (
+                        tt,
+                        s.loss_series
+                            .get(SystemTime::now() - Duration::from_secs(t)),
+                    )
+                })
+                .collect_vec(),
+            Timeseries::Ping => (0..200)
+                .rev()
+                .filter_map(|t| {
+                    let tstamp = SystemTime::now() - Duration::from_secs(t);
+                    let tt = tstamp.duration_since(UNIX_EPOCH).unwrap().as_secs();
+                    let res = s
+                        .ping_series
+                        .get(SystemTime::now() - Duration::from_secs(t));
+                    if res > 10.0 {
+                        None
+                    } else {
+                        Some((tt, res * 1000.0))
+                    }
+                })
+                .collect_vec(),
         }
     }
 
@@ -124,4 +170,5 @@ pub enum Timeseries {
     RecvSpeed,
     SendSpeed,
     Loss,
+    Ping,
 }

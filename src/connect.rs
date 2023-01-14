@@ -4,21 +4,20 @@ use async_compat::Compat;
 
 use china::test_china;
 use futures_util::future::select_all;
-use geph4_protocol::{
-    self,
-    binder::client::CachedBinderClient,
-    tunnel::{
-        activity::wait_activity, BinderTunnelParams, ClientTunnel, ConnectionOptions,
-        EndpointSource, TunnelStatus,
-    },
-};
+use geph4_protocol::{self, binder::client::CachedBinderClient};
 
 use once_cell::sync::Lazy;
 
 use parking_lot::RwLock;
 use smol::{prelude::*, Task};
 
-use crate::config::{get_cached_binder_client, ConnectOpt, Opt, CONFIG};
+use crate::{
+    config::{get_cached_binder_client, ConnectOpt, Opt, CONFIG},
+    tunnel::{
+        activity::wait_activity, BinderTunnelParams, ClientTunnel, ConnectionOptions,
+        EndpointSource, TunnelStatus,
+    },
+};
 
 use crate::china;
 
@@ -128,6 +127,7 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
             CONNECT_CONFIG.use_tcp,
             CONNECT_CONFIG.use_bridges
         );
+        smol::Timer::after(Duration::from_secs(1)).await;
         let stats_printer_fut = async {
             print_stats_loop().await;
             Ok(())
@@ -167,7 +167,7 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
             loop {
                 smol::Timer::after(Duration::from_secs(120)).await;
                 let s = match TUNNEL.get_endpoint() {
-                    EndpointSource::Independent { .. } => unreachable!(),
+                    EndpointSource::Independent { .. } => return,
                     EndpointSource::Binder(b) => {
                         CACHED_BINDER_CLIENT
                             .get_closest_exit(&b.exit_server.unwrap_or_default())

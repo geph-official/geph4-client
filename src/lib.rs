@@ -13,13 +13,14 @@ mod connect;
 pub mod ios;
 mod main_bridgetest;
 mod sync;
+mod tunnel;
 
 pub fn dispatch() -> anyhow::Result<()> {
     config_logging();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
 
-    smolscale::permanently_single_threaded();
+    // smolscale::permanently_single_threaded();
 
     smolscale::block_on(async move {
         match CONFIG.deref() {

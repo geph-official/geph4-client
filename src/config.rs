@@ -52,19 +52,19 @@ pub struct ConnectOpt {
     /// Force a particular bridge
     pub force_bridge: Option<Ipv4Addr>,
 
-    #[structopt(long, default_value = "5")]
+    #[structopt(long, default_value = "1")]
     /// Number of local UDP ports to use per session. This works around situations where unlucky ECMP routing sends flows down a congested path even when other paths exist, by "averaging out" all the possible routes.
     pub udp_shard_count: usize,
 
-    #[structopt(long, default_value = "1")]
+    #[structopt(long, default_value = "30")]
     /// Lifetime of a single UDP port. Geph will switch to a different port within this many seconds.
     pub udp_shard_lifetime: u64,
 
-    #[structopt(long, default_value = "4")]
+    #[structopt(long, default_value = "2")]
     /// Number of TCP connections to use per session. This works around lossy links, per-connection rate limiting, etc.
     pub tcp_shard_count: usize,
 
-    #[structopt(long, default_value = "1000")]
+    #[structopt(long, default_value = "10")]
     /// Lifetime of a single TCP connection. Geph will switch to a different TCP connection within this many seconds.
     pub tcp_shard_lifetime: u64,
 
@@ -123,6 +123,7 @@ pub enum VpnMode {
     TunNoRoute,
     TunRoute,
     WinDivert,
+    Stdio,
 }
 
 impl FromStr for VpnMode {
@@ -133,6 +134,7 @@ impl FromStr for VpnMode {
             "tun-no-route" => Ok(Self::TunNoRoute),
             "tun-route" => Ok(Self::TunRoute),
             "windivert" => Ok(Self::WinDivert),
+            "stdio" => Ok(Self::Stdio),
 
             x => anyhow::bail!("unrecognized VPN mode {}", x),
         }
@@ -150,7 +152,7 @@ pub struct CommonOpt {
 
     #[structopt(
         long,
-        default_value = "loving-bell-981479.netlify.app,1049933718.rsc.cdn77.org,gephbinder-4.azureedge.net,dtnins2n354c4.cloudfront.net"
+        default_value = "svitania-naidallszei.netlify.app,1049933718.rsc.cdn77.org,gephbinder-4.azureedge.net,dtnins2n354c4.cloudfront.net"
     )]
     /// HTTP(S) actual host of the binder
     binder_http_hosts: String,
@@ -241,7 +243,15 @@ pub fn get_cached_binder_client(
     auth_opt: &AuthOpt,
 ) -> anyhow::Result<CachedBinderClient> {
     let mut dbpath = auth_opt.credential_cache.clone();
-    dbpath.push(&auth_opt.username);
+    // create a dbpath based on hashing the username together with the password
+    let quasi_user_id = hex::encode(
+        blake3::keyed_hash(
+            blake3::hash(auth_opt.password.as_bytes()).as_bytes(),
+            auth_opt.username.as_bytes(),
+        )
+        .as_bytes(),
+    );
+    dbpath.push(&quasi_user_id);
     std::fs::create_dir_all(&dbpath)?;
     let cbc = CachedBinderClient::new(
         {

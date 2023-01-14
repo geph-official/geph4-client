@@ -10,7 +10,7 @@ mod packet;
 pub use packet::*;
 mod socket;
 pub use socket::*;
-use winapi::um::errhandlingapi::GetLastError;
+use winapi::um::{errhandlingapi::GetLastError, handleapi::INVALID_HANDLE_VALUE};
 
 #[derive(Debug, Error)]
 #[error("internal WinDivert error: {0}")]
@@ -40,16 +40,19 @@ impl Handle {
         priority: i16,
         flags: u64,
     ) -> Result<Self, InternalError> {
+        static _MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = _MUTEX.lock().unwrap();
         let possibly_handle = unsafe {
             let filter = CString::new(filter).unwrap();
             bindings::WinDivertOpen(
-                filter.as_ptr() as *const i8,
+                filter.into_raw() as *const i8,
                 layer.to_windivert(),
                 priority,
                 flags,
             )
         };
-        let handle = check_c_error(possibly_handle, |h| *h != std::ptr::null_mut())?;
+        let handle = check_c_error(possibly_handle, |h| *h != INVALID_HANDLE_VALUE)?;
+        log::info!("initialized windivert = {:?}", handle);
         Ok(Self { handle })
     }
 
