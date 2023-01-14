@@ -1,0 +1,33 @@
+name: Rust
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v2
+    
+    - name: Clone sosistab
+      run: |
+        cd /home/runner/work/geph4/
+        git clone https://github.com/geph-official/sosistab
+        
+    - name: Build
+      run: cargo build --release --target aarch64-unknown-linux-musl --locked --verbose
+      
+    - name: Compile and release
+      uses: rust-build/rust-build.action@latest
+      env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUSTTARGET: ${{ matrix.target }}
+          EXTRA_FILES: "README.md LICENSE"
