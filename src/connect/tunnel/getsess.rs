@@ -1,17 +1,17 @@
-use geph4_protocol::binder::protocol::{BridgeDescriptor, ExitDescriptor};
-use itertools::Itertools;
+use geph4_protocol::binder::protocol::{BridgeDescriptor};
+
 use native_tls::{Protocol, TlsConnector};
 use rand::Rng;
 use regex::Regex;
 use smol_timeout::TimeoutExt;
 use sosistab2::{Multiplex, MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
-use tap::Tap;
+
 
 use crate::connect::tunnel::TunnelStatus;
 
-use super::{BinderTunnelParams, EndpointSource, TunnelCtx};
+use super::{EndpointSource, TunnelCtx};
 use anyhow::Context;
-use std::{net::SocketAddr, sync::Weak};
+use std::{net::SocketAddr};
 
 use std::{convert::TryFrom, sync::Arc, time::Duration};
 

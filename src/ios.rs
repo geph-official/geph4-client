@@ -149,7 +149,9 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
 
 #[no_mangle]
 /// calls the iOS ffi function "func", with JSON-encoded array of arguments in "opt", returning a string into buffer
-pub extern "C" fn call_geph(
+/// # Safety
+/// The pointers must be valid.
+pub unsafe extern "C" fn call_geph(
     func: *const c_char,
     opt: *const c_char,
     buffer: *mut c_char,

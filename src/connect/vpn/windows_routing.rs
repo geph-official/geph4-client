@@ -1,14 +1,14 @@
-use std::{
-    convert::Infallible,
-    sync::atomic::{AtomicU32, Ordering},
-    time::Duration,
-};
-
+use crate::config::CacheStaleGuard;
 use crate::connect::tunnel::TunnelStatus;
 use dashmap::DashSet;
 use once_cell::sync::Lazy;
 use pnet_packet::{ip::IpNextHeaderProtocols, MutablePacket};
 use std::net::{IpAddr, Ipv4Addr};
+use std::{
+    convert::Infallible,
+    sync::atomic::{AtomicU32, Ordering},
+    time::Duration,
+};
 
 use crate::connect::{vpn::vpn_upload, TUNNEL, TUNNEL_STATUS_CALLBACK};
 
@@ -31,6 +31,8 @@ pub fn start_routing() -> Infallible {
         log::debug!("waiting for tunnel to connect first...");
         std::thread::sleep(Duration::from_secs(1));
     }
+
+    let _stale_guard = CacheStaleGuard::new();
 
     std::thread::spawn(upload_loop);
     download_loop()
