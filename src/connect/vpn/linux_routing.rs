@@ -1,6 +1,6 @@
 use std::{process::Command, time::Duration};
 
-use crate::connect::tunnel::TunnelStatus;
+use crate::{config::CacheStaleGuard, connect::tunnel::TunnelStatus};
 use dashmap::DashMap;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
@@ -59,6 +59,8 @@ pub fn setup_routing() {
             std::thread::sleep(Duration::from_secs(1));
         }
 
+        let _stale_guard = CacheStaleGuard::new();
+
         // set the DNS server
         let mut dns_listen = CONNECT_CONFIG.dns_listen;
         dns_listen.set_ip(Ipv4Addr::new(127, 0, 0, 1).into());
@@ -66,17 +68,15 @@ pub fn setup_routing() {
         let cmd = include_str!("linux_routing_setup.sh");
         let mut child = Command::new("sh").arg("-c").arg(cmd).spawn().unwrap();
         child.wait().expect("iptables was not set up properly");
+        unsafe {
+            libc::atexit(teardown_routing);
+        }
         // teardown process
         let mut signals = Signals::new([libc::SIGABRT, libc::SIGTERM, libc::SIGINT])
             .expect("did not register signal handler properly");
-        std::thread::spawn(move || {
-            for _ in signals.forever() {
-                teardown_routing();
-                std::process::exit(-1)
-            }
-        });
-        unsafe {
-            libc::atexit(teardown_routing);
+        for _ in signals.forever() {
+            teardown_routing();
+            std::process::exit(-1)
         }
     });
 }

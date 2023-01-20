@@ -363,13 +363,8 @@ fn fix_all_checksums(bts: &mut [u8]) -> Option<()> {
 
 /// Down loop for vpn
 async fn vpn_down_loop(nat: Arc<GephNat>) -> anyhow::Result<()> {
-    let mut count = 0u64;
     loop {
         let incoming = TUNNEL.recv_vpn().await.context("downstream failed")?;
-        count += 1;
-        if count % 1000 == 1 {
-            log::debug!("VPN received {} pkts ", count);
-        }
         let mangled_incoming = nat.mangle_downstream_pkt(&incoming);
         if let Some(mangled_bts) = mangled_incoming {
             let mut mangled_bts = mangled_bts.to_vec();

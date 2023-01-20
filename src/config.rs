@@ -1,6 +1,7 @@
 use std::{
     path::PathBuf,
     str::FromStr,
+    sync::atomic::{AtomicUsize, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -242,6 +243,28 @@ fn str_to_mizaru_pk(src: &str) -> mizaru::PublicKey {
     mizaru::PublicKey(raw_bts)
 }
 
+/// If greater than zero, then cache can be stale.
+static CACHE_STALELOCK_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Keep this alive to allow the cache to be stale.
+#[non_exhaustive]
+pub struct CacheStaleGuard {}
+
+impl Drop for CacheStaleGuard {
+    fn drop(&mut self) {
+        let lc = CACHE_STALELOCK_COUNT.fetch_sub(1, Ordering::SeqCst);
+        log::debug!("lockcount decr {lc}");
+    }
+}
+
+impl CacheStaleGuard {
+    pub fn new() -> Self {
+        let lc = CACHE_STALELOCK_COUNT.fetch_add(1, Ordering::SeqCst);
+        log::debug!("lockcount incr {lc}");
+        Self {}
+    }
+}
+
 /// Given the common and authentication options, produce a binder client.
 pub fn get_cached_binder_client(
     common_opt: &CommonOpt,
@@ -266,7 +289,9 @@ pub fn get_cached_binder_client(
                 dbpath.push(format!("{}.json", key));
                 let r = std::fs::read(dbpath).ok()?;
                 let (tstamp, bts): (u64, Bytes) = bincode::deserialize(&r).ok()?;
-                if tstamp > SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs() {
+                if tstamp > SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs()
+                    || CACHE_STALELOCK_COUNT.load(Ordering::SeqCst) > 0
+                {
                     Some(bts)
                 } else {
                     None

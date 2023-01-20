@@ -109,15 +109,15 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                 .detach();
             }
 
-            // weak here to prevent a reference cycle!
-            let weak_multiplex = Arc::downgrade(&multiplex);
-            multiplex.add_drop_friend(smolscale::spawn(replace_dead(
-                ctx.clone(),
-                binder_tunnel_params.clone(),
-                selected_exit,
-                sess_id,
-                weak_multiplex,
-            )));
+            // // weak here to prevent a reference cycle!
+            // let weak_multiplex = Arc::downgrade(&multiplex);
+            // multiplex.add_drop_friend(smolscale::spawn(replace_dead(
+            //     ctx.clone(),
+            //     binder_tunnel_params.clone(),
+            //     selected_exit,
+            //     sess_id,
+            //     weak_multiplex,
+            // )));
 
             Ok(multiplex)
         }
@@ -183,82 +183,82 @@ async fn connect_once(
     }
 }
 
-async fn replace_dead(
-    ctx: TunnelCtx,
-    binder_tunnel_params: BinderTunnelParams,
-    selected_exit: ExitDescriptor,
-    sess_id: String,
-    weak_multiplex: Weak<Multiplex>,
-) {
-    let ccache = binder_tunnel_params.ccache.clone();
-    loop {
-        let interval = Duration::from_secs_f64(rand::thread_rng().gen_range(30.0, 600.0));
-        smol::Timer::after(interval).await;
-        let dead_pipes = if let Some(multiplex) = weak_multiplex.upgrade() {
-            multiplex.clear_dead_pipes()
-        } else {
-            return;
-        };
-        if !dead_pipes.is_empty() {
-            log::debug!(
-                "dead pipes: {:?}",
-                dead_pipes
-                    .iter()
-                    .map(|dp| (dp.protocol(), dp.peer_addr()))
-                    .collect_vec()
-            );
+// async fn replace_dead(
+//     ctx: TunnelCtx,
+//     binder_tunnel_params: BinderTunnelParams,
+//     selected_exit: ExitDescriptor,
+//     sess_id: String,
+//     weak_multiplex: Weak<Multiplex>,
+// ) {
+//     let ccache = binder_tunnel_params.ccache.clone();
+//     loop {
+//         let interval = Duration::from_secs_f64(rand::thread_rng().gen_range(30.0, 600.0));
+//         smol::Timer::after(interval).await;
+//         let dead_pipes = if let Some(multiplex) = weak_multiplex.upgrade() {
+//             multiplex.clear_dead_pipes()
+//         } else {
+//             return;
+//         };
+//         if !dead_pipes.is_empty() {
+//             log::debug!(
+//                 "dead pipes: {:?}",
+//                 dead_pipes
+//                     .iter()
+//                     .map(|dp| (dp.protocol(), dp.peer_addr()))
+//                     .collect_vec()
+//             );
 
-            let pipe_tasks = dead_pipes
-                .into_iter()
-                .map(|pipe| {
-                    let ccache = ccache.clone();
-                    let ctx = ctx.clone();
-                    let selected_exit = selected_exit.clone();
-                    let sess_id = sess_id.clone();
-                    smolscale::spawn(async move {
-                        for iteration in 0u64.. {
-                            let ctx = ctx.clone();
-                            let fallible = async {
-                                let bridges = ccache
-                                    .get_bridges_v2(&selected_exit.hostname, false)
-                                    .await?
-                                    .tap_mut(|b| {
-                                        if !binder_tunnel_params.use_bridges {
-                                            b.extend_from_slice(&selected_exit.direct_routes)
-                                        }
-                                    });
-                                if bridges.is_empty() {
-                                    anyhow::bail!("empty bridge list")
-                                }
-                                let selected_bridge = bridges
-                                    .iter()
-                                    .find(|s| s.exit_hostname == pipe.peer_addr() && iteration > 3)
-                                    .unwrap_or_else(|| {
-                                        &bridges[rand::thread_rng().gen_range(0, bridges.len())]
-                                    });
+//             let pipe_tasks = dead_pipes
+//                 .into_iter()
+//                 .map(|pipe| {
+//                     let ccache = ccache.clone();
+//                     let ctx = ctx.clone();
+//                     let selected_exit = selected_exit.clone();
+//                     let sess_id = sess_id.clone();
+//                     smolscale::spawn(async move {
+//                         for iteration in 0u64.. {
+//                             let ctx = ctx.clone();
+//                             let fallible = async {
+//                                 let bridges = ccache
+//                                     .get_bridges_v2(&selected_exit.hostname, false)
+//                                     .await?
+//                                     .tap_mut(|b| {
+//                                         if !binder_tunnel_params.use_bridges {
+//                                             b.extend_from_slice(&selected_exit.direct_routes)
+//                                         }
+//                                     });
+//                                 if bridges.is_empty() {
+//                                     anyhow::bail!("empty bridge list")
+//                                 }
+//                                 let selected_bridge = bridges
+//                                     .iter()
+//                                     .find(|s| s.exit_hostname == pipe.peer_addr() && iteration > 3)
+//                                     .unwrap_or_else(|| {
+//                                         &bridges[rand::thread_rng().gen_range(0, bridges.len())]
+//                                     });
 
-                                let connected =
-                                    connect_once(ctx, selected_bridge.clone(), &sess_id).await?;
-                                anyhow::Ok(connected)
-                            };
-                            match fallible.await {
-                                Ok(val) => return val,
-                                Err(err) => {
-                                    log::warn!("error reconnecting a pipe: {:?}", err)
-                                }
-                            }
-                        }
-                        unreachable!()
-                    })
-                })
-                .collect_vec();
-            for task in pipe_tasks {
-                let pipe = task.await;
-                log::debug!("add later pipe {} / {}", pipe.protocol(), pipe.peer_addr());
-                if let Some(multiplex) = weak_multiplex.upgrade() {
-                    multiplex.add_pipe(pipe);
-                }
-            }
-        }
-    }
-}
+//                                 let connected =
+//                                     connect_once(ctx, selected_bridge.clone(), &sess_id).await?;
+//                                 anyhow::Ok(connected)
+//                             };
+//                             match fallible.await {
+//                                 Ok(val) => return val,
+//                                 Err(err) => {
+//                                     log::warn!("error reconnecting a pipe: {:?}", err)
+//                                 }
+//                             }
+//                         }
+//                         unreachable!()
+//                     })
+//                 })
+//                 .collect_vec();
+//             for task in pipe_tasks {
+//                 let pipe = task.await;
+//                 log::debug!("add later pipe {} / {}", pipe.protocol(), pipe.peer_addr());
+//                 if let Some(multiplex) = weak_multiplex.upgrade() {
+//                     multiplex.add_pipe(pipe);
+//                 }
+//             }
+//         }
+//     }
+// }

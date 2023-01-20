@@ -28,7 +28,10 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
     if opt.force {
         // clear the entire directory, baby!
-        let _ = std::fs::remove_dir_all(&opt.auth.credential_cache);
+        for _ in 0..100 {
+            let _ = std::fs::remove_dir_all(&opt.auth.credential_cache);
+        }
+        // anyhow::bail!("oh")
     }
 
     let binder_client = get_cached_binder_client(&opt.common, &opt.auth)?;
