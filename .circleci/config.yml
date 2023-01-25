@@ -43,12 +43,13 @@ jobs:
       # - run: sh osx_build.sh
       # - run: sh move_built.sh
       - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
-  build_cross_1:
+  build_cross_android:
     working_directory: ~/repo/
     machine:
       image: ubuntu-2204:2022.04.1
-    resource_class: xlarge
+    resource_class: 2xlarge
     steps:
+      - run: sh cross-setup.sh
       - checkout
       - run: sudo apt install python3-pip
       - run: sudo pip3 install --upgrade b2
@@ -61,11 +62,11 @@ jobs:
       - run: cross build --release --locked  --target aarch64-linux-android
       - run: sh move_built.sh
       - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
-  build_cross_2:
+  build_cross_linux:
     working_directory: ~/repo/
     machine:
       image: ubuntu-2204:2022.04.1
-    resource_class: xlarge
+    resource_class: large
     steps:
       - checkout
       - run: sudo apt install python3-pip

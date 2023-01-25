@@ -1,6 +1,12 @@
 [target.i686-pc-windows-gnu]
 image = "rustembedded/cross:i686-pc-windows-gnu"
 
+[target.aarch64-linux-android]
+image = "ghcr.io/cross-rs/aarch64-linux-android:local"
+
+[target.armv7-linux-androideabi]
+image = "ghcr.io/cross-rs/armv7-linux-androideabi:local"
+
 [build.env]
 passthrough = [
     "CARGO_TARGET_DIR",
