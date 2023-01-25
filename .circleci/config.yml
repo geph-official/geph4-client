@@ -47,7 +47,7 @@ jobs:
     working_directory: ~/repo/
     machine:
       image: ubuntu-2204:2022.04.1
-    resource_class: 2xlarge
+    resource_class: xlarge
     steps:
       - run: sh cross-setup.sh
       - checkout
