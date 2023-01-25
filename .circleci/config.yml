@@ -86,13 +86,13 @@ workflows:
   main:
     jobs:
       - build_windows
-      - build_cross_1
+      - build_cross_android
         # filters:
         #   branches:
         #     ignore: /.*/
         #   tags:
         #     only: /.*/
-      - build_cross_2
+      - build_cross_linux
         # filters:
         #   branches:
         #     ignore: /.*/
