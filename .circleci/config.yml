@@ -49,10 +49,10 @@ jobs:
       image: ubuntu-2204:2022.04.1
     resource_class: xlarge
     steps:
+      - checkout
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
       - run: echo 'export PATH=$HOME/.cargo/bin:$PATH' >> $BASH_ENV
       - run: sh cross-setup.sh
-      - checkout
       - run: sudo apt install python3-pip
       - run: sudo pip3 install --upgrade b2
       - run: |
