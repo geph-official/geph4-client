@@ -236,6 +236,8 @@ async fn replace_dead(
             };
             if let Err(err) = fallible_part.await {
                 log::warn!("error refreshing bridges: {:?}", err)
+            } else {
+                break;
             }
         }
     }
