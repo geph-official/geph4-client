@@ -232,9 +232,9 @@ pub fn vpn_download_blocking() -> Bytes {
 
 // Up and down channels
 static UP_CHANNEL: Lazy<(flume::Sender<Bytes>, flume::Receiver<Bytes>)> =
-    Lazy::new(|| flume::bounded(100));
+    Lazy::new(|| flume::bounded(10000));
 static DOWN_CHANNEL: Lazy<(flume::Sender<Bytes>, flume::Receiver<Bytes>)> =
-    Lazy::new(|| flume::bounded(100));
+    Lazy::new(|| flume::bounded(10000));
 
 static VPN_TASK: Lazy<std::thread::JoinHandle<()>> = Lazy::new(|| {
     std::thread::spawn(|| {
