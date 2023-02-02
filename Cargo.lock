@@ -1616,6 +1616,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "futures-intrusive"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d930c203dd0b6ff06e0201a4a2fe9149b43c684fd4420555b26d21b1a02956f"
+dependencies = [
+ "futures-core",
+ "lock_api",
+ "parking_lot 0.12.1",
+]
+
+[[package]]
 name = "futures-io"
 version = "0.3.26"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1769,6 +1780,7 @@ dependencies = [
  "event-listener",
  "fastrand",
  "flume",
+ "futures-intrusive 0.5.0",
  "futures-util",
  "geph-nat",
  "geph4-aioutils",
@@ -4061,7 +4073,7 @@ dependencies = [
  "event-listener",
  "fastrand",
  "flume",
- "futures-intrusive",
+ "futures-intrusive 0.4.2",
  "futures-lite",
  "futures-util",
  "log 0.4.17",
@@ -4114,8 +4126,6 @@ dependencies = [
 [[package]]
 name = "sosistab2"
 version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8108155f27037a70056527f20194fc0385624ceb34c1b91430dd3dc4a7e050f"
 dependencies = [
  "anyhow",
  "arc-swap",

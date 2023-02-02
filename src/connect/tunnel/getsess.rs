@@ -1,9 +1,11 @@
+use futures_util::{stream::FuturesUnordered, StreamExt};
 use geph4_protocol::binder::protocol::{BridgeDescriptor, ExitDescriptor};
 
 use itertools::Itertools;
 use native_tls::{Protocol, TlsConnector};
 use rand::Rng;
 use regex::Regex;
+use smol_str::SmolStr;
 use smol_timeout::TimeoutExt;
 use sosistab2::{Multiplex, MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
 
@@ -11,7 +13,7 @@ use crate::connect::tunnel::TunnelStatus;
 
 use super::{BinderTunnelParams, EndpointSource, TunnelCtx};
 use anyhow::Context;
-use std::{net::SocketAddr, sync::Weak};
+use std::{collections::BTreeSet, net::SocketAddr, sync::Weak};
 
 use std::{convert::TryFrom, sync::Arc, time::Duration};
 
@@ -82,32 +84,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             ));
             // add *all* the bridges!
             let sess_id = format!("sess-{}", rand::thread_rng().gen::<u128>());
-            for bridge in bridges.into_iter() {
-                let sess_id = sess_id.clone();
-                let multiplex = multiplex.clone();
-                let ctx = ctx.clone();
-                smolscale::spawn(async move {
-                    match connect_once(ctx, bridge.clone(), &sess_id).await {
-                        Ok(pipe) => {
-                            log::debug!(
-                                "add initial pipe {} / {}",
-                                pipe.protocol(),
-                                pipe.peer_addr()
-                            );
-                            multiplex.add_pipe(pipe);
-                        }
-                        Err(err) => {
-                            log::warn!(
-                                "pipe creation failed for {} ({}): {:?}",
-                                bridge.endpoint,
-                                bridge.protocol,
-                                err
-                            )
-                        }
-                    }
-                })
-                .detach();
-            }
+            add_bridges(&ctx, &sess_id, &multiplex, &bridges).await;
 
             // weak here to prevent a reference cycle!
             let weak_multiplex = Arc::downgrade(&multiplex);
@@ -122,6 +99,47 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             Ok(multiplex)
         }
     }
+}
+
+async fn add_bridges(
+    ctx: &TunnelCtx,
+    sess_id: &str,
+    mplex: &Multiplex,
+    bridges: &[BridgeDescriptor],
+) {
+    // we pick only the 3 best out of every protocol
+    let protocols: BTreeSet<SmolStr> = bridges.iter().map(|b| b.protocol.clone()).collect();
+    let mut outer = FuturesUnordered::new();
+    for protocol in protocols {
+        let bridges = bridges
+            .iter()
+            .filter(|s| s.protocol == protocol)
+            .collect_vec();
+        outer.push(async {
+            let uo = FuturesUnordered::new();
+            for bridge in bridges {
+                uo.push(async {
+                    match connect_once(ctx.clone(), bridge.clone(), sess_id).await {
+                        Ok(pipe) => {
+                            log::debug!("add pipe {} / {}", pipe.protocol(), pipe.peer_addr());
+                            mplex.add_pipe(pipe);
+                        }
+                        Err(err) => {
+                            log::warn!(
+                                "pipe creation failed for {} ({}): {:?}",
+                                bridge.endpoint,
+                                bridge.protocol,
+                                err
+                            )
+                        }
+                    }
+                })
+            }
+            let mut stream = uo.take(3);
+            while stream.next().await.is_some() {}
+        });
+    }
+    while outer.next().await.is_some() {}
 }
 
 async fn connect_once(
@@ -163,7 +181,7 @@ async fn connect_once(
                 .danger_accept_invalid_hostnames(true)
                 .min_protocol_version(Some(Protocol::Tlsv12))
                 .max_protocol_version(Some(Protocol::Tlsv12))
-                .use_sni(true);
+                .use_sni(false);
             let fake_domain = format!(
                 "{}.{}{}.com",
                 eff_wordlist::short::random_word(),
@@ -206,32 +224,8 @@ async fn replace_dead(
                             .any(|pipe| pipe.peer_addr() == br.endpoint.to_string())
                     })
                     .collect_vec();
-                for bridge in new_bridges.into_iter() {
-                    let sess_id = sess_id.clone();
-                    let multiplex = multiplex.clone();
-                    let ctx = ctx.clone();
-                    smolscale::spawn(async move {
-                        match connect_once(ctx, bridge.clone(), &sess_id).await {
-                            Ok(pipe) => {
-                                log::debug!(
-                                    "add new pipe {} / {}",
-                                    pipe.protocol(),
-                                    pipe.peer_addr()
-                                );
-                                multiplex.add_pipe(pipe);
-                            }
-                            Err(err) => {
-                                log::warn!(
-                                    "pipe creation failed for {} ({}): {:?}",
-                                    bridge.endpoint,
-                                    bridge.protocol,
-                                    err
-                                )
-                            }
-                        }
-                    })
-                    .detach();
-                }
+
+                add_bridges(&ctx, &sess_id, &multiplex, &new_bridges).await;
                 anyhow::Ok(())
             };
             if let Err(err) = fallible_part.await {

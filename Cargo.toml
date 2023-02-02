@@ -9,7 +9,7 @@ license="GPL-3.0-only"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [patch.crates-io]
-# sosistab2={path="../sosistab2"}
+sosistab2={path="../sosistab2"}
 
 [lib]
 name = "geph4client"
@@ -109,6 +109,7 @@ rusqlite = { version="0.28.0", features=["backup","bundled"] }
 cap = "0.1.1"
 colored = "2.0.0"
 pad = "0.1.6"
+futures-intrusive = "0.5.0"
 
 # tracing-subscriber = "0.2.15"
 
@@ -132,6 +133,6 @@ opt-level=3
 panic = "abort"
 opt-level='z'
 # debug=0
-lto=true
+# lto=true
 strip=true
-codegen-units = 1
+# codegen-units = 1

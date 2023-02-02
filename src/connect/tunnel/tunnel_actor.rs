@@ -45,7 +45,7 @@ pub(crate) async fn tunnel_actor(ctx: TunnelCtx) -> anyhow::Result<()> {
 }
 
 async fn print_stats_loop(mux: Arc<Multiplex>) {
-    for ctr in 0u64.. {
+    for _ctr in 0u64.. {
         if let Some(pipe) = mux.last_recv_pipe() {
             log::info!("RECV-CONN {} / PROT {} ", pipe.peer_addr(), pipe.protocol(),);
         }
