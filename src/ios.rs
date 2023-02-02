@@ -72,6 +72,7 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
     smolscale::permanently_single_threaded();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("IOS geph4-client v{} starting...", version);
+    std::env::set_var("GEPH_VERSION", version);
 
     smol::future::block_on(async move {
         let func = func.as_str();

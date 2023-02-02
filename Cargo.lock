@@ -1843,9 +1843,9 @@ dependencies = [
 
 [[package]]
 name = "geph4-protocol"
-version = "0.12.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9b8c1d792f4883174efbdec2d5416f1f5ac4737a268c136c4f29c51e98069e05"
+checksum = "bc09ae0a9bff2367606d0f2bbe0ed3310f2fa3f65364b8ae788e368dcc450223"
 dependencies = [
  "acidjson",
  "anyhow",
@@ -4125,7 +4125,9 @@ dependencies = [
 
 [[package]]
 name = "sosistab2"
-version = "0.7.1"
+version = "0.7.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63210b2a51bb55934e513e3c22b1fb92363be08bf3f0328bb62e7b4b4e716b4e"
 dependencies = [
  "anyhow",
  "arc-swap",

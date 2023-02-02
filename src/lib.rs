@@ -36,6 +36,7 @@ pub fn dispatch() -> anyhow::Result<()> {
     config_logging();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
+    std::env::set_var("GEPH_VERSION", version);
 
     smolscale::block_on(async move {
         match CONFIG.deref() {
