@@ -1,8 +1,7 @@
 use parking_lot::RwLock;
 use smol_str::SmolStr;
-use sosistab2::PipeStats;
 
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 use crate::debugpack::DEBUGPACK;
 
@@ -11,7 +10,7 @@ pub struct StatItem {
     pub time: SystemTime,
     pub endpoint: SmolStr,
     pub protocol: SmolStr,
-    pub stats: PipeStats,
+    pub ping: Duration,
     pub send_bytes: u64,
     pub recv_bytes: u64,
 }
@@ -26,8 +25,7 @@ impl StatsGatherer {
     pub fn push(&self, item: StatItem) {
         DEBUGPACK.add_timeseries("send_mb", item.send_bytes as f64 / 1_000_000.0);
         DEBUGPACK.add_timeseries("recv_mb", item.recv_bytes as f64 / 1_000_000.0);
-        DEBUGPACK.add_timeseries("latency_ms", item.stats.latency.as_secs_f64() * 1000.0);
-        DEBUGPACK.add_timeseries("loss", item.stats.loss);
+        DEBUGPACK.add_timeseries("latency_ms", item.ping.as_secs_f64() * 1000.0);
         let mut buffer = self.buffer.write();
         buffer.push_back(item);
         if buffer.len() > 10000 {

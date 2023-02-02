@@ -47,39 +47,9 @@ pub(crate) async fn tunnel_actor(ctx: TunnelCtx) -> anyhow::Result<()> {
 async fn print_stats_loop(mux: Arc<Multiplex>) {
     for ctr in 0u64.. {
         if let Some(pipe) = mux.last_recv_pipe() {
-            let item = StatItem {
-                time: SystemTime::now(),
-                endpoint: pipe.peer_addr().into(),
-                protocol: pipe.protocol().into(),
-                stats: pipe.get_stats(),
-                send_bytes: STATS_SEND_BYTES.load(Ordering::Relaxed),
-                recv_bytes: STATS_RECV_BYTES.load(Ordering::Relaxed),
-            };
-            STATS_GATHERER.push(item.clone());
-            if ctr % 30 == 0 {
-                log::info!(
-                "RECV-CONN {} / PROT {} / PING {:.1} +/- {:.2} ms / LOSS {:.2}% / TRAF {:.2} MB",
-                item.endpoint,
-                item.protocol,
-                item.stats.latency.as_secs_f64() * 1000.0,
-                item.stats.jitter.as_secs_f64() * 1000.0,
-                item.stats.loss * 100.0,
-                (item.send_bytes + item.recv_bytes) as f64 / 1_000_000.0
-            );
-                if let Some(pipe) = mux.last_send_pipe() {
-                    let stats = pipe.get_stats();
-                    log::info!(
-                        "SEND-CONN {} / PROT {} / PING {:.1} +/- {:.2} ms / LOSS {:.2}%",
-                        pipe.peer_addr(),
-                        pipe.protocol(),
-                        stats.latency.as_secs_f64() * 1000.0,
-                        stats.jitter.as_secs_f64() * 1000.0,
-                        stats.loss * 100.0
-                    );
-                }
-            }
+            log::info!("RECV-CONN {} / PROT {} ", pipe.peer_addr(), pipe.protocol(),);
         }
-        smol::Timer::after(Duration::from_secs(1)).await;
+        smol::Timer::after(Duration::from_secs(30)).await;
     }
 }
 
@@ -271,7 +241,7 @@ async fn watchdog_loop(
         let start = Instant::now();
         if tunnel_mux
             .open_conn(CLIENT_EXIT_PSEUDOHOST)
-            .timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(10))
             .await
             .is_none()
         {
@@ -279,6 +249,16 @@ async fn watchdog_loop(
             anyhow::bail!("watchdog failed");
         } else {
             let ping = start.elapsed();
+            let pipe = tunnel_mux.last_recv_pipe().context("no pipe")?;
+            let item = StatItem {
+                time: SystemTime::now(),
+                endpoint: pipe.peer_addr().into(),
+                protocol: pipe.protocol().into(),
+                ping,
+                send_bytes: STATS_SEND_BYTES.load(Ordering::Relaxed),
+                recv_bytes: STATS_RECV_BYTES.load(Ordering::Relaxed),
+            };
+            STATS_GATHERER.push(item.clone());
             log::debug!("** watchdog completed in {:?} **", ping);
         }
     }

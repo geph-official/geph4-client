@@ -49,7 +49,7 @@ pub static STATS_THREAD: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
 pub struct BasicStats {
     pub total_sent_bytes: f32,
     pub total_recv_bytes: f32,
-    pub last_loss: f32,
+
     pub last_ping: f32, // latency
     pub protocol: SmolStr,
     pub address: SmolStr,
@@ -76,8 +76,7 @@ pub trait StatsControlProtocol {
                 return BasicStats {
                     address: stats.endpoint,
                     protocol: stats.protocol,
-                    last_loss: stats.stats.loss as _,
-                    last_ping: stats.stats.latency.as_secs_f32() * 1000.0,
+                    last_ping: stats.ping.as_secs_f32() * 1000.0,
                     total_recv_bytes: STATS_RECV_BYTES.load(Ordering::Relaxed) as f32,
                     total_sent_bytes: STATS_SEND_BYTES.load(Ordering::Relaxed) as f32,
                 };
@@ -119,22 +118,7 @@ pub trait StatsControlProtocol {
                     .collect_vec();
                 diffify(series)
             }
-            Timeseries::Loss => {
-                let zoomed = if s.len() > 200 {
-                    s.clone().slice(s.len() - 200..)
-                } else {
-                    s
-                };
-                zoomed
-                    .into_iter()
-                    .map(|i| {
-                        (
-                            i.time.duration_since(UNIX_EPOCH).unwrap().as_secs(),
-                            i.stats.loss as f32,
-                        )
-                    })
-                    .collect_vec()
-            }
+
             Timeseries::Ping => {
                 let zoomed = if s.len() > 200 {
                     s.clone().slice(s.len() - 200..)
@@ -146,7 +130,7 @@ pub trait StatsControlProtocol {
                     .map(|i| {
                         (
                             i.time.duration_since(UNIX_EPOCH).unwrap().as_secs(),
-                            i.stats.latency.as_secs_f32() * 1000.0,
+                            i.ping.as_secs_f32() * 1000.0,
                         )
                     })
                     .collect_vec()
@@ -169,7 +153,7 @@ pub trait StatsControlProtocol {
 pub enum Timeseries {
     RecvSpeed,
     SendSpeed,
-    Loss,
+
     Ping,
 }
 
