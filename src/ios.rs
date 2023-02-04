@@ -117,9 +117,7 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
             }
             "binder_rpc" => {
                 let opt = Opt::from_iter_safe(
-                    vec![String::from("geph4-client"), String::from("binder-proxy")]
-                        .into_iter()
-                        .chain(args.clone().into_iter()),
+                    vec![String::from("geph4-client"), String::from("binder-proxy")].into_iter(),
                 )?;
                 override_config(opt);
                 let binder_client = Arc::new(CommonOpt::from_iter(vec![""]).get_binder_client());
