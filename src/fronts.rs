@@ -10,6 +10,7 @@ use geph4_protocol::binder::client::E2eeHttpTransport;
 
 use itertools::Itertools;
 use nanorpc::{DynRpcTransport, RpcTransport};
+use once_cell::sync::Lazy;
 use smol_timeout::TimeoutExt;
 
 /// Parses a list of front/host pairs and produces a DynRpcTransport.
@@ -43,10 +44,10 @@ impl RpcTransport for MultiRpcTransport {
         req: nanorpc::JrpcRequest,
     ) -> Result<nanorpc::JrpcResponse, Self::Error> {
         let mut backoff = ExponentialBackoffBuilder::new()
-            .with_max_elapsed_time(Some(Duration::from_secs(10)))
+            .with_max_elapsed_time(None)
             .build();
         loop {
-            static IDX: AtomicUsize = AtomicUsize::new(0);
+            static IDX: Lazy<AtomicUsize> = Lazy::new(|| AtomicUsize::new(fastrand::usize(..)));
             let idx = IDX.load(Ordering::Relaxed) % self.0.len();
             let random_element = &self.0[idx];
             log::debug!("selecting binder front {idx} for method {:?}", req.method);

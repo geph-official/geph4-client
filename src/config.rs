@@ -148,14 +148,14 @@ impl FromStr for VpnMode {
 pub struct CommonOpt {
     #[structopt(
         long,
-        default_value = "https://www.netlify.com/v4/next-gen,https://www.cdn77.com/next-gen,https://ajax.aspnetcdn.com/next-gen,https://d1hoqe10mv32pv.cloudfront.net/next-gen"
+        default_value = "https://www.netlify.com/v4/next-gen,https://vuejs.org/v4/next-gen,https://www.cdn77.com/next-gen,https://ajax.aspnetcdn.com/next-gen,https://dtnins2n354c4.cloudfront.net/v4/next-gen"
     )]
     /// HTTP(S) address of the binder, FRONTED
     binder_http_fronts: String,
 
     #[structopt(
         long,
-        default_value = "svitania-naidallszei.netlify.app,1049933718.rsc.cdn77.org,gephbinder-4.azureedge.net,dtnins2n354c4.cloudfront.net"
+        default_value = "svitania-naidallszei.netlify.app,svitania-naidallszei.netlify.app,1049933718.rsc.cdn77.org,gephbinder-4.azureedge.net,dtnins2n354c4.cloudfront.net"
     )]
     /// HTTP(S) actual host of the binder
     binder_http_hosts: String,
