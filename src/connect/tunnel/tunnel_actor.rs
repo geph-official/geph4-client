@@ -235,9 +235,6 @@ async fn watchdog_loop(
     tunnel_mux: Arc<sosistab2::Multiplex>,
 ) -> anyhow::Result<()> {
     loop {
-        let timer = smol::Timer::after(Duration::from_secs(10));
-        wait_activity(Duration::from_secs(600)).await;
-        timer.await;
         let start = Instant::now();
         if tunnel_mux
             .open_conn(CLIENT_EXIT_PSEUDOHOST)
@@ -261,5 +258,9 @@ async fn watchdog_loop(
             STATS_GATHERER.push(item.clone());
             log::debug!("** watchdog completed in {:?} **", ping);
         }
+
+        let timer = smol::Timer::after(Duration::from_secs(10));
+        wait_activity(Duration::from_secs(600)).await;
+        timer.await;
     }
 }

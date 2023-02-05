@@ -118,6 +118,17 @@ async fn add_bridges(
         outer.push(async {
             let uo = FuturesUnordered::new();
             for bridge in bridges {
+                if let EndpointSource::Binder(params) = &ctx.endpoint {
+                    if params.use_bridges && bridge.is_direct {
+                        continue;
+                    }
+                    if let Some(regex) = &params.force_protocol {
+                        let compiled = Regex::new(regex).expect("invalid protocol force");
+                        if !compiled.is_match(&bridge.protocol) {
+                            continue;
+                        }
+                    }
+                }
                 uo.push(async {
                     match connect_once(ctx.clone(), bridge.clone(), sess_id).await {
                         Ok(pipe) => {
@@ -147,20 +158,9 @@ async fn connect_once(
     desc: BridgeDescriptor,
     meta: &str,
 ) -> anyhow::Result<Box<dyn Pipe>> {
-    if let EndpointSource::Binder(params) = &ctx.endpoint {
-        if params.use_bridges && desc.is_direct {
-            anyhow::bail!("skipping direct connection")
-        }
-        if let Some(regex) = &params.force_protocol {
-            let compiled = Regex::new(regex).context("invalid protocol force")?;
-            if !compiled.is_match(&desc.protocol) {
-                anyhow::bail!("skipping non-matching protocol")
-            }
-        }
-    }
+    log::debug!("trying to connect to {} / {}", desc.protocol, desc.endpoint);
     match desc.protocol.as_str() {
         "sosistab2-obfsudp" => {
-            log::debug!("trying to connect to {}", desc.endpoint);
             (ctx.status_callback)(TunnelStatus::PreConnect {
                 addr: desc.endpoint,
                 protocol: "sosistab2-obfsudp".into(),
@@ -179,15 +179,10 @@ async fn connect_once(
             config
                 .danger_accept_invalid_certs(true)
                 .danger_accept_invalid_hostnames(true)
-                .min_protocol_version(Some(Protocol::Tlsv12))
-                .max_protocol_version(Some(Protocol::Tlsv12))
+                .min_protocol_version(None)
+                .max_protocol_version(None)
                 .use_sni(false);
-            let fake_domain = format!(
-                "{}.{}{}.com",
-                eff_wordlist::short::random_word(),
-                eff_wordlist::large::random_word(),
-                eff_wordlist::large::random_word()
-            );
+            let fake_domain = format!("{}.com", eff_wordlist::short::random_word());
             let connection =
                 ObfsTlsPipe::connect(desc.endpoint, &fake_domain, config, desc.sosistab_key, meta)
                     .timeout(Duration::from_secs(10))
