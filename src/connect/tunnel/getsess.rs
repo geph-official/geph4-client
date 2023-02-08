@@ -1,4 +1,4 @@
-use futures_util::{stream::FuturesUnordered, StreamExt};
+use futures_util::{stream::FuturesUnordered, Future, StreamExt};
 use geph4_protocol::binder::protocol::{BridgeDescriptor, ExitDescriptor};
 
 use itertools::Itertools;
@@ -9,7 +9,7 @@ use smol_str::SmolStr;
 use smol_timeout::TimeoutExt;
 use sosistab2::{Multiplex, MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
 
-use crate::connect::tunnel::TunnelStatus;
+use crate::connect::tunnel::{autoconnect::AutoconnectPipe, TunnelStatus};
 
 use super::{BinderTunnelParams, EndpointSource, TunnelCtx};
 use anyhow::Context;
@@ -43,6 +43,21 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             let mplex = Multiplex::new(MuxSecret::generate(), None);
             for _ in 0..4 {
                 let pipe = ObfsUdpPipe::connect(addr, obfs_pk, &sessid).await?;
+                let sessid = sessid.clone();
+                let pipe = AutoconnectPipe::new(pipe, move || {
+                    let sessid = sessid.clone();
+                    smolscale::spawn(async move {
+                        loop {
+                            if let Some(Ok(pipe)) = ObfsUdpPipe::connect(addr, obfs_pk, &sessid)
+                                .timeout(Duration::from_secs(10))
+                                .await
+                            {
+                                return pipe;
+                            }
+                            smol::Timer::after(Duration::from_secs(1)).await;
+                        }
+                    })
+                });
                 mplex.add_pipe(pipe);
             }
             Ok(Arc::new(mplex))
@@ -153,43 +168,85 @@ async fn add_bridges(
     while outer.next().await.is_some() {}
 }
 
+async fn connect_udp(desc: BridgeDescriptor, meta: String) -> anyhow::Result<ObfsUdpPipe> {
+    let keys: (ObfsUdpPublic, MuxPublic) =
+        bincode::deserialize(&desc.sosistab_key).context("cannot decode keys")?;
+    ObfsUdpPipe::connect(desc.endpoint, keys.0, &meta)
+        .timeout(Duration::from_secs(10))
+        .await
+        .context("pipe connection timeout")?
+}
+
+async fn connect_tls(desc: BridgeDescriptor, meta: String) -> anyhow::Result<ObfsTlsPipe> {
+    let mut config = TlsConnector::builder();
+    config
+        .danger_accept_invalid_certs(true)
+        .danger_accept_invalid_hostnames(true)
+        .min_protocol_version(None)
+        .max_protocol_version(None)
+        .use_sni(false);
+    let fake_domain = format!("{}.com", eff_wordlist::short::random_word());
+    let connection = ObfsTlsPipe::connect(
+        desc.endpoint,
+        &fake_domain,
+        config,
+        desc.sosistab_key.clone(),
+        &meta,
+    )
+    .timeout(Duration::from_secs(10))
+    .await
+    .context("pipe connection timeout")??;
+    Ok(connection)
+}
+
+async fn autoconnect_with<P: Pipe, F: Future<Output = anyhow::Result<P>> + Send + 'static>(
+    f: impl Fn() -> F + Send + Sync + 'static,
+) -> anyhow::Result<AutoconnectPipe<P>> {
+    let connection = f().await?;
+    let protocol = connection.protocol().to_string();
+    let endpoint = connection.peer_addr();
+    let f = Arc::new(f);
+    Ok(AutoconnectPipe::new(connection, move || {
+        let protocol = protocol.clone();
+        let endpoint = endpoint.clone();
+        let f = f.clone();
+        smolscale::spawn(async move {
+            for wait in 0u64.. {
+                match f().await {
+                    Ok(val) => return val,
+                    Err(err) => log::warn!(
+                        "problem reconnecting to {} / {}: {:?}",
+                        protocol,
+                        endpoint,
+                        err
+                    ),
+                }
+                smol::Timer::after(Duration::from_secs_f64(1.5f64.powf(wait as f64))).await;
+            }
+            unreachable!()
+        })
+    }))
+}
+
 async fn connect_once(
     ctx: TunnelCtx,
     desc: BridgeDescriptor,
     meta: &str,
 ) -> anyhow::Result<Box<dyn Pipe>> {
     log::debug!("trying to connect to {} / {}", desc.protocol, desc.endpoint);
+    (ctx.status_callback)(TunnelStatus::PreConnect {
+        addr: desc.endpoint,
+        protocol: desc.protocol.clone(),
+    });
+    let desc = desc.clone();
+    let meta = meta.to_string();
     match desc.protocol.as_str() {
-        "sosistab2-obfsudp" => {
-            (ctx.status_callback)(TunnelStatus::PreConnect {
-                addr: desc.endpoint,
-                protocol: "sosistab2-obfsudp".into(),
-            });
-            let keys: (ObfsUdpPublic, MuxPublic) =
-                bincode::deserialize(&desc.sosistab_key).context("cannot decode keys")?;
-
-            let connection = ObfsUdpPipe::connect(desc.endpoint, keys.0, meta)
-                .timeout(Duration::from_secs(10))
-                .await
-                .context("pipe connection timeout")??;
-            Ok(Box::new(connection))
-        }
-        "sosistab2-obfstls" => {
-            let mut config = TlsConnector::builder();
-            config
-                .danger_accept_invalid_certs(true)
-                .danger_accept_invalid_hostnames(true)
-                .min_protocol_version(None)
-                .max_protocol_version(None)
-                .use_sni(false);
-            let fake_domain = format!("{}.com", eff_wordlist::short::random_word());
-            let connection =
-                ObfsTlsPipe::connect(desc.endpoint, &fake_domain, config, desc.sosistab_key, meta)
-                    .timeout(Duration::from_secs(10))
-                    .await
-                    .context("pipe connection timeout")??;
-            Ok(Box::new(connection))
-        }
+        "sosistab2-obfsudp" => Ok(Box::new(
+            autoconnect_with(move || connect_udp(desc.clone(), meta.clone())).await?,
+        )),
+        "sosistab2-obfstls" => Ok(Box::new(
+            autoconnect_with(move || connect_tls(desc.clone(), meta.clone())).await?,
+        )),
         other => {
             anyhow::bail!("unknown protocol {other}")
         }
@@ -204,23 +261,25 @@ async fn replace_dead(
     weak_multiplex: Weak<Multiplex>,
 ) {
     let ccache = binder_tunnel_params.ccache.clone();
+    let mut previous_bridges: Option<Vec<BridgeDescriptor>> = None;
     loop {
-        smol::Timer::after(Duration::from_secs(300)).await;
+        smol::Timer::after(Duration::from_secs(5)).await;
         loop {
             let fallible_part = async {
                 let bridges = ccache.get_bridges_v2(&selected_exit.hostname, true).await?;
                 let multiplex = weak_multiplex.upgrade().context("multiplex is dead")?;
-                let current_pipes = multiplex.iter_pipes().collect_vec();
-                let new_bridges = bridges
-                    .into_iter()
-                    .filter(|br| {
-                        !current_pipes
-                            .iter()
-                            .any(|pipe| pipe.peer_addr() == br.endpoint.to_string())
-                    })
-                    .collect_vec();
-
-                add_bridges(&ctx, &sess_id, &multiplex, &new_bridges).await;
+                if let Some(previous_bridges) = previous_bridges.replace(bridges.clone()) {
+                    let new_bridges = bridges
+                        .into_iter()
+                        .filter(|br| {
+                            !previous_bridges
+                                .iter()
+                                .any(|pipe| pipe.endpoint == br.endpoint)
+                        })
+                        .collect_vec();
+                    log::debug!("{} new bridges", new_bridges.len());
+                    add_bridges(&ctx, &sess_id, &multiplex, &new_bridges).await;
+                }
                 anyhow::Ok(())
             };
             if let Err(err) = fallible_part.await {

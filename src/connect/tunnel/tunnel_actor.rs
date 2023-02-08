@@ -238,7 +238,7 @@ async fn watchdog_loop(
         let start = Instant::now();
         if tunnel_mux
             .open_conn(CLIENT_EXIT_PSEUDOHOST)
-            .timeout(Duration::from_secs(10))
+            .timeout(Duration::from_secs(30))
             .await
             .is_none()
         {

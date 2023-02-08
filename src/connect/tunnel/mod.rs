@@ -17,6 +17,7 @@ use tunnel_actor::tunnel_actor;
 pub mod activity;
 pub mod getsess;
 
+mod autoconnect;
 pub mod tunnel_actor;
 
 use std::net::Ipv4Addr;
