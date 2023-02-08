@@ -263,7 +263,7 @@ async fn replace_dead(
     let ccache = binder_tunnel_params.ccache.clone();
     let mut previous_bridges: Option<Vec<BridgeDescriptor>> = None;
     loop {
-        smol::Timer::after(Duration::from_secs(5)).await;
+        smol::Timer::after(Duration::from_secs(300)).await;
         loop {
             let fallible_part = async {
                 let bridges = ccache.get_bridges_v2(&selected_exit.hostname, true).await?;
@@ -277,7 +277,6 @@ async fn replace_dead(
                                 .any(|pipe| pipe.endpoint == br.endpoint)
                         })
                         .collect_vec();
-                    log::debug!("{} new bridges", new_bridges.len());
                     add_bridges(&ctx, &sess_id, &multiplex, &new_bridges).await;
                 }
                 anyhow::Ok(())
