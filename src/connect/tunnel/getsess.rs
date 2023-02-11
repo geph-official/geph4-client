@@ -9,7 +9,7 @@ use smol_str::SmolStr;
 use smol_timeout::TimeoutExt;
 use sosistab2::{Multiplex, MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
 
-use crate::connect::tunnel::{autoconnect::AutoconnectPipe, TunnelStatus};
+use crate::connect::tunnel::{autoconnect::AutoconnectPipe, delay::DelayPipe, TunnelStatus};
 
 use super::{BinderTunnelParams, EndpointSource, TunnelCtx};
 use anyhow::Context;
@@ -240,16 +240,26 @@ async fn connect_once(
     });
     let desc = desc.clone();
     let meta = meta.to_string();
-    match desc.protocol.as_str() {
-        "sosistab2-obfsudp" => Ok(Box::new(
-            autoconnect_with(move || connect_udp(desc.clone(), meta.clone())).await?,
-        )),
-        "sosistab2-obfstls" => Ok(Box::new(
-            autoconnect_with(move || connect_tls(desc.clone(), meta.clone())).await?,
-        )),
+    let inner: Box<dyn Pipe> = match desc.protocol.as_str() {
+        "sosistab2-obfsudp" => {
+            let desc = desc.clone();
+            Box::new(autoconnect_with(move || connect_udp(desc.clone(), meta.clone())).await?)
+        }
+        "sosistab2-obfstls" => {
+            let desc = desc.clone();
+            Box::new(DelayPipe::new(
+                autoconnect_with(move || connect_tls(desc.clone(), meta.clone())).await?,
+                Duration::from_millis(50),
+            ))
+        }
         other => {
             anyhow::bail!("unknown protocol {other}")
         }
+    };
+    if desc.is_direct {
+        Ok(inner)
+    } else {
+        Ok(Box::new(DelayPipe::new(inner, Duration::from_millis(10))))
     }
 }
 

@@ -1,4 +1,5 @@
 use std::{
+    collections::VecDeque,
     ops::{Deref, DerefMut},
     sync::Arc,
     time::{Duration, Instant},
@@ -22,7 +23,7 @@ pub struct AutoconnectPipe<P: Pipe> {
     peer_addr: String,
 
     last_recv: Mutex<Instant>,
-    last_send: Mutex<Instant>,
+    last_sends: Mutex<VecDeque<Instant>>,
 
     reconnector: Mutex<Option<Task<()>>>,
 }
@@ -42,7 +43,7 @@ impl<P: Pipe> AutoconnectPipe<P> {
             peer_addr: pipe.peer_addr(),
 
             last_recv: Mutex::new(Instant::now()),
-            last_send: Mutex::new(Instant::now()),
+            last_sends: Default::default(),
 
             reconnector: Mutex::new(None),
         }
@@ -52,15 +53,24 @@ impl<P: Pipe> AutoconnectPipe<P> {
 #[async_trait]
 impl<P: Pipe> Pipe for AutoconnectPipe<P> {
     async fn send(&self, to_send: Bytes) {
-        // TODO if a certain time since the last recv, transition into connecting
+        // If a certain time since the last recv, transition into connecting
         {
             let mut inner = self.status.lock();
             if let Inner::Connected(p) = inner.deref() {
                 let last_recv = *self.last_recv.lock();
                 if last_recv.elapsed() > Duration::from_secs(5) {
-                    let last_send = *self.last_send.lock();
-                    if last_send > last_recv && last_send.elapsed() > Duration::from_secs(1) {
-                        log::debug!("reconnecting {}...", self.peer_addr);
+                    let last_sends = self.last_sends.lock();
+                    // if there was more than 3 packets fitting the criterion, then we are oh so dead
+                    let probably_dead = last_sends
+                        .iter()
+                        .filter(|pkt_time| {
+                            pkt_time > &&last_recv && pkt_time.elapsed() > Duration::from_secs(1)
+                        })
+                        .count()
+                        > 3;
+
+                    if probably_dead {
+                        log::debug!("reconnecting {} / {}...", self.protocol(), self.peer_addr);
                         let next_slot = Arc::new(Mutex::new(None));
                         let make_pipe = self.make_pipe.clone();
                         *self.reconnector.lock() = Some(smolscale::spawn({
@@ -70,7 +80,7 @@ impl<P: Pipe> Pipe for AutoconnectPipe<P> {
                                 *next_slot.lock() = Some(Arc::new(pipe))
                             }
                         }));
-                        *inner = Inner::Reconnecting(p.clone(), next_slot);
+                        *inner = Inner::Reconnecting(p.clone(), next_slot, Instant::now());
                     }
                 }
             }
@@ -78,12 +88,17 @@ impl<P: Pipe> Pipe for AutoconnectPipe<P> {
         // If connecting is done, transition back into connected
         {
             let mut inner = self.status.lock();
-            if let Inner::Reconnecting(_, next) = inner.deref_mut() {
+            if let Inner::Reconnecting(_, next, time) = inner.deref_mut() {
                 let lala = next.lock().take();
                 if let Some(lala) = lala {
                     *self.recv_from.lock() = lala.clone();
                     self.signal_change.notify(usize::MAX);
-                    log::debug!("reconnected {}!", self.peer_addr);
+                    log::debug!(
+                        "reconnected {} / {} after {:?}!",
+                        self.protocol(),
+                        self.peer_addr,
+                        time.elapsed()
+                    );
                     *self.last_recv.lock() = Instant::now();
                     *inner = Inner::Connected(lala)
                 }
@@ -93,10 +108,14 @@ impl<P: Pipe> Pipe for AutoconnectPipe<P> {
             let status = self.status.lock();
             match status.deref() {
                 Inner::Connected(p) => {
-                    *self.last_send.lock() = Instant::now();
+                    let mut sends = self.last_sends.lock();
+                    sends.push_back(Instant::now());
+                    if sends.len() > 100 {
+                        sends.pop_front();
+                    }
                     p.clone()
                 }
-                Inner::Reconnecting(p, _) => p.clone(),
+                Inner::Reconnecting(p, _, _) => p.clone(),
             }
         };
         pipe.send(to_send).await
@@ -136,5 +155,5 @@ impl<P: Pipe> Pipe for AutoconnectPipe<P> {
 
 enum Inner<P: Pipe> {
     Connected(Arc<P>),
-    Reconnecting(Arc<P>, Arc<Mutex<Option<Arc<P>>>>),
+    Reconnecting(Arc<P>, Arc<Mutex<Option<Arc<P>>>>, Instant),
 }
