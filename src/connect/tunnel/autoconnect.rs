@@ -1,51 +1,61 @@
 use std::{
-    collections::VecDeque,
-    ops::{Deref, DerefMut},
+    marker::PhantomData,
     sync::Arc,
     time::{Duration, Instant},
 };
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use event_listener::Event;
+
+
 use parking_lot::Mutex;
-use smol::{future::FutureExt, Task};
+use smol::{
+    channel::{Receiver, Sender},
+    future::FutureExt,
+    Task,
+};
 use sosistab2::Pipe;
 
 pub struct AutoconnectPipe<P: Pipe> {
-    status: Mutex<Inner<P>>,
-    make_pipe: Arc<dyn Fn() -> Task<P> + Send + Sync + 'static>,
-    recv_from: Mutex<Arc<P>>,
-    signal_change: Event,
-
     protocol: String,
     peer_metadata: String,
     peer_addr: String,
 
-    last_recv: Mutex<Instant>,
-    last_sends: Mutex<VecDeque<Instant>>,
+    send_up: Sender<Bytes>,
+    recv_down: Receiver<Bytes>,
 
-    reconnector: Mutex<Option<Task<()>>>,
+    _task: Task<anyhow::Result<()>>,
+
+    _p: PhantomData<P>,
 }
 
 impl<P: Pipe> AutoconnectPipe<P> {
     /// Creates a new autoconnecting pipe.
     pub fn new(pipe: P, recreate: impl Fn() -> Task<P> + Send + Sync + 'static) -> Self {
-        let pipe = Arc::new(pipe);
+        let protocol = pipe.protocol().to_string();
+        let peer_metadata = pipe.peer_metadata().to_string();
+        let peer_addr = pipe.peer_addr();
+        let (send_up, recv_up) = smol::channel::unbounded();
+        let (send_down, recv_down) = smol::channel::unbounded();
+        let _task = smolscale::spawn(autoconnect_loop(
+            recv_up,
+            send_down,
+            pipe,
+            recreate,
+            protocol.clone(),
+            peer_addr.clone(),
+        ));
         Self {
-            status: Mutex::new(Inner::Connected(pipe.clone())),
-            make_pipe: Arc::new(recreate),
-            recv_from: Mutex::new(pipe.clone()),
-            signal_change: Event::new(),
+            _task,
 
-            protocol: pipe.protocol().to_string(),
-            peer_metadata: pipe.peer_metadata().to_string(),
-            peer_addr: pipe.peer_addr(),
+            send_up,
+            recv_down,
 
-            last_recv: Mutex::new(Instant::now()),
-            last_sends: Default::default(),
+            protocol,
+            peer_metadata,
+            peer_addr,
 
-            reconnector: Mutex::new(None),
+            _p: Default::default(),
         }
     }
 }
@@ -53,91 +63,14 @@ impl<P: Pipe> AutoconnectPipe<P> {
 #[async_trait]
 impl<P: Pipe> Pipe for AutoconnectPipe<P> {
     async fn send(&self, to_send: Bytes) {
-        // If a certain time since the last recv, transition into connecting
-        {
-            let mut inner = self.status.lock();
-            if let Inner::Connected(p) = inner.deref() {
-                let last_recv = *self.last_recv.lock();
-                if last_recv.elapsed() > Duration::from_secs(5) {
-                    let last_sends = self.last_sends.lock();
-                    // if there was more than 3 packets fitting the criterion, then we are oh so dead
-                    let probably_dead = last_sends
-                        .iter()
-                        .filter(|pkt_time| {
-                            pkt_time > &&last_recv && pkt_time.elapsed() > Duration::from_secs(1)
-                        })
-                        .count()
-                        > 3;
-
-                    if probably_dead {
-                        log::debug!("reconnecting {} / {}...", self.protocol(), self.peer_addr);
-                        let next_slot = Arc::new(Mutex::new(None));
-                        let make_pipe = self.make_pipe.clone();
-                        *self.reconnector.lock() = Some(smolscale::spawn({
-                            let next_slot = next_slot.clone();
-                            async move {
-                                let pipe = make_pipe().await;
-                                *next_slot.lock() = Some(Arc::new(pipe))
-                            }
-                        }));
-                        *inner = Inner::Reconnecting(p.clone(), next_slot, Instant::now());
-                    }
-                }
-            }
-        }
-        // If connecting is done, transition back into connected
-        {
-            let mut inner = self.status.lock();
-            if let Inner::Reconnecting(_, next, time) = inner.deref_mut() {
-                let lala = next.lock().take();
-                if let Some(lala) = lala {
-                    *self.recv_from.lock() = lala.clone();
-                    self.signal_change.notify(usize::MAX);
-                    log::debug!(
-                        "reconnected {} / {} after {:?}!",
-                        self.protocol(),
-                        self.peer_addr,
-                        time.elapsed()
-                    );
-                    *self.last_recv.lock() = Instant::now();
-                    *inner = Inner::Connected(lala)
-                }
-            }
-        }
-        let pipe = {
-            let status = self.status.lock();
-            match status.deref() {
-                Inner::Connected(p) => {
-                    let mut sends = self.last_sends.lock();
-                    sends.push_back(Instant::now());
-                    if sends.len() > 100 {
-                        sends.pop_front();
-                    }
-                    p.clone()
-                }
-                Inner::Reconnecting(p, _, _) => p.clone(),
-            }
-        };
-        pipe.send(to_send).await
+        let _ = self.send_up.send(to_send).await;
     }
 
     async fn recv(&self) -> std::io::Result<Bytes> {
-        loop {
-            let evt = self.signal_change.listen();
-            let rr = self.recv_from.lock().clone();
-            let break_now = async {
-                let res = rr.recv().await;
-                Some(res)
-            }
-            .or(async {
-                evt.await;
-                None
-            });
-            if let Some(res) = break_now.await {
-                *self.last_recv.lock() = Instant::now();
-                return res;
-            }
-        }
+        self.recv_down
+            .recv()
+            .await
+            .map_err(|_e| std::io::Error::new(std::io::ErrorKind::BrokenPipe, "shuffler died"))
     }
 
     fn protocol(&self) -> &str {
@@ -156,4 +89,71 @@ impl<P: Pipe> Pipe for AutoconnectPipe<P> {
 enum Inner<P: Pipe> {
     Connected(Arc<P>),
     Reconnecting(Arc<P>, Arc<Mutex<Option<Arc<P>>>>, Instant),
+}
+
+async fn autoconnect_loop<P: Pipe>(
+    recv_up: Receiver<Bytes>,
+    send_down: Sender<Bytes>,
+    init_pipe: P,
+    recreate: impl Fn() -> Task<P> + Send + Sync + 'static,
+
+    protocol: String,
+    endpoint: String,
+) -> anyhow::Result<()> {
+    enum Event<P> {
+        Up(Bytes),
+        Down(Bytes),
+        Replaced(P),
+    }
+    let mut current_pipe = init_pipe;
+    let mut replace_task: Option<(Receiver<P>, Task<()>)> = None;
+    let recreate = Arc::new(recreate);
+    loop {
+        let up_event = async {
+            let up = recv_up.recv().await?;
+            anyhow::Ok(Event::Up(up))
+        };
+        let dn_event = async { anyhow::Ok(Event::Down(current_pipe.recv().await?)) };
+        let replace_event = async {
+            if let Some((recv, _)) = replace_task.as_ref() {
+                anyhow::Ok(Event::Replaced(recv.recv().await?))
+            } else {
+                smol::future::pending().await
+            }
+        };
+
+        match up_event.or(dn_event.or(replace_event)).await? {
+            Event::Up(up) => {
+                current_pipe.send(up).await;
+                if replace_task.is_none() {
+                    let (send, recv) = smol::channel::bounded(1);
+                    let protocol = protocol.clone();
+                    let endpoint = endpoint.clone();
+                    let recreate = recreate.clone();
+                    replace_task = Some((
+                        recv,
+                        smolscale::spawn(async move {
+                            smol::Timer::after(Duration::from_secs(5)).await;
+                            let start = Instant::now();
+                            log::debug!("reconnecting {protocol}/{endpoint}...");
+                            let replacement = recreate().await;
+                            log::debug!(
+                                "reconnected {protocol}/{endpoint} in {:?}!",
+                                start.elapsed()
+                            );
+                            let _ = send.try_send(replacement);
+                        }),
+                    ));
+                }
+            }
+            Event::Down(dn) => {
+                replace_task = None;
+                let _ = send_down.try_send(dn);
+            }
+            Event::Replaced(p) => {
+                current_pipe = p;
+                replace_task = None;
+            }
+        }
+    }
 }

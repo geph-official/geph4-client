@@ -2,14 +2,14 @@ use futures_util::{stream::FuturesUnordered, Future, StreamExt};
 use geph4_protocol::binder::protocol::{BridgeDescriptor, ExitDescriptor};
 
 use itertools::Itertools;
-use native_tls::{Protocol, TlsConnector};
+use native_tls::TlsConnector;
 use rand::Rng;
 use regex::Regex;
 use smol_str::SmolStr;
 use smol_timeout::TimeoutExt;
 use sosistab2::{Multiplex, MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
 
-use crate::connect::tunnel::{autoconnect::AutoconnectPipe, delay::DelayPipe, TunnelStatus};
+use crate::connect::tunnel::{autoconnect::AutoconnectPipe, TunnelStatus};
 
 use super::{BinderTunnelParams, EndpointSource, TunnelCtx};
 use anyhow::Context;
@@ -99,7 +99,15 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             ));
             // add *all* the bridges!
             let sess_id = format!("sess-{}", rand::thread_rng().gen::<u128>());
-            add_bridges(&ctx, &sess_id, &multiplex, &bridges).await;
+            {
+                let ctx = ctx.clone();
+                let multiplex = multiplex.clone();
+                let sess_id = sess_id.clone();
+                smolscale::spawn(async move {
+                    add_bridges(&ctx, &sess_id, &multiplex, &bridges).await;
+                })
+                .detach();
+            }
 
             // weak here to prevent a reference cycle!
             let weak_multiplex = Arc::downgrade(&multiplex);
@@ -145,18 +153,22 @@ async fn add_bridges(
                     }
                 }
                 uo.push(async {
-                    match connect_once(ctx.clone(), bridge.clone(), sess_id).await {
-                        Ok(pipe) => {
-                            log::debug!("add pipe {} / {}", pipe.protocol(), pipe.peer_addr());
-                            mplex.add_pipe(pipe);
-                        }
-                        Err(err) => {
-                            log::warn!(
-                                "pipe creation failed for {} ({}): {:?}",
-                                bridge.endpoint,
-                                bridge.protocol,
-                                err
-                            )
+                    loop {
+                        match connect_once(ctx.clone(), bridge.clone(), sess_id).await {
+                            Ok(pipe) => {
+                                log::debug!("add pipe {} / {}", pipe.protocol(), pipe.peer_addr());
+                                mplex.add_pipe(pipe);
+                                return;
+                            }
+                            Err(err) => {
+                                log::warn!(
+                                    "pipe creation failed for {} ({}): {:?}",
+                                    bridge.endpoint,
+                                    bridge.protocol,
+                                    err
+                                );
+                                smol::Timer::after(Duration::from_secs(1)).await;
+                            }
                         }
                     }
                 })
@@ -247,20 +259,13 @@ async fn connect_once(
         }
         "sosistab2-obfstls" => {
             let desc = desc.clone();
-            Box::new(DelayPipe::new(
-                autoconnect_with(move || connect_tls(desc.clone(), meta.clone())).await?,
-                Duration::from_millis(50),
-            ))
+            Box::new(autoconnect_with(move || connect_tls(desc.clone(), meta.clone())).await?)
         }
         other => {
             anyhow::bail!("unknown protocol {other}")
         }
     };
-    if desc.is_direct {
-        Ok(inner)
-    } else {
-        Ok(Box::new(DelayPipe::new(inner, Duration::from_millis(10))))
-    }
+    Ok(inner)
 }
 
 async fn replace_dead(

@@ -110,6 +110,7 @@ cap = "0.1.1"
 colored = "2.0.0"
 pad = "0.1.6"
 futures-intrusive = "0.5.0"
+oneshot = "0.1.5"
 
 # tracing-subscriber = "0.2.15"
 
