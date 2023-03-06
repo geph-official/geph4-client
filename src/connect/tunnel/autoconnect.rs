@@ -7,7 +7,6 @@ use std::{
 use async_trait::async_trait;
 use bytes::Bytes;
 
-
 use parking_lot::Mutex;
 use smol::{
     channel::{Receiver, Sender},
@@ -24,7 +23,7 @@ pub struct AutoconnectPipe<P: Pipe> {
     send_up: Sender<Bytes>,
     recv_down: Receiver<Bytes>,
 
-    _task: Task<anyhow::Result<()>>,
+    _task: Task<()>,
 
     _p: PhantomData<P>,
 }
@@ -99,7 +98,11 @@ async fn autoconnect_loop<P: Pipe>(
 
     protocol: String,
     endpoint: String,
-) -> anyhow::Result<()> {
+) {
+    scopeguard::defer!({
+        log::debug!("**** AUTOCONNECT LOOP STOPPED ****");
+    });
+
     enum Event<P> {
         Up(Bytes),
         Down(Bytes),
@@ -113,7 +116,13 @@ async fn autoconnect_loop<P: Pipe>(
             let up = recv_up.recv().await?;
             anyhow::Ok(Event::Up(up))
         };
-        let dn_event = async { anyhow::Ok(Event::Down(current_pipe.recv().await?)) };
+        let dn_event = async {
+            anyhow::Ok(if let Ok(val) = current_pipe.recv().await {
+                Event::Down(val)
+            } else {
+                smol::future::pending().await
+            })
+        };
         let replace_event = async {
             if let Some((recv, _)) = replace_task.as_ref() {
                 anyhow::Ok(Event::Replaced(recv.recv().await?))
@@ -122,8 +131,8 @@ async fn autoconnect_loop<P: Pipe>(
             }
         };
 
-        match up_event.or(dn_event.or(replace_event)).await? {
-            Event::Up(up) => {
+        match up_event.or(replace_event.or(dn_event)).await {
+            Ok(Event::Up(up)) => {
                 current_pipe.send(up).await;
                 if replace_task.is_none() {
                     let (send, recv) = smol::channel::bounded(1);
@@ -146,13 +155,17 @@ async fn autoconnect_loop<P: Pipe>(
                     ));
                 }
             }
-            Event::Down(dn) => {
+            Ok(Event::Down(dn)) => {
                 replace_task = None;
                 let _ = send_down.try_send(dn);
             }
-            Event::Replaced(p) => {
+            Ok(Event::Replaced(p)) => {
                 current_pipe = p;
                 replace_task = None;
+            }
+            Err(err) => {
+                log::warn!("error: {:?}", err);
+                smol::Timer::after(Duration::from_secs(1)).await;
             }
         }
     }
