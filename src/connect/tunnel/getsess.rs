@@ -153,7 +153,7 @@ async fn add_bridges(
                     }
                 }
                 uo.push(async {
-                    loop {
+                    for _ in 0..10 {
                         match connect_once(ctx.clone(), bridge.clone(), sess_id).await {
                             Ok(pipe) => {
                                 log::debug!("add pipe {} / {}", pipe.protocol(), pipe.peer_addr());
