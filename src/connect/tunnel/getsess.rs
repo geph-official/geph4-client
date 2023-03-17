@@ -290,6 +290,7 @@ async fn replace_dead(
                             !previous_bridges
                                 .iter()
                                 .any(|pipe| pipe.endpoint == br.endpoint)
+                                || br.is_direct
                         })
                         .collect_vec();
                     add_bridges(&ctx, &sess_id, &multiplex, &new_bridges).await;
