@@ -7,7 +7,6 @@ use std::{
 use async_trait::async_trait;
 use bytes::Bytes;
 
-use parking_lot::Mutex;
 use smol::{
     channel::{Receiver, Sender},
     future::FutureExt,
@@ -85,11 +84,6 @@ impl<P: Pipe> Pipe for AutoconnectPipe<P> {
     }
 }
 
-enum Inner<P: Pipe> {
-    Connected(Arc<P>),
-    Reconnecting(Arc<P>, Arc<Mutex<Option<Arc<P>>>>, Instant),
-}
-
 async fn autoconnect_loop<P: Pipe>(
     recv_up: Receiver<Bytes>,
     send_down: Sender<Bytes>,
@@ -142,7 +136,7 @@ async fn autoconnect_loop<P: Pipe>(
                     replace_task = Some((
                         recv,
                         smolscale::spawn(async move {
-                            smol::Timer::after(Duration::from_secs(5)).await;
+                            smol::Timer::after(Duration::from_secs(10)).await;
                             let start = Instant::now();
                             log::debug!("reconnecting {protocol}/{endpoint}...");
                             let replacement = recreate().await;
