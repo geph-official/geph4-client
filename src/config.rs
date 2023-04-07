@@ -14,6 +14,7 @@ use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddr};
 use structopt::StructOpt;
+use tmelcrypt::Ed25519SK;
 
 static INIT_CONFIG: OnceCell<Opt> = OnceCell::new();
 
@@ -288,11 +289,8 @@ pub fn get_cached_binder_client(
     // create a dbpath based on hashing the username together with the password
     let mut dbpath = auth_opt.credential_cache.clone();
 
-    match auth_opt.auth_kind {
+    let (quasi_user_id, credentials) = match auth_opt.auth_kind {
         AuthKind::Password { username, password } => {
-            println!("username: {username}");
-            println!("password: {password}");
-
             let quasi_user_id = hex::encode(
                 blake3::keyed_hash(
                     blake3::hash(password.as_bytes()).as_bytes(),
@@ -300,49 +298,84 @@ pub fn get_cached_binder_client(
                 )
                 .as_bytes(),
             );
-            dbpath.push(&quasi_user_id);
-            std::fs::create_dir_all(&dbpath)?;
-            let cbc = CachedBinderClient::new(
-                {
-                    let dbpath = dbpath.clone();
-                    move |key| {
-                        let mut dbpath = dbpath.clone();
-                        dbpath.push(format!("{}.json", key));
-                        let r = std::fs::read(dbpath).ok()?;
-                        let (tstamp, bts): (u64, Bytes) = bincode::deserialize(&r).ok()?;
-                        if tstamp > SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs()
-                            || CACHE_STALELOCK_COUNT.load(Ordering::SeqCst) > 0
-                        {
-                            Some(bts)
-                        } else {
-                            None
-                        }
-                    }
-                },
-                {
-                    let dbpath = dbpath.clone();
-                    move |k, v, expires| {
-                        let noviy_taymstamp = SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .unwrap()
-                            .as_secs()
-                            + expires.as_secs();
-                        let to_write =
-                            bincode::serialize(&(noviy_taymstamp, Bytes::copy_from_slice(v)))
-                                .unwrap();
-                        let mut dbpath = dbpath.clone();
-                        dbpath.push(format!("{}.json", k));
-                        let _ = std::fs::write(dbpath, to_write);
-                    }
-                },
-                common_opt.get_binder_client(),
+
+            (
+                quasi_user_id,
                 Credentials::Password {
                     username: username.into(),
                     password: password.into(),
                 },
-            );
-            Ok(cbc)
+            )
         }
-        _ => todo!(),
-    }
+        AuthKind::Signature { private_key } => {
+            let private_key = Ed25519SK::from_str(&private_key)?;
+            let public_key = private_key.to_public();
+
+            let quasi_user_id = hex::encode(
+                blake3::keyed_hash(
+                    blake3::hash(b"signature-auth").as_bytes(),
+                    &public_key.to_string().as_bytes(),
+                )
+                .as_bytes(),
+            );
+
+            let mut message = String::from("geph-auth-");
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)?
+                .as_secs()
+                .to_string();
+            message.push_str(&now);
+
+            let signature = private_key.sign(message.as_bytes());
+
+            (
+                quasi_user_id,
+                Credentials::Signature {
+                    pubkey: public_key,
+                    signature,
+                    message,
+                },
+            )
+        }
+    };
+
+    dbpath.push(&quasi_user_id);
+    std::fs::create_dir_all(&dbpath)?;
+    let cbc = CachedBinderClient::new(
+        {
+            let dbpath = dbpath.clone();
+            move |key| {
+                let mut dbpath = dbpath.clone();
+                dbpath.push(format!("{}.json", key));
+                let r = std::fs::read(dbpath).ok()?;
+                let (tstamp, bts): (u64, Bytes) = bincode::deserialize(&r).ok()?;
+                if tstamp > SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs()
+                    || CACHE_STALELOCK_COUNT.load(Ordering::SeqCst) > 0
+                {
+                    Some(bts)
+                } else {
+                    None
+                }
+            }
+        },
+        {
+            let dbpath = dbpath.clone();
+            move |k, v, expires| {
+                let noviy_taymstamp = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+                    + expires.as_secs();
+                let to_write =
+                    bincode::serialize(&(noviy_taymstamp, Bytes::copy_from_slice(v))).unwrap();
+                let mut dbpath = dbpath.clone();
+                dbpath.push(format!("{}.json", k));
+                let _ = std::fs::write(dbpath, to_write);
+            }
+        },
+        common_opt.get_binder_client(),
+        credentials,
+    );
+
+    Ok(cbc)
 }

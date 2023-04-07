@@ -191,7 +191,7 @@ version = "1.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf46fee83e5ccffc220104713af3292ff9bc7c64c7de289f66dae8e38d826833"
 dependencies = [
- "concurrent-queue 2.1.0",
+ "concurrent-queue 2.2.0",
  "event-listener",
  "futures-core",
 ]
@@ -221,13 +221,13 @@ dependencies = [
 
 [[package]]
 name = "async-executor"
-version = "1.5.0"
+version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17adb73da160dfb475c183343c8cccd80721ea5a605d3eb57125f0a7b7a92d0b"
+checksum = "6fa3dc5f2a8564f07759c008b9109dc0d39de92a88d5588b8a5036d286383afb"
 dependencies = [
  "async-lock",
  "async-task",
- "concurrent-queue 2.1.0",
+ "concurrent-queue 2.2.0",
  "fastrand",
  "futures-lite",
  "slab",
@@ -285,7 +285,7 @@ dependencies = [
  "async-lock",
  "autocfg 1.1.0",
  "cfg-if 1.0.0",
- "concurrent-queue 2.1.0",
+ "concurrent-queue 2.2.0",
  "futures-lite",
  "log 0.4.17",
  "parking",
@@ -340,9 +340,9 @@ dependencies = [
 
 [[package]]
 name = "async-process"
-version = "1.6.0"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6381ead98388605d0d9ff86371043b5aa922a3905824244de40dc263a14fcba4"
+checksum = "7a9d28b1d97e08915212e2e45310d47854eafa69600756fc735fb788f75199c9"
 dependencies = [
  "async-io",
  "async-lock",
@@ -351,9 +351,9 @@ dependencies = [
  "cfg-if 1.0.0",
  "event-listener",
  "futures-lite",
- "libc",
+ "rustix 0.37.7",
  "signal-hook",
- "windows-sys 0.42.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -632,9 +632,9 @@ dependencies = [
 
 [[package]]
 name = "blocking"
-version = "1.3.0"
+version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c67b173a56acffd6d2326fb7ab938ba0b00a71480e14902b2591c87bc5741e8"
+checksum = "77231a1c8f801696fc0123ec6150ce92cffb8e164a02afb9c8ddee0e9b65ad65"
 dependencies = [
  "async-channel",
  "async-lock",
@@ -642,6 +642,7 @@ dependencies = [
  "atomic-waker",
  "fastrand",
  "futures-lite",
+ "log 0.4.17",
 ]
 
 [[package]]
@@ -938,9 +939,9 @@ dependencies = [
 
 [[package]]
 name = "concurrent-queue"
-version = "2.1.0"
+version = "2.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c278839b831783b70278b14df4d45e1beb1aad306c07bb796637de9a0e323e8e"
+checksum = "62ec6771ecfa0762d24683ee5a32ad78487a3d3afdc0fb8cae19d2c5deb50b7c"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -1455,9 +1456,9 @@ dependencies = [
 
 [[package]]
 name = "easy-parallel"
-version = "3.2.0"
+version = "3.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6907e25393cdcc1f4f3f513d9aac1e840eb1cc341a0fccb01171f7d14d10b946"
+checksum = "c4604923390fcaf8b65a1e10b430cc34a3f87958a3b35ebea978b529d776e001"
 
 [[package]]
 name = "ed25519"
@@ -1803,9 +1804,9 @@ checksum = "4fff74096e71ed47f8e023204cfd0aa1289cd54ae5430a9523be060cdb849964"
 
 [[package]]
 name = "futures-lite"
-version = "1.12.0"
+version = "1.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7694489acd39452c77daa48516b894c153f192c3578d5a839b62c58099fcbf48"
+checksum = "49a9d51ce47660b1e808d3c990b4709f2f415d928835a17dfd16991515c46bce"
 dependencies = [
  "fastrand",
  "futures-core",
@@ -2034,6 +2035,7 @@ dependencies = [
  "tap",
  "thiserror",
  "tiny_http",
+ "tmelcrypt",
  "tokio",
  "tracing",
  "tun",
@@ -2046,7 +2048,7 @@ dependencies = [
 [[package]]
 name = "geph4-protocol"
 version = "0.14.2"
-source = "git+https://github.com/geph-official/geph4-protocol?branch=gibbername-exits#0d607880202caad6e32eafcf81ba652a958e7b67"
+source = "git+https://github.com/geph-official/geph4-protocol?branch=gibbername-exits#851af32467ddf29d06a6137c4aac356599044395"
 dependencies = [
  "acidjson",
  "anyhow",
@@ -2093,6 +2095,7 @@ dependencies = [
  "strsim 0.10.0",
  "tap",
  "thiserror",
+ "tmelcrypt",
  "x25519-dalek",
 ]
 
@@ -3039,7 +3042,7 @@ dependencies = [
  "async-compat",
  "async-trait",
  "bytes",
- "concurrent-queue 2.1.0",
+ "concurrent-queue 2.2.0",
  "http-body-util",
  "hyper 1.0.0-rc.3",
  "nanorpc",
@@ -3376,9 +3379,9 @@ checksum = "384e52fd8fbd4cbe3c317e8216260c21a0f9134de108cea8a4dd4e7e152c472d"
 
 [[package]]
 name = "parking"
-version = "2.0.0"
+version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "427c3892f9e783d91cc128285287e70a59e206ca452770ece88a76f7a3eddd72"
+checksum = "14f2252c834a40ed9bb5422029649578e63aa341ac401f74e719dd1afda8394e"
 
 [[package]]
 name = "parking_lot"
@@ -3598,18 +3601,18 @@ dependencies = [
 
 [[package]]
 name = "polling"
-version = "2.6.0"
+version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7e1f879b2998099c2d69ab9605d145d5b661195627eccc680002c4918a7fb6fa"
+checksum = "4be1c66a6add46bff50935c313dae30a5030cf8385c5206e8a95e9e9def974aa"
 dependencies = [
  "autocfg 1.1.0",
  "bitflags 1.3.2",
  "cfg-if 1.0.0",
- "concurrent-queue 2.1.0",
+ "concurrent-queue 2.2.0",
  "libc",
  "log 0.4.17",
  "pin-project-lite 0.2.9",
- "windows-sys 0.45.0",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
@@ -4774,7 +4777,7 @@ dependencies = [
  "async-task",
  "backtrace 0.3.67",
  "cache-padded",
- "concurrent-queue 2.1.0",
+ "concurrent-queue 2.2.0",
  "crossbeam-deque",
  "crossbeam-queue",
  "crossbeam-utils",
