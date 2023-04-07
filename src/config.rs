@@ -8,7 +8,7 @@ use std::{
 use crate::fronts::parse_fronts;
 use bytes::Bytes;
 use geph4_protocol::binder::client::{CachedBinderClient, DynBinderClient};
-use geph4_protocol::binder::protocol::BinderClient;
+use geph4_protocol::binder::protocol::{BinderClient, Credentials};
 use once_cell::sync::{Lazy, OnceCell};
 
 use serde::{Deserialize, Serialize};
@@ -211,13 +211,27 @@ pub struct AuthOpt {
     /// where to store Geph's credential cache. The default value is "auto", meaning a platform-specific path that Geph gets to pick.
     pub credential_cache: PathBuf,
 
-    #[structopt(long, default_value = "")]
-    /// username
-    pub username: String,
+    #[structopt(subcommand)]
+    pub auth_kind: AuthKind,
+}
 
-    #[structopt(long, default_value = "")]
-    /// password
-    pub password: String,
+#[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
+#[structopt(name = "auth_kind")]
+pub enum AuthKind {
+    Password {
+        #[structopt(long, default_value = "")]
+        /// username
+        username: String,
+
+        #[structopt(long, default_value = "")]
+        /// password
+        password: String,
+    },
+
+    Signature {
+        #[structopt(long, default_value = "")]
+        private_key: String,
+    },
 }
 
 fn str_to_path(src: &str) -> PathBuf {
@@ -230,7 +244,6 @@ fn str_to_path(src: &str) -> PathBuf {
         PathBuf::from(src)
     }
 }
-
 fn str_to_x25519_pk(src: &str) -> x25519_dalek::PublicKey {
     let raw_bts = hex::decode(src).unwrap();
     let raw_bts: [u8; 32] = raw_bts.as_slice().try_into().unwrap();
@@ -270,52 +283,66 @@ pub fn get_cached_binder_client(
     common_opt: &CommonOpt,
     auth_opt: &AuthOpt,
 ) -> anyhow::Result<CachedBinderClient> {
-    let mut dbpath = auth_opt.credential_cache.clone();
+    let auth_opt = auth_opt.clone();
+
     // create a dbpath based on hashing the username together with the password
-    let quasi_user_id = hex::encode(
-        blake3::keyed_hash(
-            blake3::hash(auth_opt.password.as_bytes()).as_bytes(),
-            auth_opt.username.as_bytes(),
-        )
-        .as_bytes(),
-    );
-    dbpath.push(&quasi_user_id);
-    std::fs::create_dir_all(&dbpath)?;
-    let cbc = CachedBinderClient::new(
-        {
-            let dbpath = dbpath.clone();
-            move |key| {
-                let mut dbpath = dbpath.clone();
-                dbpath.push(format!("{}.json", key));
-                let r = std::fs::read(dbpath).ok()?;
-                let (tstamp, bts): (u64, Bytes) = bincode::deserialize(&r).ok()?;
-                if tstamp > SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs()
-                    || CACHE_STALELOCK_COUNT.load(Ordering::SeqCst) > 0
+    let mut dbpath = auth_opt.credential_cache.clone();
+
+    match auth_opt.auth_kind {
+        AuthKind::Password { username, password } => {
+            println!("username: {username}");
+            println!("password: {password}");
+
+            let quasi_user_id = hex::encode(
+                blake3::keyed_hash(
+                    blake3::hash(password.as_bytes()).as_bytes(),
+                    username.as_bytes(),
+                )
+                .as_bytes(),
+            );
+            dbpath.push(&quasi_user_id);
+            std::fs::create_dir_all(&dbpath)?;
+            let cbc = CachedBinderClient::new(
                 {
-                    Some(bts)
-                } else {
-                    None
-                }
-            }
-        },
-        {
-            let dbpath = dbpath.clone();
-            move |k, v, expires| {
-                let noviy_taymstamp = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-                    + expires.as_secs();
-                let to_write =
-                    bincode::serialize(&(noviy_taymstamp, Bytes::copy_from_slice(v))).unwrap();
-                let mut dbpath = dbpath.clone();
-                dbpath.push(format!("{}.json", k));
-                let _ = std::fs::write(dbpath, to_write);
-            }
-        },
-        common_opt.get_binder_client(),
-        &auth_opt.username,
-        &auth_opt.password,
-    );
-    Ok(cbc)
+                    let dbpath = dbpath.clone();
+                    move |key| {
+                        let mut dbpath = dbpath.clone();
+                        dbpath.push(format!("{}.json", key));
+                        let r = std::fs::read(dbpath).ok()?;
+                        let (tstamp, bts): (u64, Bytes) = bincode::deserialize(&r).ok()?;
+                        if tstamp > SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs()
+                            || CACHE_STALELOCK_COUNT.load(Ordering::SeqCst) > 0
+                        {
+                            Some(bts)
+                        } else {
+                            None
+                        }
+                    }
+                },
+                {
+                    let dbpath = dbpath.clone();
+                    move |k, v, expires| {
+                        let noviy_taymstamp = SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_secs()
+                            + expires.as_secs();
+                        let to_write =
+                            bincode::serialize(&(noviy_taymstamp, Bytes::copy_from_slice(v)))
+                                .unwrap();
+                        let mut dbpath = dbpath.clone();
+                        dbpath.push(format!("{}.json", k));
+                        let _ = std::fs::write(dbpath, to_write);
+                    }
+                },
+                common_opt.get_binder_client(),
+                Credentials::Password {
+                    username: username.into(),
+                    password: password.into(),
+                },
+            );
+            Ok(cbc)
+        }
+        _ => todo!(),
+    }
 }
