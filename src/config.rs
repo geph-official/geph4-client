@@ -265,6 +265,16 @@ impl CacheStaleGuard {
     }
 }
 
+pub fn user_id_hex(auth_opt: &AuthOpt) -> String {
+    hex::encode(
+        blake3::keyed_hash(
+            blake3::hash(auth_opt.password.as_bytes()).as_bytes(),
+            auth_opt.username.as_bytes(),
+        )
+        .as_bytes(),
+    )
+}
+
 /// Given the common and authentication options, produce a binder client.
 pub fn get_cached_binder_client(
     common_opt: &CommonOpt,
@@ -272,14 +282,9 @@ pub fn get_cached_binder_client(
 ) -> anyhow::Result<CachedBinderClient> {
     let mut dbpath = auth_opt.credential_cache.clone();
     // create a dbpath based on hashing the username together with the password
-    let quasi_user_id = hex::encode(
-        blake3::keyed_hash(
-            blake3::hash(auth_opt.password.as_bytes()).as_bytes(),
-            auth_opt.username.as_bytes(),
-        )
-        .as_bytes(),
-    );
+    let quasi_user_id = user_id_hex(&auth_opt);
     dbpath.push(&quasi_user_id);
+
     std::fs::create_dir_all(&dbpath)?;
     let cbc = CachedBinderClient::new(
         {
