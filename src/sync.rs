@@ -41,8 +41,8 @@ pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
         p
     };
 
-    println!("called: next-state-dir: {:?}", &next_dbpath);
-    println!("orig-state: {:?}", &orig_dbpath);
+    //println!("called: next-state-dir: {:?}", &next_dbpath);
+    //println!("orig-state: {:?}", &orig_dbpath);
 
     // make sure next state is empty
     for _ in 0..100 {
