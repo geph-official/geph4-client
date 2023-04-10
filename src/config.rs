@@ -7,8 +7,11 @@ use std::{
 
 use crate::fronts::parse_fronts;
 use bytes::Bytes;
-use geph4_protocol::binder::client::{CachedBinderClient, DynBinderClient};
 use geph4_protocol::binder::protocol::{BinderClient, Credentials};
+use geph4_protocol::binder::{
+    client::{CachedBinderClient, DynBinderClient},
+    protocol::AUTH_MSG_PREFIX,
+};
 use once_cell::sync::{Lazy, OnceCell};
 
 use serde::{Deserialize, Serialize};
@@ -319,7 +322,7 @@ pub fn get_cached_binder_client(
                 .as_bytes(),
             );
 
-            let mut message = String::from("geph-auth-");
+            let mut message = String::from(AUTH_MSG_PREFIX);
             let now = SystemTime::now()
                 .duration_since(UNIX_EPOCH)?
                 .as_secs()
