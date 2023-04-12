@@ -104,7 +104,9 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                 let multiplex = multiplex.clone();
                 let sess_id = sess_id.clone();
                 smolscale::spawn(async move {
-                    add_bridges(&ctx, &sess_id, &multiplex, &bridges).await;
+                    add_bridges(&ctx, &sess_id, &multiplex, &bridges)
+                        .timeout(Duration::from_secs(30))
+                        .await;
                 })
                 .detach();
             }
@@ -281,12 +283,13 @@ async fn replace_dead(
         smol::Timer::after(Duration::from_secs(60)).await;
         loop {
             let fallible_part = async {
-                let bridges = ccache
+                let current_bridges = ccache
                     .get_bridges_v2(&selected_exit.hostname, false)
                     .await?;
                 let multiplex = weak_multiplex.upgrade().context("multiplex is dead")?;
-                if let Some(previous_bridges) = previous_bridges.replace(bridges.clone()) {
-                    let new_bridges = bridges
+                if let Some(previous_bridges) = previous_bridges.replace(current_bridges.clone()) {
+                    let not_in_old = current_bridges
+                        .clone()
                         .into_iter()
                         .filter(|br| {
                             !previous_bridges
@@ -294,7 +297,17 @@ async fn replace_dead(
                                 .any(|pipe| pipe.endpoint == br.endpoint)
                         })
                         .collect_vec();
-                    add_bridges(&ctx, &sess_id, &multiplex, &new_bridges).await;
+                    log::debug!("** {} bridges that are not in old **", not_in_old.len());
+                    // first remove anything that is not in the new bridges
+                    multiplex.retain(|pipe| {
+                        current_bridges
+                            .iter()
+                            .any(|np| np.endpoint.to_string() == pipe.peer_addr())
+                    });
+                    add_bridges(&ctx, &sess_id, &multiplex, &not_in_old)
+                        .timeout(Duration::from_secs(30))
+                        .await
+                        .context("add_bridges timed out")?;
                 }
                 anyhow::Ok(())
             };

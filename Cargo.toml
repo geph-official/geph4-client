@@ -18,7 +18,8 @@ crate-type = ["staticlib", "lib"]
  
 [dependencies]
 anyhow = "1.0.69"
-geph4-protocol= "0.14.0"
+ geph4-protocol= "0.14.0"
+#geph4-protocol = { git = "https://github.com/geph-official/geph4-protocol", branch = "gibbername-exits" }
 
 async-h1= "2.3.3"
 bincode = "1.3.3"
