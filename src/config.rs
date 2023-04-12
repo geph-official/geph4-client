@@ -1,4 +1,5 @@
 use std::{
+    fs,
     path::PathBuf,
     str::FromStr,
     sync::atomic::{AtomicUsize, Ordering},
@@ -234,7 +235,8 @@ pub enum AuthKind {
 
     Signature {
         #[structopt(long, default_value = "")]
-        private_key: String,
+        /// path to file containing private key
+        pk_path: String,
     },
 }
 
@@ -310,8 +312,9 @@ pub fn get_cached_binder_client(
                 },
             )
         }
-        AuthKind::Signature { private_key } => {
-            let private_key = Ed25519SK::from_str(&private_key)?;
+        AuthKind::Signature { pk_path } => {
+            let pk_str = fs::read_to_string(pk_path).expect("Unable to read file with given path");
+            let private_key = Ed25519SK::from_str(&pk_str)?;
             let public_key = private_key.to_public();
 
             let quasi_user_id = hex::encode(
