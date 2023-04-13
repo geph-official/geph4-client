@@ -4,7 +4,7 @@ use itertools::Itertools;
 use serde::{Deserialize, Serialize};
 use structopt::StructOpt;
 
-use crate::config::{get_cached_binder_client, AuthOpt, CommonOpt};
+use crate::config::{user_id_hex, get_cached_binder_client, AuthOpt, CommonOpt};
 
 #[derive(Debug, StructOpt, Deserialize, Serialize, Clone)]
 pub struct SyncOpt {
@@ -26,15 +26,36 @@ pub async fn main_sync(opt: SyncOpt) -> anyhow::Result<()> {
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
-    if opt.force {
-        // clear the entire directory, baby!
-        for _ in 0..100 {
-            let _ = std::fs::remove_dir_all(&opt.auth.credential_cache);
-        }
-        // anyhow::bail!("oh")
+    let orig_dbpath = opt.auth.credential_cache.clone();
+
+    // this will leave original status unmodified, and ONLY overwriting if success to get next state.
+    // so (in the case) if we unable to fetch network info from binder, this will make the program able to fallback to last one
+    let next_dbpath = {
+        let mut p = orig_dbpath.clone();
+        assert!(
+            // that do something like this: /tmp/cache -> /tmp/cache.next-state-123
+            p.set_extension(
+                format!("next-state-{}", fastrand::u32(..))
+            )
+        );
+        p
+    };
+
+    //println!("called: next-state-dir: {:?}", &next_dbpath);
+    //println!("orig-state: {:?}", &orig_dbpath);
+
+    // make sure next state is empty
+    for _ in 0..100 {
+        let _ = std::fs::remove_dir_all(&next_dbpath);
     }
 
-    let binder_client = get_cached_binder_client(&opt.common, &opt.auth)?;
+
+    let binder_client = get_cached_binder_client(&opt.common, &{
+        // create a temp context for binder_client only
+        let mut opt_auth = opt.auth.clone();
+        opt_auth.credential_cache = next_dbpath.clone();
+        opt_auth
+    })?;
     let master = binder_client.get_summary().await?;
     let user = binder_client.get_auth_token().await?.0;
     let exits = master
@@ -56,6 +77,29 @@ pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
             load: exit.load,
         })
         .collect_vec();
+
+    // in this case, we got latest network info from binder:
+    // so use ".next.state" to overwrite the real cache path.
+    let id = user_id_hex(&opt.auth);
+    std::fs::rename({
+        let mut p = orig_dbpath.clone();
+        p.push(&id);
+        for _ in 0..100 { let _ = std::fs::remove_dir_all(&p); }
+
+        let mut p = next_dbpath.clone();
+        p.push(&id);
+        p
+    }, {
+        let mut p = orig_dbpath.clone();
+        p.push(id);
+        p
+    })?;
+
+    // clean temp directory to avoid dropping junk to local disk
+    for _ in 0..100 {
+        let _ = std::fs::remove_dir_all(&next_dbpath);
+    }
+
     Ok(format!(
         "{{\"exits\": {}, \"user\": {}, \"version\": {:?}}}",
         serde_json::to_string(&exits)?,
