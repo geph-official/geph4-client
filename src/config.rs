@@ -316,6 +316,8 @@ pub fn get_cached_binder_client(
         common_opt.get_binder_client(),
         &auth_opt.username,
         &auth_opt.password,
+        common_opt.binder_mizaru_free.clone(),
+        common_opt.binder_mizaru_plus.clone(),
     );
     Ok(cbc)
 }
