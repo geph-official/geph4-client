@@ -1,5 +1,4 @@
 use std::{
-    fs,
     path::PathBuf,
     str::FromStr,
     sync::atomic::{AtomicUsize, Ordering},
@@ -295,14 +294,17 @@ pub fn get_cached_binder_client(
 
     let user_cache_key = hex::encode(blake3::hash(&auth_opt.auth_kind.stdcode()).as_bytes());
 
-    let get_creds = || match auth_opt.auth_kind {
+    let auth_kind = auth_opt.auth_kind;
+    let get_creds = move || match auth_kind.clone() {
         AuthKind::Password { username, password } => Credentials::Password {
             username: username.into(),
             password: password.into(),
         },
         AuthKind::Signature { sk_path } => {
-            let sk_raw = hex::decode(&std::fs::read(&sk_path)?)?;
-            let sk = Ed25519SK::from_bytes(&sk_raw).context("cannot decode secret key")?;
+            let sk_raw = hex::decode(std::fs::read(sk_path).unwrap()).unwrap();
+            let sk = Ed25519SK::from_bytes(&sk_raw)
+                .context("cannot decode secret key")
+                .unwrap();
             Credentials::new_keypair(&sk)
         }
     };
@@ -342,9 +344,9 @@ pub fn get_cached_binder_client(
             }
         },
         common_opt.get_binder_client(),
-        &auth_opt.username,
-        &auth_opt.password,
+        get_creds,
         common_opt.binder_mizaru_free.clone(),
+        common_opt.binder_mizaru_plus.clone(),
     );
 
     Ok(cbc)
