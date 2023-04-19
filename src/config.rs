@@ -342,7 +342,9 @@ pub fn get_cached_binder_client(
             }
         },
         common_opt.get_binder_client(),
-        get_creds,
+        &auth_opt.username,
+        &auth_opt.password,
+        common_opt.binder_mizaru_free.clone(),
     );
 
     Ok(cbc)

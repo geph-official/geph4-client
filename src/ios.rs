@@ -152,6 +152,7 @@ fn dispatch_ios(func: String, args: Vec<String>) -> anyhow::Result<String> {
 /// The pointers must be valid.
 pub unsafe extern "C" fn call_geph(
     func: *const c_char,
+    daemon_rpc_secret: *const c_char,
     opt: *const c_char,
     buffer: *mut c_char,
     buflen: c_int,
@@ -159,6 +160,10 @@ pub unsafe extern "C" fn call_geph(
     std::env::set_var("SMOLSCALE_USE_AGEX", "1");
     let inner = || {
         let func = unsafe { CStr::from_ptr(func) }.to_str()?.to_owned();
+        let daemon_rpc_secret = unsafe { CStr::from_ptr(daemon_rpc_secret) }
+            .to_str()?
+            .to_owned();
+        std::env::set_var("GEPH_RPC_KEY", daemon_rpc_secret);
         let opt = unsafe { CStr::from_ptr(opt) };
         log::debug!("func = {:?}, opt = {:?}", func, opt);
         let args: Vec<String> = serde_json::from_str(opt.to_str()?)?;
