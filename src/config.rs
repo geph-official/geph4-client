@@ -7,16 +7,15 @@ use std::{
 };
 
 use crate::fronts::parse_fronts;
+use anyhow::Context;
 use bytes::Bytes;
+use geph4_protocol::binder::client::{CachedBinderClient, DynBinderClient};
 use geph4_protocol::binder::protocol::{BinderClient, Credentials};
-use geph4_protocol::binder::{
-    client::{CachedBinderClient, DynBinderClient},
-    protocol::AUTH_MSG_PREFIX,
-};
 use once_cell::sync::{Lazy, OnceCell};
 
 use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddr};
+use stdcode::StdcodeSerializeExt;
 use structopt::StructOpt;
 use tmelcrypt::Ed25519SK;
 
@@ -236,7 +235,7 @@ pub enum AuthKind {
     Signature {
         #[structopt(long, default_value = "")]
         /// path to file containing private key
-        pk_path: String,
+        sk_path: String,
     },
 }
 
@@ -294,58 +293,21 @@ pub fn get_cached_binder_client(
     // create a dbpath based on hashing the username together with the password
     let mut dbpath = auth_opt.credential_cache.clone();
 
-    let (quasi_user_id, credentials) = match auth_opt.auth_kind {
-        AuthKind::Password { username, password } => {
-            let quasi_user_id = hex::encode(
-                blake3::keyed_hash(
-                    blake3::hash(password.as_bytes()).as_bytes(),
-                    username.as_bytes(),
-                )
-                .as_bytes(),
-            );
+    let user_cache_key = hex::encode(blake3::hash(&auth_opt.auth_kind.stdcode()).as_bytes());
 
-            (
-                quasi_user_id,
-                Credentials::Password {
-                    username: username.into(),
-                    password: password.into(),
-                },
-            )
-        }
-        AuthKind::Signature { pk_path } => {
-            let pk_str = fs::read_to_string(pk_path).expect("Unable to read file with given path");
-            let private_key = Ed25519SK::from_str(&pk_str)?;
-            let public_key = private_key.to_public();
-
-            let quasi_user_id = hex::encode(
-                blake3::keyed_hash(
-                    blake3::hash(b"signature-auth").as_bytes(),
-                    &public_key.to_string().as_bytes(),
-                )
-                .as_bytes(),
-            );
-
-            let mut message = String::from(AUTH_MSG_PREFIX);
-            let now = SystemTime::now()
-                .duration_since(UNIX_EPOCH)?
-                .as_secs()
-                .to_string();
-            message.push_str(&now);
-
-            let signature = private_key.sign(message.as_bytes());
-
-            (
-                quasi_user_id,
-                Credentials::Signature {
-                    pubkey: public_key,
-                    signature,
-                    message,
-                },
-            )
+    let get_creds = || match auth_opt.auth_kind {
+        AuthKind::Password { username, password } => Credentials::Password {
+            username: username.into(),
+            password: password.into(),
+        },
+        AuthKind::Signature { sk_path } => {
+            let sk_raw = hex::decode(&std::fs::read(&sk_path)?)?;
+            let sk = Ed25519SK::from_bytes(&sk_raw).context("cannot decode secret key")?;
+            Credentials::new_keypair(&sk)
         }
     };
 
-    dbpath.push(&quasi_user_id);
+    dbpath.push(&user_cache_key);
     std::fs::create_dir_all(&dbpath)?;
     let cbc = CachedBinderClient::new(
         {
@@ -380,7 +342,7 @@ pub fn get_cached_binder_client(
             }
         },
         common_opt.get_binder_client(),
-        credentials,
+        get_creds,
     );
 
     Ok(cbc)
