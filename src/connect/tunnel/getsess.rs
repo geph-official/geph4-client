@@ -78,25 +78,16 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                 anyhow::bail!("no sosistab2 routes to {}", selected_exit.hostname)
             }
             log::debug!("{} routes", bridges.len());
-            // The bridge descriptor is laid out in a rather weird format: the "sosistab_key" field is a bincode-encode tuple of the first-level cookie, and the end-to-end MuxPublic key.
-            // we assume we have at least one obfsudp key
-            let e2e_key: MuxPublic = {
-                let mut seen = None;
-                for bridge in bridges.iter() {
-                    if bridge.protocol == "sosistab2-obfsudp" {
-                        if let Ok(val) =
-                            bincode::deserialize::<(ObfsUdpPublic, MuxPublic)>(&bridge.sosistab_key)
-                        {
-                            seen = Some(val.1)
-                        }
-                    }
-                }
-                seen.context("cannot deduce the sosistab2 MuxPublic of this exit")?
-            };
+            let e2e_key =
+                MuxPublic::from_bytes(*selected_exit.legacy_direct_sosistab_pk.as_bytes());
             let multiplex = Arc::new(sosistab2::Multiplex::new(
                 MuxSecret::generate(),
                 Some(e2e_key),
             ));
+
+            // TODO: check w/ exit signature
+            let signing_key = selected_exit.signing_key;
+
             // add *all* the bridges!
             let sess_id = format!("sess-{}", rand::thread_rng().gen::<u128>());
             {
