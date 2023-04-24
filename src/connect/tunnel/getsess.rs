@@ -1,3 +1,5 @@
+use ed25519_dalek::ed25519::signature::Signature;
+use ed25519_dalek::{PublicKey, Verifier};
 use futures_util::{stream::FuturesUnordered, Future, StreamExt};
 use geph4_protocol::binder::protocol::{BridgeDescriptor, ExitDescriptor};
 
@@ -32,6 +34,30 @@ pub fn parse_independent_endpoint(endpoint: &str) -> anyhow::Result<(SocketAddr,
         .parse()
         .context("cannot parse host:port")?;
     Ok((server_addr, server_pk))
+}
+
+fn verify_exit_signatures(
+    bridges: &Vec<BridgeDescriptor>,
+    signing_key: PublicKey,
+) -> anyhow::Result<()> {
+    for b in bridges.iter() {
+        let signature = &Signature::from_bytes(b.exit_signature.as_ref())
+            .expect(format!("failed to deserialize exit signature for {:?}", b).as_str());
+        let bridge_msg = bincode::serialize(&b).unwrap();
+        match signing_key.verify(bridge_msg.as_slice(), signature) {
+            Ok(_) => {
+                log::info!("successfully verified bridge signature for {:?}", b);
+            }
+            Err(err) => {
+                anyhow::bail!(
+                    "failed to verify exit signature for {:?}, error: {:?}",
+                    b,
+                    err
+                )
+            }
+        }
+    }
+    Ok(())
 }
 
 pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2::Multiplex>> {
@@ -77,7 +103,9 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             if bridges.is_empty() {
                 anyhow::bail!("no sosistab2 routes to {}", selected_exit.hostname)
             }
+
             log::debug!("{} routes", bridges.len());
+
             let e2e_key =
                 MuxPublic::from_bytes(*selected_exit.legacy_direct_sosistab_pk.as_bytes());
             let multiplex = Arc::new(sosistab2::Multiplex::new(
@@ -85,8 +113,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                 Some(e2e_key),
             ));
 
-            // TODO: check w/ exit signature
-            let signing_key = selected_exit.signing_key;
+            verify_exit_signatures(&bridges, selected_exit.signing_key)?;
 
             // add *all* the bridges!
             let sess_id = format!("sess-{}", rand::thread_rng().gen::<u128>());
@@ -174,9 +201,9 @@ async fn add_bridges(
 }
 
 async fn connect_udp(desc: BridgeDescriptor, meta: String) -> anyhow::Result<ObfsUdpPipe> {
-    let keys: (ObfsUdpPublic, MuxPublic) =
-        bincode::deserialize(&desc.sosistab_key).context("cannot decode keys")?;
-    ObfsUdpPipe::connect(desc.endpoint, keys.0, &meta)
+    let cookie: ObfsUdpPublic =
+        bincode::deserialize(&desc.cookie).context("cannot decode pipe cookie")?;
+    ObfsUdpPipe::connect(desc.endpoint, cookie, &meta)
         .timeout(Duration::from_secs(10))
         .await
         .context("pipe connection timeout")?
@@ -195,7 +222,7 @@ async fn connect_tls(desc: BridgeDescriptor, meta: String) -> anyhow::Result<Obf
         desc.endpoint,
         &fake_domain,
         config,
-        desc.sosistab_key.clone(),
+        desc.cookie.clone(),
         &meta,
     )
     .timeout(Duration::from_secs(10))
