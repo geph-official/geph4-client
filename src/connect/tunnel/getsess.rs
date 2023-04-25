@@ -1,3 +1,4 @@
+use bytes::Bytes;
 use ed25519_dalek::ed25519::signature::Signature;
 use ed25519_dalek::{PublicKey, Verifier};
 use futures_util::{stream::FuturesUnordered, Future, StreamExt};
@@ -41,9 +42,13 @@ fn verify_exit_signatures(
     signing_key: PublicKey,
 ) -> anyhow::Result<()> {
     for b in bridges.iter() {
+        // The exit signed this bridge with an empty signature, so we have to verify with an empty signature
+        let mut clean_bridge = b.clone();
+        clean_bridge.exit_signature = Bytes::new();
+
         let signature = &Signature::from_bytes(b.exit_signature.as_ref())
             .expect(format!("failed to deserialize exit signature for {:?}", b).as_str());
-        let bridge_msg = bincode::serialize(&b).unwrap();
+        let bridge_msg = bincode::serialize(&clean_bridge).unwrap();
         match signing_key.verify(bridge_msg.as_slice(), signature) {
             Ok(_) => {
                 log::info!("successfully verified bridge signature for {:?}", b);
@@ -106,8 +111,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
 
             log::debug!("{} routes", bridges.len());
 
-            let e2e_key =
-                MuxPublic::from_bytes(*selected_exit.legacy_direct_sosistab_pk.as_bytes());
+            let e2e_key = MuxPublic::from_bytes(*selected_exit.sosistab_e2e_pk.as_bytes());
             let multiplex = Arc::new(sosistab2::Multiplex::new(
                 MuxSecret::generate(),
                 Some(e2e_key),
