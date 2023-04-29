@@ -38,7 +38,7 @@ pub fn parse_independent_endpoint(endpoint: &str) -> anyhow::Result<(SocketAddr,
 }
 
 fn verify_exit_signatures(
-    bridges: &Vec<BridgeDescriptor>,
+    bridges: &[BridgeDescriptor],
     signing_key: PublicKey,
 ) -> anyhow::Result<()> {
     for b in bridges.iter() {
@@ -47,16 +47,16 @@ fn verify_exit_signatures(
         clean_bridge.exit_signature = Bytes::new();
 
         let signature = &Signature::from_bytes(b.exit_signature.as_ref())
-            .expect(format!("failed to deserialize exit signature for {:?}", b).as_str());
+            .context("failed to deserialize exit signature")?;
         let bridge_msg = bincode::serialize(&clean_bridge).unwrap();
+        let bridge_log_id = format!("[{}] {}/{}", b.protocol, b.exit_hostname, b.protocol);
         match signing_key.verify(bridge_msg.as_slice(), signature) {
             Ok(_) => {
-                log::info!("successfully verified bridge signature for {:?}", b);
+                log::debug!("successfully verified bridge signature for {bridge_log_id}");
             }
             Err(err) => {
                 anyhow::bail!(
-                    "failed to verify exit signature for {:?}, error: {:?}",
-                    b,
+                    "failed to verify exit signature for {bridge_log_id}, error: {:?}",
                     err
                 )
             }
