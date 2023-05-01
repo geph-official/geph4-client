@@ -1,6 +1,6 @@
 [package]
 name = "geph4-client"
-version = "4.8.0"
+version = "4.8.0-beta.0"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2021"
 description="Geph client"
@@ -10,6 +10,7 @@ license="GPL-3.0-only"
 
 [patch.crates-io]
 # sosistab2={path="../sosistab2"}
+# geph4-protocol={path="../geph4-protocol"}
 
 [lib]
 name = "geph4client"

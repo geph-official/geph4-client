@@ -221,7 +221,7 @@ pub struct AuthOpt {
 #[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
 #[structopt(name = "auth_kind")]
 pub enum AuthKind {
-    Password {
+    AuthPassword {
         #[structopt(long, default_value = "")]
         /// username
         username: String,
@@ -231,7 +231,7 @@ pub enum AuthKind {
         password: String,
     },
 
-    Signature {
+    AuthKeypair {
         #[structopt(long, default_value = "")]
         /// path to file containing private key
         sk_path: String,
@@ -296,11 +296,11 @@ pub fn get_cached_binder_client(
 
     let auth_kind = auth_opt.auth_kind;
     let get_creds = move || match auth_kind.clone() {
-        AuthKind::Password { username, password } => Credentials::Password {
+        AuthKind::AuthPassword { username, password } => Credentials::Password {
             username: username.into(),
             password: password.into(),
         },
-        AuthKind::Signature { sk_path } => {
+        AuthKind::AuthKeypair { sk_path } => {
             let sk_raw = hex::decode(std::fs::read(sk_path).unwrap()).unwrap();
             let sk = Ed25519SK::from_bytes(&sk_raw)
                 .context("cannot decode secret key")
