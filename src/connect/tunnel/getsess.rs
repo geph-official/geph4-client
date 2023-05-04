@@ -49,7 +49,7 @@ fn verify_exit_signatures(
         let signature = &Signature::from_bytes(b.exit_signature.as_ref())
             .context("failed to deserialize exit signature")?;
         let bridge_msg = bincode::serialize(&clean_bridge).unwrap();
-        let bridge_log_id = format!("[{}] {}/{}", b.protocol, b.exit_hostname, b.protocol);
+        let bridge_log_id = format!("[{}] {}/{}", b.protocol, b.exit_hostname, b.endpoint);
         match signing_key.verify(bridge_msg.as_slice(), signature) {
             Ok(_) => {
                 log::debug!("successfully verified bridge signature for {bridge_log_id}");
