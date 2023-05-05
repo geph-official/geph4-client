@@ -1,7 +1,7 @@
 use std::{
     ops::Deref,
     sync::Arc,
-    time::{Duration, Instant},
+    time::{Duration, Instant, SystemTime},
 };
 
 use once_cell::sync::Lazy;
@@ -141,6 +141,32 @@ impl DebugPack {
         let backup = backup::Backup::new(&src, &mut dst)?;
         backup.run_to_completion(100, Duration::from_millis(1), None)?;
         Ok(())
+    }
+
+    pub async fn get_loglines(
+        &self,
+        after: SystemTime,
+    ) -> anyhow::Result<Vec<(SystemTime, String)>> {
+        let conn = self.conn.clone();
+        smol::unblock(move || {
+            let conn = conn.lock();
+            let mut stmt = conn.prepare("select cast(strftime('%s', timestamp) as integer), line from loglines where timestamp > datetime(?1, 'unixepoch')")?;
+            let after_timestamp = after.duration_since(SystemTime::UNIX_EPOCH)?.as_secs();
+            let rows = stmt.query_map(params![after_timestamp], |row| {
+                let timestamp: i64 = row.get(0)?;
+                let line: String = row.get(1)?;
+                let timestamp = SystemTime::UNIX_EPOCH + Duration::from_secs(timestamp as u64);
+                Ok((timestamp, line))
+            })?;
+
+            let mut results = Vec::new();
+            for row_result in rows {
+                results.push(row_result?);
+            }
+
+            Ok(results)
+        })
+        .await
     }
 }
 

@@ -11,6 +11,8 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use smol_str::SmolStr;
 
+use crate::debugpack::DEBUGPACK;
+
 use self::gatherer::StatsGatherer;
 pub use gatherer::StatItem;
 use nanorpc::nanorpc_derive;
@@ -83,6 +85,23 @@ pub trait StatsControlProtocol {
             }
             smol::Timer::after(Duration::from_millis(100)).await;
         }
+    }
+
+    /// Get all logs after the given Unix timestamp.
+    async fn get_logs(&self, timestamp: u64) -> Vec<(u64, String)> {
+        let logs = match DEBUGPACK
+            .get_loglines(UNIX_EPOCH + Duration::from_secs(timestamp))
+            .await
+        {
+            Ok(logs) => logs,
+            Err(error) => {
+                log::error!("Error occurred: {:?}", error);
+                return vec![];
+            }
+        };
+        logs.into_iter()
+            .map(|(time, line)| (time.duration_since(UNIX_EPOCH).unwrap().as_secs(), line))
+            .collect()
     }
 
     /// Obtains time-series statistics.
