@@ -44,7 +44,7 @@ impl RpcTransport for MultiRpcTransport {
         req: nanorpc::JrpcRequest,
     ) -> Result<nanorpc::JrpcResponse, Self::Error> {
         let mut backoff = ExponentialBackoffBuilder::new()
-            .with_max_elapsed_time(None)
+            .with_max_elapsed_time(Duration::from_secs(30).into())
             .build();
         loop {
             static IDX: Lazy<AtomicUsize> = Lazy::new(|| AtomicUsize::new(fastrand::usize(..)));

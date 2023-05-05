@@ -302,14 +302,24 @@ async fn replace_dead(
     let ccache = binder_tunnel_params.ccache.clone();
     let mut previous_bridges: Option<Vec<BridgeDescriptor>> = None;
     loop {
-        smol::Timer::after(Duration::from_secs(60)).await;
+        smol::Timer::after(Duration::from_secs(120)).await;
         loop {
             let fallible_part = async {
                 let current_bridges = ccache
                     .get_bridges_v2(&selected_exit.hostname, false)
                     .await?;
                 let multiplex = weak_multiplex.upgrade().context("multiplex is dead")?;
+                for (i, pipe) in multiplex.iter_pipes().enumerate() {
+                    log::debug!("pipe {i}: [{}] {}", pipe.protocol(), pipe.peer_addr());
+                }
+
                 if let Some(previous_bridges) = previous_bridges.replace(current_bridges.clone()) {
+                    // first remove anything that is not in the new bridges
+                    multiplex.retain(|pipe| {
+                        current_bridges
+                            .iter()
+                            .any(|np| np.endpoint.to_string() == pipe.peer_addr())
+                    });
                     let not_in_old = current_bridges
                         .clone()
                         .into_iter()
@@ -320,12 +330,6 @@ async fn replace_dead(
                         })
                         .collect_vec();
                     log::debug!("** {} bridges that are not in old **", not_in_old.len());
-                    // first remove anything that is not in the new bridges
-                    multiplex.retain(|pipe| {
-                        current_bridges
-                            .iter()
-                            .any(|np| np.endpoint.to_string() == pipe.peer_addr())
-                    });
                     add_bridges(&ctx, &sess_id, &multiplex, &not_in_old)
                         .timeout(Duration::from_secs(30))
                         .await

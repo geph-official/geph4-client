@@ -1,7 +1,7 @@
 use crate::config::CommonOpt;
 use geph4_protocol::binder::protocol::BinderClient;
-use nanorpc::JrpcRequest;
 use nanorpc::{DynRpcTransport, RpcTransport};
+use nanorpc::{JrpcError, JrpcRequest, JrpcResponse};
 use serde::{Deserialize, Serialize};
 use smol::io::AsyncBufReadExt;
 use std::sync::Arc;
@@ -32,12 +32,20 @@ pub async fn binderproxy_once(
 ) -> anyhow::Result<String> {
     log::info!("binder proxy once");
     let req: JrpcRequest = serde_json::from_str(&line)?;
-    loop {
-        match binder_client.0.call_raw(req.clone()).await {
-            Ok(res) => return Ok(serde_json::to_string(&res)?),
-            Err(err) => {
-                log::warn!("error: {:?}", err);
-            }
+    match binder_client.0.call_raw(req.clone()).await {
+        Ok(res) => Ok(serde_json::to_string(&res)?),
+        Err(err) => {
+            let err = JrpcResponse {
+                jsonrpc: "2.0".into(),
+                result: None,
+                error: Some(JrpcError {
+                    code: 502,
+                    message: err.to_string(),
+                    data: serde_json::Value::Null,
+                }),
+                id: req.id,
+            };
+            Ok(serde_json::to_string(&err)?)
         }
     }
 }
