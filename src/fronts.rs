@@ -67,6 +67,7 @@ impl RpcTransport for MultiRpcTransport {
                     log::warn!("binder front {idx} failed: {:?}", err);
                     IDX.fetch_add(1, Ordering::Relaxed);
                     if let Some(next) = backoff.next_backoff() {
+                        log::debug!("backing off for {:?}", next);
                         smol::Timer::after(next).await;
                     } else {
                         return Err(err);

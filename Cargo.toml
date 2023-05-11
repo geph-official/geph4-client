@@ -10,7 +10,7 @@ license="GPL-3.0-only"
 
 [patch.crates-io]
 # sosistab2={path="../sosistab2"}
-# geph4-protocol={path="../geph4-protocol"}
+melprot={path="../../Mel/melprot"}
 
 [lib]
 name = "geph4client"
@@ -116,6 +116,7 @@ io-lifetimes = "=1.0.5"
 rustix = "=0.36.9"
 tmelcrypt = "0.2.7"
 geph4-protocol = "0.16.0"
+melprot = "0.13.5"
 # tracing-subscriber = "0.2.15"
 
 [target.'cfg(unix)'.dependencies]

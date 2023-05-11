@@ -320,17 +320,21 @@ async fn replace_dead(
                             .iter()
                             .any(|np| np.endpoint.to_string() == pipe.peer_addr())
                     });
-                    let not_in_old = current_bridges
+                    let to_add = current_bridges
                         .clone()
                         .into_iter()
                         .filter(|br| {
                             !previous_bridges
                                 .iter()
                                 .any(|pipe| pipe.endpoint == br.endpoint)
+                                || br.is_direct
                         })
                         .collect_vec();
-                    log::debug!("** {} bridges that are not in old **", not_in_old.len());
-                    add_bridges(&ctx, &sess_id, &multiplex, &not_in_old)
+                    log::debug!(
+                        "** {} bridges that are either not in old, or direct **",
+                        to_add.len()
+                    );
+                    add_bridges(&ctx, &sess_id, &multiplex, &to_add)
                         .timeout(Duration::from_secs(30))
                         .await
                         .context("add_bridges timed out")?;

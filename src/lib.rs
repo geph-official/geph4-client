@@ -4,10 +4,12 @@ use std::{ops::Deref, sync::atomic::Ordering};
 mod config;
 mod fronts;
 
+mod melprot_cache;
 mod socks2http;
 
 use cap::Cap;
 use colored::Colorize;
+use melprot_cache::FlatFileStateCache;
 use once_cell::sync::Lazy;
 use pad::{Alignment, PadStr};
 
@@ -37,10 +39,10 @@ pub fn dispatch() -> anyhow::Result<()> {
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
     std::env::set_var("GEPH_VERSION", version);
-
+    config_melprot_cache()?;
     smolscale::block_on(async move {
         match CONFIG.deref() {
-            Opt::Connect(_opt) => {
+            Opt::Connect(_) => {
                 connect::start_main_connect();
                 smol::future::pending().await
             }
@@ -56,7 +58,8 @@ static LONGEST_LINE_EVER: AtomicUsize = AtomicUsize::new(0);
 
 fn config_logging() {
     if let Err(e) = env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("geph4client=debug,geph4_protocol=debug,warn"),
+        env_logger::Env::default()
+            .default_filter_or("geph4client=debug,geph4_protocol=debug,melprot=debug,warn"),
     )
     .format_timestamp_millis()
     .format(move |buf, record| {
@@ -88,4 +91,20 @@ fn config_logging() {
     {
         log::debug!("{}", e);
     }
+}
+
+fn config_melprot_cache() -> anyhow::Result<()> {
+    let path = match CONFIG.deref() {
+        Opt::Connect(opt) => &opt.common.melprot_cache_path,
+        Opt::BridgeTest(opt) => &opt.common.melprot_cache_path,
+        Opt::Sync(opt) => &opt.common.melprot_cache_path,
+        Opt::BinderProxy(opt) => &opt.common.melprot_cache_path,
+        Opt::Debugpack(opt) => &opt.common.melprot_cache_path,
+    };
+    if let Some(path) = path {
+        let cache = FlatFileStateCache::open(path)?;
+        melprot::set_global_cache(cache);
+        log::debug!("set up global melprot cache at {:?}", path);
+    }
+    Ok(())
 }
