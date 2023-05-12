@@ -128,7 +128,8 @@ async fn autoconnect_loop<P: Pipe>(
         match up_event.or(replace_event.or(dn_event)).await {
             Ok(Event::Up(up)) => {
                 current_pipe.send(up).await;
-                if replace_task.is_none() {
+                // on average, we need 5 packets to break through
+                if replace_task.is_none() && fastrand::f64() < 0.2 {
                     let (send, recv) = smol::channel::bounded(1);
                     let protocol = protocol.clone();
                     let endpoint = endpoint.clone();
@@ -136,7 +137,7 @@ async fn autoconnect_loop<P: Pipe>(
                     replace_task = Some((
                         recv,
                         smolscale::spawn(async move {
-                            smol::Timer::after(Duration::from_secs(10)).await;
+                            smol::Timer::after(Duration::from_secs(5)).await;
                             let start = Instant::now();
                             log::debug!("reconnecting {protocol}/{endpoint}...");
                             let replacement = recreate().await;

@@ -95,14 +95,15 @@ fn config_logging() {
 
 fn config_melprot_cache() -> anyhow::Result<()> {
     let path = match CONFIG.deref() {
-        Opt::Connect(opt) => &opt.common.melprot_cache_path,
-        Opt::BridgeTest(opt) => &opt.common.melprot_cache_path,
-        Opt::Sync(opt) => &opt.common.melprot_cache_path,
-        Opt::BinderProxy(opt) => &opt.common.melprot_cache_path,
-        Opt::Debugpack(opt) => &opt.common.melprot_cache_path,
+        Opt::Connect(opt) => Some(&opt.auth.credential_cache),
+        Opt::BridgeTest(opt) => Some(&opt.auth.credential_cache),
+        Opt::Sync(opt) => Some(&opt.auth.credential_cache),
+        Opt::BinderProxy(_) => None,
+        Opt::Debugpack(_) => None,
     };
-    if let Some(path) = path {
-        let cache = FlatFileStateCache::open(path)?;
+    if let Some(mut path) = path.cloned() {
+        path.push("melprot");
+        let cache = FlatFileStateCache::open(&path)?;
         melprot::set_global_cache(cache);
         log::debug!("set up global melprot cache at {:?}", path);
     }

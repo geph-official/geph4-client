@@ -189,9 +189,6 @@ pub struct CommonOpt {
 
     #[structopt(long, default_value = "file::memory:?cache=shared")]
     pub debugpack_path: String,
-
-    #[structopt(long)]
-    pub melprot_cache_path: Option<PathBuf>,
 }
 
 impl CommonOpt {

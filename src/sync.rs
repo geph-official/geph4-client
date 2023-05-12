@@ -2,6 +2,7 @@ use geph4_protocol::binder::protocol::Level;
 
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
+use stdcode::StdcodeSerializeExt;
 use structopt::StructOpt;
 
 use crate::config::{get_cached_binder_client, AuthOpt, CommonOpt};
@@ -27,11 +28,14 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
     if opt.force {
+        let mut dbpath = opt.auth.credential_cache.clone();
+
+        let user_cache_key = hex::encode(blake3::hash(&opt.auth.auth_kind.stdcode()).as_bytes());
+        dbpath.push(&user_cache_key);
         // clear the entire directory, baby!
-        for _ in 0..100 {
-            let _ = std::fs::remove_dir_all(&opt.auth.credential_cache);
+        for _ in 0..10 {
+            let _ = std::fs::remove_dir_all(&dbpath);
         }
-        // anyhow::bail!("oh")
     }
 
     let binder_client = get_cached_binder_client(&opt.common, &opt.auth)?;

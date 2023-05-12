@@ -12,11 +12,15 @@ use smol_str::SmolStr;
 use smol_timeout::TimeoutExt;
 use sosistab2::{Multiplex, MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
 
-use crate::connect::tunnel::{autoconnect::AutoconnectPipe, TunnelStatus};
+use crate::connect::tunnel::{autoconnect::AutoconnectPipe, delay::DelayPipe, TunnelStatus};
 
 use super::{BinderTunnelParams, EndpointSource, TunnelCtx};
 use anyhow::Context;
-use std::{collections::BTreeSet, net::SocketAddr, sync::Weak};
+use std::{
+    collections::{BTreeSet, HashSet},
+    net::SocketAddr,
+    sync::Weak,
+};
 
 use std::{convert::TryFrom, sync::Arc, time::Duration};
 
@@ -283,7 +287,10 @@ async fn connect_once(
         }
         "sosistab2-obfstls" => {
             let desc = desc.clone();
-            Box::new(autoconnect_with(move || connect_tls(desc.clone(), meta.clone())).await?)
+            Box::new(DelayPipe::new(
+                autoconnect_with(move || connect_tls(desc.clone(), meta.clone())).await?,
+                Duration::from_millis(20),
+            ))
         }
         other => {
             anyhow::bail!("unknown protocol {other}")
@@ -320,14 +327,17 @@ async fn replace_dead(
                             .iter()
                             .any(|np| np.endpoint.to_string() == pipe.peer_addr())
                     });
+                    let current_live_pipes: HashSet<String> =
+                        multiplex.iter_pipes().map(|p| p.peer_addr()).collect();
                     let to_add = current_bridges
                         .clone()
                         .into_iter()
                         .filter(|br| {
-                            !previous_bridges
-                                .iter()
-                                .any(|pipe| pipe.endpoint == br.endpoint)
-                                || br.is_direct
+                            !current_live_pipes.contains(&br.endpoint.to_string())
+                                && (!previous_bridges
+                                    .iter()
+                                    .any(|pipe| pipe.endpoint == br.endpoint)
+                                    || br.is_direct)
                         })
                         .collect_vec();
                     log::debug!(
