@@ -65,7 +65,7 @@ jobs:
   build_cross_linux:
     working_directory: ~/repo/
     machine:
-      image: ubuntu-2204:2022.04.1
+      image: ubuntu-2004
     resource_class: large
     steps:
       - checkout
