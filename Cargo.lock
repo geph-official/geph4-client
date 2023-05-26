@@ -1844,7 +1844,7 @@ dependencies = [
 
 [[package]]
 name = "geph4-client"
-version = "4.8.4"
+version = "4.8.5"
 dependencies = [
  "anyhow",
  "async-compat",
