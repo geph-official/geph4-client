@@ -50,8 +50,10 @@ pub fn dispatch() -> anyhow::Result<()> {
                 // If running on Windows and the service is running, start the service
                 #[cfg(target_os = "windows")]
                 {
-                    let daemon_path =
-                        which::which("geph_daemon").expect("Failed to find geph_daemon");
+                    let mut daemon_path = dirs::home_dir().unwrap();
+                    daemon_path.push(".cargo");
+                    daemon_path.push("bin");
+                    daemon_path.push("geph_daemon.exe");
                     log::info!("windows daemon path: {:?}", daemon_path);
                     let args = windows_service::extract_connect_args(&opt.auth);
                     windows_service::start_service(args)?;

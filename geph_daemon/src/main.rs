@@ -32,7 +32,6 @@ pub fn run() {
 }
 
 fn daemon_service_main(args: Vec<OsString>) {
-    // idea: spawn the daemon as from `Command::new()`?
     // Create a channel to be able to poll a stop event from the service worker loop.
     let (shutdown_tx, shutdown_rx) = mpsc::channel();
 

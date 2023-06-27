@@ -30,9 +30,11 @@ pub fn install_windows_service() -> anyhow::Result<()> {
     let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
     let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
 
-    let service_binary_path = ::std::env::current_exe()
-        .unwrap()
-        .with_file_name("geph_daemon.exe");
+    let mut service_binary_path = dirs::home_dir().unwrap();
+    service_binary_path.push(".cargo");
+    service_binary_path.push("bin");
+    service_binary_path.push("geph_daemon.exe");
+    log::info!("windows service binary path: {:?}", service_binary_path);
 
     let service_info = ServiceInfo {
         name: OsString::from(SERVICE_NAME),
@@ -57,9 +59,14 @@ pub fn install_windows_service() -> anyhow::Result<()> {
 pub fn start_service(args: Vec<&str>) -> anyhow::Result<()> {
     let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CONNECT;
     let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
-
     let service = service_manager.open_service(SERVICE_NAME, ServiceAccess::START)?;
-    service.start(args.as_slice())?;
 
+    println!("args: {:?}", args);
+    match service.start(args.as_slice()) {
+        Ok(_) => {}
+        Err(e) => {
+            log::info!("START ERROR: {:?}", e);
+        }
+    }
     Ok(())
 }
