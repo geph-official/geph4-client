@@ -1,3 +1,4 @@
+use std::fs::File;
 use std::{io::Write, sync::atomic::AtomicUsize};
 use std::{ops::Deref, sync::atomic::Ordering};
 
@@ -48,8 +49,28 @@ pub fn dispatch() -> anyhow::Result<()> {
                 // If running on Windows and the service is running, start the service
                 #[cfg(target_os = "windows")]
                 {
+                    // write the auth info into a file so we can access them in the Windows service later.
+                    let auth_json = serde_json::to_string(&opt.auth)?;
+                    let config_file_path = dirs::config_dir()
+                        .expect("Could not find configuration directory")
+                        .join("geph4-credentials/connect.json");
+                    // Create the parent directory if it doesn't exist
+                    let config_file_dir = config_file_path.parent().unwrap();
+                    if !config_file_dir.exists() {
+                        std::fs::create_dir_all(&config_file_dir)
+                            .expect("Failed to create config directory");
+                    }
+
+                    // Write the JSON string to the config file
+                    let mut file =
+                        File::create(&config_file_path).expect("Failed to create config file");
+                    file.write_all(auth_json.as_bytes())
+                        .expect("Failed to write to config file");
+
                     if windows_service::is_service_running()? {
-                        windows_service::start_service(opt)?;
+                        // main entry point into the Windows service for geph4-client connect.
+                        // this calls a blocking function `service_dispatcher::start` (do we want to run this in another thread?);
+                        windows_service::run();
                     } else {
                         connect::start_main_connect();
                     }
