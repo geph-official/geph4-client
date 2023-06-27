@@ -117,6 +117,7 @@ rustix = "=0.36.9"
 tmelcrypt = "0.2.7"
 geph4-protocol = "0.16.0"
 melprot = "0.13.5"
+windows-service = "0.6.0"
 # tracing-subscriber = "0.2.15"
 
 [target.'cfg(unix)'.dependencies]

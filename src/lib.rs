@@ -27,6 +27,7 @@ pub mod ios;
 mod debugpack;
 mod main_bridgetest;
 mod sync;
+mod windows_service;
 
 #[global_allocator]
 pub static ALLOCATOR: Cap<std::alloc::System> = Cap::new(std::alloc::System, usize::max_value());
@@ -42,8 +43,24 @@ pub fn dispatch() -> anyhow::Result<()> {
     config_melprot_cache()?;
     smolscale::block_on(async move {
         match CONFIG.deref() {
-            Opt::Connect(_) => {
-                connect::start_main_connect();
+            Opt::InstallWindowsService(_) => windows_service::install_windows_service(),
+            Opt::Connect(opt) => {
+                // If running on Windows and the service is running, start the service
+                #[cfg(target_os = "windows")]
+                {
+                    if windows_service::is_service_running()? {
+                        windows_service::start_service(opt)?;
+                    } else {
+                        connect::start_main_connect();
+                    }
+                }
+
+                // If not running on Windows, start the geph4-client process directly
+                #[cfg(not(target_os = "windows"))]
+                {
+                    connect::start_main_connect();
+                }
+
                 smol::future::pending().await
             }
             Opt::Sync(opt) => sync::main_sync(opt.clone()).await,
@@ -100,6 +117,7 @@ fn config_melprot_cache() -> anyhow::Result<()> {
         Opt::Sync(opt) => Some(&opt.auth.credential_cache),
         Opt::BinderProxy(_) => None,
         Opt::Debugpack(_) => None,
+        Opt::InstallWindowsService(_) => None,
     };
     if let Some(mut path) = path.cloned() {
         path.push("melprot");

@@ -48,6 +48,9 @@ pub static DEBUGPACK: Lazy<Arc<DebugPack>> = Lazy::new(|| {
         crate::config::Opt::Debugpack(dp_opt) => {
             DebugPack::new(&dp_opt.common.debugpack_path).unwrap()
         }
+        crate::config::Opt::InstallWindowsService(opt) => {
+            DebugPack::new(&opt.debugpack_path).unwrap()
+        }
     };
 
     Arc::new(dp)
