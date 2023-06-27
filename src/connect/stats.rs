@@ -162,6 +162,7 @@ pub trait StatsControlProtocol {
         smolscale::spawn(async {
             #[cfg(target_os = "windows")]
             {
+                // NOTE: This is not exactly correct, since it sends the stop signal before the process actually exits.
                 windows_service::stop_service()
                     .expect("failed to stop Geph Daemon Windows service");
             }
