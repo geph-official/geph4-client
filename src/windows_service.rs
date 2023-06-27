@@ -1,7 +1,10 @@
 use std::ffi::OsString;
 
 use windows_service::{
-    service::{ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceType},
+    service::{
+        ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceState,
+        ServiceType,
+    },
     service_manager::{ServiceManager, ServiceManagerAccess},
 };
 
@@ -61,12 +64,29 @@ pub fn start_service(args: Vec<&str>) -> anyhow::Result<()> {
     let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
     let service = service_manager.open_service(SERVICE_NAME, ServiceAccess::START)?;
 
-    println!("args: {:?}", args);
-    match service.start(args.as_slice()) {
-        Ok(_) => {}
-        Err(e) => {
-            log::info!("START ERROR: {:?}", e);
-        }
+    log::info!("Starting Geph Daemon Windows service...");
+    service.start(args.as_slice())?;
+    log::info!("Successfully started Geph Daemon Windows service!");
+    Ok(())
+}
+
+pub fn stop_service() -> anyhow::Result<()> {
+    let manager_access = ServiceManagerAccess::CONNECT;
+    let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
+
+    let service = service_manager.open_service(
+        SERVICE_NAME,
+        ServiceAccess::QUERY_STATUS | ServiceAccess::STOP,
+    )?;
+    let service_status = service.query_status()?;
+
+    if service_status.current_state != ServiceState::StopPending
+        && service_status.current_state != ServiceState::Stopped
+    {
+        log::info!("Stopping Geph Daemon Windows service...");
+        service.stop()?;
+        log::info!("Successfully stopped Geph Daemon Windows service!");
     }
+
     Ok(())
 }

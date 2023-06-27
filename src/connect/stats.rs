@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use smol_str::SmolStr;
 
-use crate::debugpack::DEBUGPACK;
+use crate::{debugpack::DEBUGPACK, windows_service};
 
 use self::gatherer::StatsGatherer;
 pub use gatherer::StatItem;
@@ -160,10 +160,17 @@ pub trait StatsControlProtocol {
     /// Turns off the daemon.
     async fn kill(&self) -> bool {
         smolscale::spawn(async {
+            #[cfg(target_os = "windows")]
+            {
+                windows_service::stop_service()
+                    .expect("failed to stop Geph Daemon Windows service");
+            }
+
             smol::Timer::after(Duration::from_millis(300)).await;
             std::process::exit(0);
         })
         .detach();
+
         true
     }
 }

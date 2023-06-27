@@ -4,7 +4,10 @@ use std::{
     io::{Read, Write},
     path::PathBuf,
     process::{Child, Command},
-    sync::{mpsc, Arc},
+    sync::{
+        mpsc::{self, TryRecvError},
+        Arc, Mutex,
+    },
     time::Duration,
 };
 use windows_service::{
@@ -47,7 +50,6 @@ fn daemon_service_main(args: Vec<OsString>) {
                 shutdown_tx.send(()).unwrap();
                 ServiceControlHandlerResult::NoError
             }
-
             _ => ServiceControlHandlerResult::NotImplemented,
         }
     };
@@ -57,36 +59,93 @@ fn daemon_service_main(args: Vec<OsString>) {
     let status_handle = service_control_handler::register(SERVICE_NAME, event_handler)
         .expect("could not register event handler for daemon");
 
-    // Tell the system that service is running
+    // Report to the SCM that the service is going to start
     status_handle
         .set_service_status(ServiceStatus {
             service_type: SERVICE_TYPE,
-            current_state: ServiceState::Running,
-            controls_accepted: ServiceControlAccept::STOP,
-            exit_code: ServiceExitCode::Win32(0),
-            checkpoint: 0,
-            wait_hint: Duration::default(),
-            process_id: None,
-        })
-        .expect("could not update daemon status to running");
-
-    // main logic here!! spawn the daemon
-    Command::new("geph4-client")
-        .arg("connect")
-        .args(args)
-        .spawn()
-        .expect("big F lul");
-
-    // Tell the system that service has stopped.
-    status_handle
-        .set_service_status(ServiceStatus {
-            service_type: SERVICE_TYPE,
-            current_state: ServiceState::Stopped,
+            current_state: ServiceState::StartPending,
             controls_accepted: ServiceControlAccept::empty(),
             exit_code: ServiceExitCode::Win32(0),
             checkpoint: 0,
             wait_hint: Duration::default(),
             process_id: None,
         })
-        .expect("could not update daemon status to stopped");
+        .expect("Failed to set service status");
+
+    let daemon_child = Command::new("geph4-client")
+        .arg("connect")
+        .args(args)
+        .spawn()
+        .expect("failed to start geph4-client connect process");
+    let shared_child = Arc::new(Mutex::new(daemon_child));
+
+    let shared_status_child = Arc::clone(&shared_child);
+    let status_handle = status_handle.clone();
+    std::thread::spawn(move || loop {
+        if let Ok(mut child) = shared_status_child.lock() {
+            match child.try_wait() {
+                Ok(Some(exit_status)) => {
+                    if exit_status.success() {
+                        status_handle
+                            .set_service_status(ServiceStatus {
+                                service_type: SERVICE_TYPE,
+                                current_state: ServiceState::Stopped,
+                                controls_accepted: ServiceControlAccept::empty(),
+                                exit_code: ServiceExitCode::Win32(0),
+                                checkpoint: 0,
+                                wait_hint: Duration::default(),
+                                process_id: None,
+                            })
+                            .expect("could not update daemon status to stopped");
+
+                        break;
+                    } else {
+                        status_handle
+                            .set_service_status(ServiceStatus {
+                                service_type: SERVICE_TYPE,
+                                current_state: ServiceState::Running,
+                                controls_accepted: ServiceControlAccept::STOP,
+                                exit_code: ServiceExitCode::Win32(0),
+                                checkpoint: 0,
+                                wait_hint: Duration::default(),
+                                process_id: None,
+                            })
+                            .expect("could not update daemon status to running");
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => panic!("Error waiting for child process: {}", e),
+            }
+
+            std::thread::sleep(Duration::from_secs(1));
+        }
+    });
+
+    let shared_signal_child = Arc::clone(&shared_child);
+    // spawn another loop to monitor shutdown signals
+    std::thread::spawn(move || loop {
+        if let Ok(mut child) = shared_signal_child.lock() {
+            match shutdown_rx.try_recv() {
+                Ok(_) | Err(TryRecvError::Disconnected) => {
+                    let _ = child.kill();
+
+                    status_handle
+                        .set_service_status(ServiceStatus {
+                            service_type: SERVICE_TYPE,
+                            current_state: ServiceState::Stopped,
+                            controls_accepted: ServiceControlAccept::STOP,
+                            exit_code: ServiceExitCode::Win32(0),
+                            checkpoint: 0,
+                            wait_hint: Duration::default(),
+                            process_id: None,
+                        })
+                        .expect("Failed to set service status");
+                    break;
+                }
+                Err(TryRecvError::Empty) => {}
+            }
+        }
+
+        std::thread::sleep(Duration::from_millis(500));
+    });
 }
