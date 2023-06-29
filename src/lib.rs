@@ -46,25 +46,9 @@ pub fn dispatch() -> anyhow::Result<()> {
     smolscale::block_on(async move {
         match CONFIG.deref() {
             Opt::InstallWindowsService(_) => windows_service::install_windows_service(),
-            Opt::Connect(opt) => {
-                // If running on Windows and the service is running, start the service
-                #[cfg(target_os = "windows")]
-                {
-                    let mut daemon_path = dirs::home_dir().unwrap();
-                    daemon_path.push(".cargo");
-                    daemon_path.push("bin");
-                    daemon_path.push("geph_daemon.exe");
-                    log::info!("windows daemon path: {:?}", daemon_path);
-                    let args = windows_service::extract_connect_args(&opt.auth);
-                    windows_service::start_service(args)?;
-                }
-
-                // If not running on Windows, start the geph4-client process directly
-                #[cfg(not(target_os = "windows"))]
-                {
-                    connect::start_main_connect();
-                }
-
+            Opt::Connect(_opt) => {
+                log::warn!("STARTING CONNECT PROCESS");
+                connect::start_main_connect();
                 smol::future::pending().await
             }
             Opt::Sync(opt) => sync::main_sync(opt.clone()).await,

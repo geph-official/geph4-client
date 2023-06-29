@@ -1,33 +1,23 @@
 use std::ffi::OsString;
 
+use winapi::shared::winerror::ERROR_SERVICE_DOES_NOT_EXIST;
 use windows_service::{
     service::{
         ServiceAccess, ServiceErrorControl, ServiceInfo, ServiceStartType, ServiceState,
         ServiceType,
     },
     service_manager::{ServiceManager, ServiceManagerAccess},
+    Error,
 };
-
-use crate::config::AuthOpt;
 
 const SERVICE_NAME: &str = "GephDaemon";
 
-pub fn extract_connect_args(auth: &AuthOpt) -> Vec<&str> {
-    match &auth.auth_kind {
-        crate::config::AuthKind::AuthPassword { username, password } => {
-            let mut args = Vec::new();
-            args.push("auth-password");
-            args.push("--username");
-            args.push(&username);
-            args.push("--password");
-            args.push(&password);
-            args
-        }
-        _ => unimplemented!(),
-    }
-}
-
 pub fn install_windows_service() -> anyhow::Result<()> {
+    if is_service_installed(SERVICE_NAME)? {
+        log::warn!("{} service is already installed", SERVICE_NAME);
+        return Ok(());
+    }
+
     log::info!("Installing Geph Daemon as a Windows service");
 
     let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CREATE_SERVICE;
@@ -59,17 +49,6 @@ pub fn install_windows_service() -> anyhow::Result<()> {
     Ok(())
 }
 
-pub fn start_service(args: Vec<&str>) -> anyhow::Result<()> {
-    let manager_access = ServiceManagerAccess::CONNECT | ServiceManagerAccess::CONNECT;
-    let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
-    let service = service_manager.open_service(SERVICE_NAME, ServiceAccess::START)?;
-
-    log::info!("Starting Geph Daemon Windows service...");
-    service.start(args.as_slice())?;
-    log::info!("Successfully started Geph Daemon Windows service!");
-    Ok(())
-}
-
 pub fn stop_service() -> anyhow::Result<()> {
     let manager_access = ServiceManagerAccess::CONNECT;
     let service_manager = ServiceManager::local_computer(None::<&str>, manager_access)?;
@@ -89,4 +68,26 @@ pub fn stop_service() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+pub fn is_service_installed(service_name: &str) -> anyhow::Result<bool> {
+    let manager = ServiceManager::local_computer(None::<&str>, ServiceManagerAccess::CONNECT)?;
+
+    match manager.open_service(service_name, ServiceAccess::QUERY_STATUS) {
+        Ok(_) => Ok(true),
+        Err(err) => {
+            match err {
+                Error::Winapi(code) => {
+                    if code.raw_os_error().unwrap() as u32 == ERROR_SERVICE_DOES_NOT_EXIST {
+                        log::debug!("Service does not exist");
+                        return Ok(false);
+                    } else {
+                        log::debug!("Error code: {}", code);
+                    }
+                }
+                _ => anyhow::bail!("unknown winapi error occured: {}", err),
+            }
+            return Ok(false);
+        }
+    }
 }
