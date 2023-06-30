@@ -1,4 +1,3 @@
-use log::LevelFilter;
 use serde::{Deserialize, Serialize};
 use std::{
     ffi::{OsStr, OsString},
@@ -24,17 +23,7 @@ use windows_service::{
     service_dispatcher,
 };
 
-mod credentials_manager;
-
 fn main() {
-    let log_file = File::create("log.txt").unwrap();
-
-    simplelog::WriteLogger::init(LevelFilter::Info, simplelog::Config::default(), log_file)
-        .unwrap();
-
-    // Now your log macros will write to the file
-    log::info!("This will be written to the file");
-
     run();
 }
 
@@ -56,7 +45,6 @@ pub fn run() {
 define_windows_service!(ffi_service_main, daemon_service_main);
 
 fn daemon_service_main(args: Vec<OsString>) {
-    log::info!("ARGUMENTS FOR DAEMON: {:?}", args);
     // Create a channel to be able to poll a stop event from the service worker loop.
     let (shutdown_tx, shutdown_rx) = mpsc::channel();
 
@@ -94,12 +82,17 @@ fn daemon_service_main(args: Vec<OsString>) {
         })
         .expect("could not update daemon status to running");
 
-    // read auth from credentials manager.
+    // read from auth file
+    let config_file_path = PathBuf::from("C:/ProgramData/geph4-credentials/auth.json");
+    let config_json = std::fs::read_to_string(&config_file_path).unwrap();
 
-    let auth: AuthKind;
+    // // Deserialize the JSON string into an AuthKind instance
+    let auth: AuthKind =
+        serde_json::from_str(&config_json).expect("Failed to deserialize config from JSON");
+
+    let mut cmd = Command::new("geph4-client");
     match auth {
         AuthKind::AuthPassword { username, password } => {
-            let mut cmd = Command::new("geph4-client");
             cmd.arg("connect");
             cmd.arg("auth-password");
             cmd.arg("--username");
@@ -107,99 +100,69 @@ fn daemon_service_main(args: Vec<OsString>) {
             cmd.arg("--password");
             cmd.arg(password.as_str());
             cmd.creation_flags(0x08000000);
-
-            let mut child = cmd.spawn().expect("f");
-            log::info!("spawned the geph4-client process!!");
-
-            let _ = child.wait();
         }
         _ => unimplemented!(),
     }
+    let mut child = cmd.spawn().expect("f");
 
-    // let mut cmd = Command::new("geph4-client");
-    // cmd.arg("connect");
-    // cmd.arg("auth-password");
-    // cmd.arg("--username");
-    // cmd.arg("public5");
-    // cmd.arg("--password");
-    // cmd.arg("public5");
-    // cmd.creation_flags(0x08000000);
+    let _ = child.wait();
 
-    // let mut child = cmd.spawn().expect("f");
+    let shared_child = Arc::new(Mutex::new(child));
 
-    // let mut e = String::new();
-    // child.stderr.take().unwrap().read_to_string(&mut e).unwrap();
-    // let mut s = String::new();
-    // child.stdout.take().unwrap().read_to_string(&mut s).unwrap();
-    // let _ = child.wait();
+    let shared_status_child = Arc::clone(&shared_child);
+    let status_handle = status_handle.clone();
+    std::thread::spawn(move || loop {
+        if let Ok(mut child) = shared_status_child.lock() {
+            match child.try_wait() {
+                Ok(Some(exit_status)) => {
+                    if exit_status.success() {
+                        status_handle
+                            .set_service_status(ServiceStatus {
+                                service_type: SERVICE_TYPE,
+                                current_state: ServiceState::Stopped,
+                                controls_accepted: ServiceControlAccept::empty(),
+                                exit_code: ServiceExitCode::Win32(0),
+                                checkpoint: 0,
+                                wait_hint: Duration::default(),
+                                process_id: None,
+                            })
+                            .expect("could not update daemon status to stopped");
+                        break;
+                    }
+                }
+                Ok(None) => {}
+                Err(e) => panic!("Error waiting for child process: {}", e),
+            }
 
-    // let shared_child = Arc::new(Mutex::new(daemon_child));
+            std::thread::sleep(Duration::from_secs(1));
+        }
+    });
 
-    // let shared_status_child = Arc::clone(&shared_child);
-    // let status_handle = status_handle.clone();
-    // std::thread::spawn(move || loop {
-    //     if let Ok(mut child) = shared_status_child.lock() {
-    //         match child.try_wait() {
-    //             Ok(Some(exit_status)) => {
-    //                 log::info!("INside exit status 1111");
-    //                 if exit_status.success() {
-    //                     log::info!("INside exit status 222222");
-    //                     status_handle
-    //                         .set_service_status(ServiceStatus {
-    //                             service_type: SERVICE_TYPE,
-    //                             current_state: ServiceState::Stopped,
-    //                             controls_accepted: ServiceControlAccept::empty(),
-    //                             exit_code: ServiceExitCode::Win32(0),
-    //                             checkpoint: 0,
-    //                             wait_hint: Duration::default(),
-    //                             process_id: None,
-    //                         })
-    //                         .expect("could not update daemon status to stopped");
-    //                     break;
-    //                 }
-    //             }
-    //             Ok(None) => {
-    //                 log::info!("GEPH4 client is still running!!!!");
-    //             }
-    //             Err(e) => panic!("Error waiting for child process: {}", e),
-    //         }
+    let shared_signal_child = Arc::clone(&shared_child);
+    // spawn another loop to monitor shutdown signals
+    std::thread::spawn(move || loop {
+        if let Ok(mut child) = shared_signal_child.lock() {
+            match shutdown_rx.try_recv() {
+                Ok(_) | Err(TryRecvError::Disconnected) => {
+                    let _ = child.kill();
 
-    //         std::thread::sleep(Duration::from_secs(1));
-    //     }
-    // });
+                    status_handle
+                        .set_service_status(ServiceStatus {
+                            service_type: SERVICE_TYPE,
+                            current_state: ServiceState::Stopped,
+                            controls_accepted: ServiceControlAccept::STOP,
+                            exit_code: ServiceExitCode::Win32(0),
+                            checkpoint: 0,
+                            wait_hint: Duration::default(),
+                            process_id: None,
+                        })
+                        .expect("Failed to set service status");
+                    break;
+                }
+                Err(TryRecvError::Empty) => {}
+            }
+        }
 
-    // let shared_signal_child = Arc::clone(&shared_child);
-    // // spawn another loop to monitor shutdown signals
-    // std::thread::spawn(move || loop {
-    //     if let Ok(mut child) = shared_signal_child.lock() {
-    //         match shutdown_rx.try_recv() {
-    //             Ok(_) | Err(TryRecvError::Disconnected) => {
-    //                 let _ = child.kill();
-
-    //                 status_handle
-    //                     .set_service_status(ServiceStatus {
-    //                         service_type: SERVICE_TYPE,
-    //                         current_state: ServiceState::Stopped,
-    //                         controls_accepted: ServiceControlAccept::STOP,
-    //                         exit_code: ServiceExitCode::Win32(0),
-    //                         checkpoint: 0,
-    //                         wait_hint: Duration::default(),
-    //                         process_id: None,
-    //                     })
-    //                     .expect("Failed to set service status");
-    //                 break;
-    //             }
-    //             Err(TryRecvError::Empty) => {}
-    //         }
-    //     }
-
-    //     std::thread::sleep(Duration::from_millis(500));
-    // });
-
-    // // wait for the child process to finish
-    // let _ = shared_child
-    //     .lock()
-    //     .unwrap()
-    //     .wait()
-    //     .expect("error while waiting for daemon child to finish");
+        std::thread::sleep(Duration::from_millis(500));
+    });
 }
