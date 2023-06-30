@@ -27,6 +27,7 @@ pub mod ios;
 mod debugpack;
 mod main_bridgetest;
 mod sync;
+mod windows_service;
 
 #[global_allocator]
 pub static ALLOCATOR: Cap<std::alloc::System> = Cap::new(std::alloc::System, usize::max_value());
@@ -42,7 +43,8 @@ pub fn dispatch() -> anyhow::Result<()> {
     config_melprot_cache()?;
     smolscale::block_on(async move {
         match CONFIG.deref() {
-            Opt::Connect(_) => {
+            Opt::Connect(_opt) => {
+                log::warn!("STARTING CONNECT PROCESS");
                 connect::start_main_connect();
                 smol::future::pending().await
             }
