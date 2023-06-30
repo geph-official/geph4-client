@@ -27,6 +27,8 @@ pub mod ios;
 mod debugpack;
 mod main_bridgetest;
 mod sync;
+
+#[cfg(target_os = "windows")]
 mod windows_service;
 
 #[global_allocator]

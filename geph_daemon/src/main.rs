@@ -99,16 +99,11 @@ fn daemon_service_main(args: Vec<OsString>) {
     let config_json = std::fs::read_to_string(&config_file_path).unwrap();
 
     // // Deserialize the JSON string into an AuthKind instance
-    let config: DaemonConfig =
+    let args: Vec<String> =
         serde_json::from_str(&config_json).expect("Failed to deserialize config from JSON");
 
     let mut cmd = Command::new("geph4-client");
-    cmd.arg("connect");
-    cmd.arg("auth-password");
-    cmd.arg("--username");
-    cmd.arg(config.username);
-    cmd.arg("--password");
-    cmd.arg(config.password);
+    cmd.args(&args);
     cmd.creation_flags(0x08000000);
     let mut child = cmd.spawn().expect("f");
 
