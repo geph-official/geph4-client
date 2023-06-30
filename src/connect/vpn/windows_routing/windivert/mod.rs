@@ -109,7 +109,7 @@ impl Handle {
         for p in packets {
             concatenated.extend_from_slice(p.as_ref());
         }
-        let mut addrs: Vec<_> = (0..packet_count).map(|_| addr.clone()).collect();
+        let addrs: Vec<_> = (0..packet_count).map(|_| addr).collect();
         let mut send_len = 0;
         let maybe_injected = unsafe {
             bindings::WinDivertSendEx(

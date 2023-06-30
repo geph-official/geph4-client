@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use itertools::Itertools;
 use smol_str::SmolStr;
 
-use crate::{debugpack::DEBUGPACK, windows_service};
+use crate::{debugpack::DEBUGPACK};
 
 use self::gatherer::StatsGatherer;
 pub use gatherer::StatItem;

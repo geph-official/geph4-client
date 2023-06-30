@@ -87,7 +87,7 @@ pub fn is_service_installed(service_name: &str) -> anyhow::Result<bool> {
                 }
                 _ => anyhow::bail!("unknown winapi error occured: {}", err),
             }
-            return Ok(false);
+            Ok(false)
         }
     }
 }
