@@ -1,5 +1,3 @@
-
-
 use std::{io::Write, sync::atomic::AtomicUsize};
 use std::{ops::Deref, sync::atomic::Ordering};
 
@@ -45,7 +43,6 @@ pub fn dispatch() -> anyhow::Result<()> {
     config_melprot_cache()?;
     smolscale::block_on(async move {
         match CONFIG.deref() {
-            Opt::InstallWindowsService(_) => windows_service::install_windows_service(),
             Opt::Connect(_opt) => {
                 log::warn!("STARTING CONNECT PROCESS");
                 connect::start_main_connect();
@@ -105,7 +102,6 @@ fn config_melprot_cache() -> anyhow::Result<()> {
         Opt::Sync(opt) => Some(&opt.auth.credential_cache),
         Opt::BinderProxy(_) => None,
         Opt::Debugpack(_) => None,
-        Opt::InstallWindowsService(_) => None,
     };
     if let Some(mut path) = path.cloned() {
         path.push("melprot");

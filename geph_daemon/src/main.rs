@@ -37,6 +37,19 @@ pub enum AuthKind {
     AuthKeypair { sk_path: String },
 }
 
+/// Configuration for starting the daemon
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DaemonConfig {
+    pub username: String,
+    pub password: String,
+    pub exit_hostname: String,
+    pub force_bridges: bool,
+    pub vpn_mode: bool,
+    pub prc_whitelist: bool,
+    pub listen_all: bool,
+    pub force_protocol: Option<String>,
+}
+
 pub fn run() {
     service_dispatcher::start(SERVICE_NAME, ffi_service_main)
         .expect("Failed to start Windows service for GephDaemon");
@@ -82,27 +95,21 @@ fn daemon_service_main(args: Vec<OsString>) {
         })
         .expect("could not update daemon status to running");
 
-    // read from auth file
-    let config_file_path = PathBuf::from("C:/ProgramData/geph4-credentials/auth.json");
+    let config_file_path = PathBuf::from("C:/ProgramData/geph4-credentials/config.json");
     let config_json = std::fs::read_to_string(&config_file_path).unwrap();
 
     // // Deserialize the JSON string into an AuthKind instance
-    let auth: AuthKind =
+    let config: DaemonConfig =
         serde_json::from_str(&config_json).expect("Failed to deserialize config from JSON");
 
     let mut cmd = Command::new("geph4-client");
-    match auth {
-        AuthKind::AuthPassword { username, password } => {
-            cmd.arg("connect");
-            cmd.arg("auth-password");
-            cmd.arg("--username");
-            cmd.arg(username.as_str());
-            cmd.arg("--password");
-            cmd.arg(password.as_str());
-            cmd.creation_flags(0x08000000);
-        }
-        _ => unimplemented!(),
-    }
+    cmd.arg("connect");
+    cmd.arg("auth-password");
+    cmd.arg("--username");
+    cmd.arg(config.username);
+    cmd.arg("--password");
+    cmd.arg(config.password);
+    cmd.creation_flags(0x08000000);
     let mut child = cmd.spawn().expect("f");
 
     let _ = child.wait();
