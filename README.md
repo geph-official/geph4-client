@@ -18,7 +18,7 @@ geph4-client -h
 Below is how each subcommand works.
 
 ## 1. [`connect`](https://github.com/geph-official/geph4-client/blob/master/src/connect.rs)
-Given user credentials and other optional inputs, `connect` establishes a network connection to a Geph exit server. If that exit server is blocked from the client, `connect` proxyies the connection through dynamical [bridge servers](https://github.com/geph-official/bridge-phalanx) that are not blocked in the region.
+Given user credentials and other optional inputs, `connect` establishes a network connection to a Geph exit server. If that exit server is blocked from the client, `connect` proxies the connection through dynamical [bridge servers](https://github.com/geph-official/bridge-phalanx) that are not blocked in the region.
 
 A typical `connect` command might look like:
 
