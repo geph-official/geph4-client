@@ -8,14 +8,17 @@ use itertools::Itertools;
 use native_tls::TlsConnector;
 use rand::Rng;
 use regex::Regex;
+use smol::channel::Sender;
 use smol_str::SmolStr;
 use smol_timeout::TimeoutExt;
 use sosistab2::{Multiplex, MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
 
 use crate::connect::tunnel::{autoconnect::AutoconnectPipe, delay::DelayPipe, TunnelStatus};
+use crate::metrics::BridgeMetrics;
 
 use super::{BinderTunnelParams, EndpointSource, TunnelCtx};
 use anyhow::Context;
+use std::time::Instant;
 use std::{
     collections::{BTreeSet, HashSet},
     net::SocketAddr,
@@ -69,7 +72,9 @@ fn verify_exit_signatures(
     Ok(())
 }
 
-pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2::Multiplex>> {
+pub(crate) async fn get_session(
+    ctx: TunnelCtx,
+) -> anyhow::Result<(Arc<sosistab2::Multiplex>, Vec<BridgeMetrics>)> {
     match &ctx.endpoint {
         EndpointSource::Independent { endpoint } => {
             let (addr, raw_key) = parse_independent_endpoint(endpoint)?;
@@ -95,7 +100,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                 });
                 mplex.add_pipe(pipe);
             }
-            Ok(Arc::new(mplex))
+            Ok((Arc::new(mplex), vec![]))
         }
         EndpointSource::Binder(binder_tunnel_params) => {
             let selected_exit = binder_tunnel_params
@@ -123,6 +128,8 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
 
             verify_exit_signatures(&bridges, selected_exit.signing_key)?;
 
+            let (metrics_send, metrics_recv) = smol::channel::bounded(1000);
+
             // add *all* the bridges!
             let sess_id = format!("sess-{}", rand::thread_rng().gen::<u128>());
             {
@@ -130,12 +137,14 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                 let multiplex = multiplex.clone();
                 let sess_id = sess_id.clone();
                 smolscale::spawn(async move {
-                    add_bridges(&ctx, &sess_id, &multiplex, &bridges)
+                    add_bridges(&ctx, &sess_id, &multiplex, &bridges, metrics_send)
                         .timeout(Duration::from_secs(30))
                         .await;
                 })
                 .detach();
             }
+
+            let bridge_metrics = metrics_recv.collect::<Vec<BridgeMetrics>>().await;
 
             // weak here to prevent a reference cycle!
             let weak_multiplex = Arc::downgrade(&multiplex);
@@ -147,62 +156,109 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                 weak_multiplex,
             )));
 
-            Ok(multiplex)
+            Ok((multiplex, bridge_metrics))
         }
     }
 }
+
+const NUM_PIPES_PER_PROTOCOL: usize = 3;
 
 async fn add_bridges(
     ctx: &TunnelCtx,
     sess_id: &str,
     mplex: &Multiplex,
     bridges: &[BridgeDescriptor],
+    metrics_send: Sender<BridgeMetrics>,
 ) {
     // we pick only the 3 best out of every protocol
     let protocols: BTreeSet<SmolStr> = bridges.iter().map(|b| b.protocol.clone()).collect();
     let mut outer = FuturesUnordered::new();
     for protocol in protocols {
+        let protocol = protocol.clone();
         let bridges = bridges
             .iter()
             .filter(|s| s.protocol == protocol)
+            .cloned()
             .collect_vec();
-        outer.push(async {
-            let uo = FuturesUnordered::new();
-            for bridge in bridges {
-                if let EndpointSource::Binder(params) = &ctx.endpoint {
-                    if params.use_bridges && bridge.is_direct {
-                        continue;
-                    }
-                    if let Some(regex) = &params.force_protocol {
-                        let compiled = Regex::new(regex).expect("invalid protocol force");
-                        if !compiled.is_match(&bridge.protocol) {
-                            continue;
+
+        let metrics_send = metrics_send.clone();
+        outer.push(async move {
+            let all_futures: Vec<_> = bridges
+                .iter()
+                .map(|bridge| {
+                    let bridge = bridge.clone(); // Clone `bridge` here
+                    let ctx = ctx.clone();
+                    let sess_id = sess_id.to_string();
+                    let metrics_send = metrics_send.clone();
+                    if let EndpointSource::Binder(params) = &ctx.endpoint {
+                        if params.use_bridges && bridge.is_direct {
+                            return None;
                         }
-                    }
-                }
-                uo.push(async {
-                    for _ in 0..10 {
-                        match connect_once(ctx.clone(), bridge.clone(), sess_id).await {
-                            Ok(pipe) => {
-                                log::debug!("add pipe {} / {}", pipe.protocol(), pipe.peer_addr());
-                                mplex.add_pipe(pipe);
-                                return;
-                            }
-                            Err(err) => {
-                                log::warn!(
-                                    "pipe creation failed for {} ({}): {:?}",
-                                    bridge.endpoint,
-                                    bridge.protocol,
-                                    err
-                                );
-                                smol::Timer::after(Duration::from_secs(1)).await;
+                        if let Some(regex) = &params.force_protocol {
+                            let compiled = Regex::new(regex).expect("invalid protocol force");
+                            if !compiled.is_match(&bridge.protocol) {
+                                return None;
                             }
                         }
                     }
+                    let protocol = protocol.clone();
+                    Some(async move {
+                        for _ in 0..10 {
+                            let mut bridge_metrics = BridgeMetrics {
+                                address: bridge.endpoint,
+                                protocol: protocol.clone().into(),
+                                pipe_latency: None,
+                            };
+                            match connect_once(ctx.clone(), bridge.clone(), &sess_id).await {
+                                Ok((pipe, latency)) => {
+                                    bridge_metrics.pipe_latency = Some(latency);
+                                    let _ = metrics_send.send(bridge_metrics).await;
+                                    return Some(pipe);
+                                }
+                                Err(err) => {
+                                    log::warn!(
+                                        "pipe creation failed for {} ({}): {:?}",
+                                        bridge.endpoint,
+                                        bridge.protocol,
+                                        err
+                                    );
+
+                                    let _ = metrics_send.send(bridge_metrics).await;
+                                    smol::Timer::after(Duration::from_secs(1)).await;
+                                }
+                            }
+                        }
+                        None
+                    })
                 })
+                .filter_map(|x| x)
+                .collect();
+
+            let mut chosen_futures = vec![];
+            let mut remaining_futures = vec![];
+            for (i, future) in all_futures.into_iter().enumerate() {
+                if i < NUM_PIPES_PER_PROTOCOL {
+                    chosen_futures.push(future);
+                } else {
+                    remaining_futures.push(future);
+                }
             }
-            let mut stream = uo.take(3);
-            while stream.next().await.is_some() {}
+
+            let mut chosen_tasks = FuturesUnordered::from_iter(chosen_futures);
+            while let Some(pipe) = chosen_tasks.next().await {
+                if let Some(pipe) = pipe {
+                    log::debug!("adding pipe {} @ {}", pipe.protocol(), pipe.peer_addr());
+                    mplex.add_pipe(pipe);
+                }
+            }
+
+            // Drain the remaining futures in the background for metrics.
+            // They aren't added to the multiplex.
+            smolscale::spawn(async move {
+                let mut remaining = FuturesUnordered::from_iter(remaining_futures);
+                while remaining.next().await.is_some() {}
+            })
+            .detach();
         });
     }
     while outer.next().await.is_some() {}
@@ -268,12 +324,16 @@ async fn autoconnect_with<P: Pipe, F: Future<Output = anyhow::Result<P>> + Send 
     }))
 }
 
+type ConnectLatency = f64;
+
 async fn connect_once(
     ctx: TunnelCtx,
     desc: BridgeDescriptor,
     meta: &str,
-) -> anyhow::Result<Box<dyn Pipe>> {
+) -> anyhow::Result<(Box<dyn Pipe>, ConnectLatency)> {
+    let start = Instant::now();
     log::debug!("trying to connect to {} / {}", desc.protocol, desc.endpoint);
+
     (ctx.status_callback)(TunnelStatus::PreConnect {
         addr: desc.endpoint,
         protocol: desc.protocol.clone(),
@@ -296,7 +356,8 @@ async fn connect_once(
             anyhow::bail!("unknown protocol {other}")
         }
     };
-    Ok(inner)
+    let latency = start.elapsed().as_secs_f64();
+    Ok((inner, latency))
 }
 
 async fn replace_dead(
@@ -344,7 +405,8 @@ async fn replace_dead(
                         "** {} bridges that are either not in old, or direct **",
                         to_add.len()
                     );
-                    add_bridges(&ctx, &sess_id, &multiplex, &to_add)
+                    let (dummy_send, _dummy_recv) = smol::channel::bounded(1);
+                    add_bridges(&ctx, &sess_id, &multiplex, &to_add, dummy_send)
                         .timeout(Duration::from_secs(30))
                         .await
                         .context("add_bridges timed out")?;

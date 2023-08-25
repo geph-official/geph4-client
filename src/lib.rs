@@ -20,6 +20,7 @@ use crate::{
 mod binderproxy;
 mod china;
 mod connect;
+mod metrics;
 
 // #[cfg(target_os = "ios")]
 pub mod ios;

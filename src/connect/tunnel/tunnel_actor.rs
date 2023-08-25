@@ -1,6 +1,9 @@
-use crate::connect::{
-    stats::{StatItem, STATS_GATHERER, STATS_RECV_BYTES, STATS_SEND_BYTES},
-    tunnel::{ConnectionStatus, EndpointSource},
+use crate::{
+    connect::{
+        stats::{StatItem, STATS_GATHERER, STATS_RECV_BYTES, STATS_SEND_BYTES},
+        tunnel::{ConnectionStatus, EndpointSource},
+    },
+    metrics::{Metrics, MetricsType},
 };
 
 use super::{
@@ -54,11 +57,20 @@ async fn print_stats_loop(mux: Arc<Multiplex>) {
 }
 
 async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
+    let mut conn_metrics = Metrics {
+        r#type: MetricsType::ConnEstablished,
+        bridges: vec![],
+        total_latency: 0.0,
+    };
+
+    let start = Instant::now();
+
     let ctx1 = ctx.clone();
     ctx.vpn_client_ip.store(0, Ordering::SeqCst);
     notify_activity();
 
-    let tunnel_mux = get_session(ctx.clone()).await?;
+    let (tunnel_mux, bridge_metrics) = get_session(ctx.clone()).await?;
+    conn_metrics.bridges = bridge_metrics;
 
     if let EndpointSource::Binder(binder_tunnel_params) = ctx.endpoint.clone() {
         // authenticate
@@ -78,6 +90,13 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
         protocol: "sosistab2".into(),
         address: "dynamic".into(),
     };
+
+    let total_latency = start.elapsed().as_secs_f64();
+    conn_metrics.total_latency = total_latency;
+    let metrics_json = serde_json::json!(conn_metrics);
+    println!("Connection Metrics: {metrics_json}");
+    // TODO: call add_metric
+
     let ctx2 = ctx.clone();
     scopeguard::defer!({
         *ctx2.connect_status.write() = ConnectionStatus::Connecting;
