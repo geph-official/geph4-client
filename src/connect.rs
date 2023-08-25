@@ -9,6 +9,7 @@ use geph4_protocol::{self, binder::client::CachedBinderClient};
 use once_cell::sync::Lazy;
 
 use parking_lot::RwLock;
+use rand::Rng;
 use smol::{prelude::*, Task};
 use smol_timeout::TimeoutExt;
 
@@ -30,6 +31,11 @@ pub(crate) mod vpn;
 pub fn start_main_connect() {
     Lazy::force(&CONNECT_TASK);
 }
+
+static METRIC_SESSION_ID: Lazy<i64> = Lazy::new(|| {
+    let mut rng = rand::thread_rng();
+    rng.gen()
+});
 
 /// The configured binder client
 static CACHED_BINDER_CLIENT: Lazy<Arc<CachedBinderClient>> = Lazy::new(|| {

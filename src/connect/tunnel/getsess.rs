@@ -234,31 +234,24 @@ async fn add_bridges(
                 .filter_map(|x| x)
                 .collect();
 
-            let mut chosen_futures = vec![];
-            let mut remaining_futures = vec![];
-            for (i, future) in all_futures.into_iter().enumerate() {
-                if i < NUM_PIPES_PER_PROTOCOL {
-                    chosen_futures.push(future);
-                } else {
-                    remaining_futures.push(future);
+            let mut unordered_futures = FuturesUnordered::from_iter(all_futures);
+            let mut count = 0;
+            while let Some(maybe_pipe) = unordered_futures.next().await {
+                if count >= NUM_PIPES_PER_PROTOCOL {
+                    break;
                 }
-            }
 
-            let mut chosen_tasks = FuturesUnordered::from_iter(chosen_futures);
-            while let Some(pipe) = chosen_tasks.next().await {
-                if let Some(pipe) = pipe {
+                if let Some(pipe) = maybe_pipe {
                     log::debug!("adding pipe {} @ {}", pipe.protocol(), pipe.peer_addr());
                     mplex.add_pipe(pipe);
+                    count += 1;
                 }
             }
 
             // Drain the remaining futures in the background for metrics.
             // They aren't added to the multiplex.
-            smolscale::spawn(async move {
-                let mut remaining = FuturesUnordered::from_iter(remaining_futures);
-                while remaining.next().await.is_some() {}
-            })
-            .detach();
+            smolscale::spawn(async move { while unordered_futures.next().await.is_some() {} })
+                .detach();
         });
     }
     while outer.next().await.is_some() {}

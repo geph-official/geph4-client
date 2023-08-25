@@ -2,6 +2,7 @@ use crate::{
     connect::{
         stats::{StatItem, STATS_GATHERER, STATS_RECV_BYTES, STATS_SEND_BYTES},
         tunnel::{ConnectionStatus, EndpointSource},
+        CACHED_BINDER_CLIENT, METRIC_SESSION_ID,
     },
     metrics::{Metrics, MetricsType},
 };
@@ -69,16 +70,24 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
     ctx.vpn_client_ip.store(0, Ordering::SeqCst);
     notify_activity();
 
+    let get_session_start = Instant::now();
     let (tunnel_mux, bridge_metrics) = get_session(ctx.clone()).await?;
+    log::debug!(
+        "get_session took {}s",
+        get_session_start.elapsed().as_secs_f64()
+    );
     conn_metrics.bridges = bridge_metrics;
 
     if let EndpointSource::Binder(binder_tunnel_params) = ctx.endpoint.clone() {
+        let auth_start = Instant::now();
         // authenticate
         let token = binder_tunnel_params.ccache.get_auth_token().await?.1;
         let ipv4 = authenticate_session(&tunnel_mux, &token)
             .timeout(Duration::from_secs(60))
             .await
             .ok_or_else(|| anyhow::anyhow!("authentication timed out"))??;
+        let auth_time = auth_start.elapsed().as_secs_f64();
+        log::debug!("auth time: {}s", auth_time);
         log::info!("VPN private IP assigned: {ipv4}");
         ctx.vpn_client_ip.store(ipv4.into(), Ordering::SeqCst);
     } else {
@@ -94,8 +103,10 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
     let total_latency = start.elapsed().as_secs_f64();
     conn_metrics.total_latency = total_latency;
     let metrics_json = serde_json::json!(conn_metrics);
-    println!("Connection Metrics: {metrics_json}");
-    // TODO: call add_metric
+    log::debug!("Connection Metrics: {metrics_json}");
+    CACHED_BINDER_CLIENT
+        .add_metric(*METRIC_SESSION_ID, metrics_json)
+        .await?;
 
     let ctx2 = ctx.clone();
     scopeguard::defer!({
