@@ -4,7 +4,7 @@ use crate::{
         tunnel::{ConnectionStatus, EndpointSource},
         CACHED_BINDER_CLIENT, METRIC_SESSION_ID,
     },
-    metrics::{Metrics, MetricsType},
+    metrics::Metrics,
 };
 
 use super::{
@@ -58,12 +58,6 @@ async fn print_stats_loop(mux: Arc<Multiplex>) {
 }
 
 async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
-    let mut conn_metrics = Metrics {
-        r#type: MetricsType::ConnEstablished,
-        bridges: vec![],
-        total_latency: 0.0,
-    };
-
     let start = Instant::now();
 
     let ctx1 = ctx.clone();
@@ -76,7 +70,7 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
         "get_session took {}s",
         get_session_start.elapsed().as_secs_f64()
     );
-    conn_metrics.bridges = bridge_metrics;
+    let bridges = bridge_metrics;
 
     if let EndpointSource::Binder(binder_tunnel_params) = ctx.endpoint.clone() {
         let auth_start = Instant::now();
@@ -101,8 +95,11 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
     };
 
     let total_latency = start.elapsed().as_secs_f64();
-    conn_metrics.total_latency = total_latency;
-    let metrics_json = serde_json::json!(conn_metrics);
+
+    let metrics_json = serde_json::to_value(Metrics::ConnEstablished {
+        bridges,
+        total_latency,
+    })?;
     log::debug!("Connection Metrics: {metrics_json}");
     CACHED_BINDER_CLIENT
         .add_metric(*METRIC_SESSION_ID, metrics_json)

@@ -10,13 +10,11 @@ pub struct BridgeMetrics {
 }
 
 #[derive(Debug, Serialize)]
-pub struct Metrics {
-    pub r#type: MetricsType,
-    pub bridges: Vec<BridgeMetrics>,
-    pub total_latency: f64,
-}
-
-#[derive(Debug, Serialize)]
-pub enum MetricsType {
-    ConnEstablished,
+#[serde(tag = "type")]
+#[serde(rename_all = "snake_case")]
+pub enum Metrics {
+    ConnEstablished {
+        bridges: Vec<BridgeMetrics>,
+        total_latency: f64,
+    },
 }
