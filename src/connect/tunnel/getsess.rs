@@ -14,7 +14,8 @@ use smol_timeout::TimeoutExt;
 use sosistab2::{Multiplex, MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
 
 use crate::connect::tunnel::{autoconnect::AutoconnectPipe, delay::DelayPipe, TunnelStatus};
-use crate::metrics::BridgeMetrics;
+use crate::connect::{CACHED_BINDER_CLIENT, METRIC_SESSION_ID};
+use crate::metrics::{BridgeMetrics, Metrics};
 
 use super::{BinderTunnelParams, EndpointSource, TunnelCtx};
 use anyhow::Context;
@@ -72,9 +73,7 @@ fn verify_exit_signatures(
     Ok(())
 }
 
-pub(crate) async fn get_session(
-    ctx: TunnelCtx,
-) -> anyhow::Result<(Arc<sosistab2::Multiplex>, Vec<BridgeMetrics>)> {
+pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2::Multiplex>> {
     match &ctx.endpoint {
         EndpointSource::Independent { endpoint } => {
             let (addr, raw_key) = parse_independent_endpoint(endpoint)?;
@@ -100,9 +99,11 @@ pub(crate) async fn get_session(
                 });
                 mplex.add_pipe(pipe);
             }
-            Ok((Arc::new(mplex), vec![]))
+            Ok(Arc::new(mplex))
         }
         EndpointSource::Binder(binder_tunnel_params) => {
+            let start = Instant::now();
+
             let selected_exit = binder_tunnel_params
                 .ccache
                 .get_closest_exit(&binder_tunnel_params.exit_server.clone().unwrap_or_default())
@@ -144,8 +145,6 @@ pub(crate) async fn get_session(
                 .detach();
             }
 
-            let bridge_metrics = metrics_recv.collect::<Vec<BridgeMetrics>>().await;
-
             // weak here to prevent a reference cycle!
             let weak_multiplex = Arc::downgrade(&multiplex);
             multiplex.add_drop_friend(smolscale::spawn(replace_dead(
@@ -158,7 +157,35 @@ pub(crate) async fn get_session(
 
             log::debug!("about to return the session");
 
-            Ok((multiplex, bridge_metrics))
+            let total_latency = start.elapsed().as_secs_f64();
+            log::debug!("get_session took: {}s", total_latency);
+
+            // collect metrics in a background task
+            smolscale::spawn(async move {
+                let bridge_metrics = metrics_recv.collect::<Vec<BridgeMetrics>>().await;
+
+                let metrics_json = serde_json::to_value(Metrics::ConnEstablished {
+                    bridges: bridge_metrics,
+                    total_latency,
+                });
+                match metrics_json {
+                    Ok(json) => {
+                        log::debug!(
+                            "uploading connection metrics: {}",
+                            serde_json::to_string(&json).unwrap()
+                        );
+                        let _ = CACHED_BINDER_CLIENT
+                            .add_metric(*METRIC_SESSION_ID, json)
+                            .await;
+                    }
+                    Err(e) => {
+                        log::warn!("Failed to serialize metrics: {}", e);
+                    }
+                };
+            })
+            .detach();
+
+            Ok(multiplex)
         }
     }
 }

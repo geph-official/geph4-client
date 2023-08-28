@@ -58,19 +58,11 @@ async fn print_stats_loop(mux: Arc<Multiplex>) {
 }
 
 async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
-    let start = Instant::now();
-
     let ctx1 = ctx.clone();
     ctx.vpn_client_ip.store(0, Ordering::SeqCst);
     notify_activity();
 
-    let get_session_start = Instant::now();
-    let (tunnel_mux, bridge_metrics) = get_session(ctx.clone()).await?;
-    log::debug!(
-        "get_session took {}s",
-        get_session_start.elapsed().as_secs_f64()
-    );
-    let bridges = bridge_metrics;
+    let tunnel_mux = get_session(ctx.clone()).await?;
 
     if let EndpointSource::Binder(binder_tunnel_params) = ctx.endpoint.clone() {
         let auth_start = Instant::now();
@@ -93,23 +85,6 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
         protocol: "sosistab2".into(),
         address: "dynamic".into(),
     };
-
-    let total_latency = start.elapsed().as_secs_f64();
-
-    let metrics_json = serde_json::to_value(Metrics::ConnEstablished {
-        bridges,
-        total_latency,
-    })?;
-    log::debug!(
-        "uploading connection metrics: {}",
-        serde_json::to_string(&metrics_json)?
-    );
-    smolscale::spawn(async move {
-        let _ = CACHED_BINDER_CLIENT
-            .add_metric(*METRIC_SESSION_ID, metrics_json)
-            .await;
-    })
-    .detach();
 
     let ctx2 = ctx.clone();
     scopeguard::defer!({
