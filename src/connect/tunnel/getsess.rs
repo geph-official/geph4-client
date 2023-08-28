@@ -156,6 +156,8 @@ pub(crate) async fn get_session(
                 weak_multiplex,
             )));
 
+            log::debug!("about to return the session");
+
             Ok((multiplex, bridge_metrics))
         }
     }
@@ -203,32 +205,29 @@ async fn add_bridges(
                     }
                     let protocol = protocol.clone();
                     Some(async move {
-                        for _ in 0..10 {
-                            let mut bridge_metrics = BridgeMetrics {
-                                address: bridge.endpoint,
-                                protocol: protocol.clone().into(),
-                                pipe_latency: None,
-                            };
-                            match connect_once(ctx.clone(), bridge.clone(), &sess_id).await {
-                                Ok((pipe, latency)) => {
-                                    bridge_metrics.pipe_latency = Some(latency);
-                                    let _ = metrics_send.send(bridge_metrics).await;
-                                    return Some(pipe);
-                                }
-                                Err(err) => {
-                                    log::warn!(
-                                        "pipe creation failed for {} ({}): {:?}",
-                                        bridge.endpoint,
-                                        bridge.protocol,
-                                        err
-                                    );
+                        let mut bridge_metrics = BridgeMetrics {
+                            address: bridge.endpoint,
+                            protocol: protocol.clone().into(),
+                            pipe_latency: None,
+                        };
+                        match connect_once(ctx.clone(), bridge.clone(), &sess_id).await {
+                            Ok((pipe, latency)) => {
+                                bridge_metrics.pipe_latency = Some(latency);
+                                let _ = metrics_send.send(bridge_metrics).await;
+                                Some(pipe)
+                            }
+                            Err(err) => {
+                                log::warn!(
+                                    "pipe creation failed for {} ({}): {:?}",
+                                    bridge.endpoint,
+                                    bridge.protocol,
+                                    err
+                                );
 
-                                    let _ = metrics_send.send(bridge_metrics).await;
-                                    smol::Timer::after(Duration::from_secs(1)).await;
-                                }
+                                let _ = metrics_send.send(bridge_metrics).await;
+                                None
                             }
                         }
-                        None
                     })
                 })
                 .collect();
@@ -254,6 +253,7 @@ async fn add_bridges(
         });
     }
     while outer.next().await.is_some() {}
+    log::debug!("finished add_bridges");
 }
 
 async fn connect_udp(desc: BridgeDescriptor, meta: String) -> anyhow::Result<ObfsUdpPipe> {
