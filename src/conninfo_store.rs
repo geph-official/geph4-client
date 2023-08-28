@@ -1,0 +1,222 @@
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime, UNIX_EPOCH},
+};
+
+use acidjson::AcidJson;
+use anyhow::Context;
+use async_trait::async_trait;
+use geph4_protocol::binder::{
+    client::SmartBinderClient,
+    protocol::{
+        AuthError, AuthRequestV2, AuthResponseV2, BinderClient, BlindToken, BridgeDescriptor,
+        Credentials, Level, MasterSummary, UserInfoV2,
+    },
+};
+use melprot::NodeRpcClient;
+use moka::sync::{Cache, CacheBuilder};
+use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
+use rand::Rng;
+use serde::{Deserialize, Serialize};
+use stdcode::StdcodeSerializeExt;
+use tmelcrypt::{HashVal, Hashable};
+
+const TOKEN_STALE_SECS: u64 = 86400;
+
+/// Persistent storage for connection info, asynchronously refreshed.
+pub struct ConnInfoStore {
+    inner: AcidJson<ConnInfoInner>,
+    rpc: Arc<BinderClient>,
+
+    mizaru_free: mizaru::PublicKey,
+    mizaru_plus: mizaru::PublicKey,
+    exit_host: String,
+
+    get_creds: Box<dyn Fn() -> Credentials + Send + Sync + 'static>,
+}
+
+impl ConnInfoStore {
+    /// Refreshes the whole store. This should generally be called in a background task.
+    pub async fn refresh(&self) -> anyhow::Result<()> {
+        let current_unix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        // refresh master summary
+        let summary_refresh_unix = self.inner.read().summary_refresh_unix;
+        if current_unix > summary_refresh_unix + 3600 {
+            let summary = self.rpc.get_summary().await?;
+            let mut inner = self.inner.write();
+            inner.summary = summary;
+            inner.summary_refresh_unix = current_unix;
+        }
+        // refresh token
+        let token_refresh_unix = self.inner.read().token_refresh_unix;
+        if current_unix > token_refresh_unix + TOKEN_STALE_SECS * 2 / 3 {
+            // refresh 2/3 through the period
+            let (user_info, blind_token) = self.get_auth_token().await?;
+            let mut inner = self.inner.write();
+            inner.blind_token = blind_token;
+            inner.user_info = user_info;
+            inner.token_refresh_unix = current_unix;
+        }
+        // refresh bridge list
+        let bridge_refresh_unix = self.inner.read().bridges_refresh_unix;
+        let cached_exit = self.inner.read().cached_exit.clone();
+        if current_unix > bridge_refresh_unix + 600 || cached_exit != self.exit_host {
+            // refresh if the bridges are old, OR if the exit that's actually selected isn't the one in the persistent store
+            let bridges = self
+                .rpc
+                .get_bridges_v2(
+                    self.inner.read().blind_token.clone(),
+                    self.exit_host.as_str().into(),
+                )
+                .await?;
+            let mut inner = self.inner.write();
+            inner.bridges = bridges;
+            inner.bridges_refresh_unix = current_unix;
+            inner.cached_exit = self.exit_host.clone();
+        }
+        Ok(())
+    }
+
+    /// Obtains an authentication token.
+    async fn get_auth_token(&self) -> anyhow::Result<(UserInfoV2, BlindToken)> {
+        let digest: [u8; 32] = rand::thread_rng().gen();
+        for level in [Level::Free, Level::Plus] {
+            let mizaru_pk = self.get_mizaru_pk(level)?;
+            let epoch = mizaru::time_to_epoch(SystemTime::now()) as u16;
+            let subkey = self.rpc.get_mizaru_epoch_key(level, epoch).await?;
+
+            let digest = rsa_fdh::blind::hash_message::<sha2::Sha256, _>(&subkey, &digest).unwrap();
+            let (blinded_digest, unblinder) =
+                rsa_fdh::blind::blind(&mut rand::thread_rng(), &subkey, &digest);
+            let resp: AuthResponseV2 = match self
+                .rpc
+                .authenticate_v2(AuthRequestV2 {
+                    credentials: (self.get_creds)(),
+                    level,
+                    epoch,
+                    blinded_digest: blinded_digest.into(),
+                })
+                .await?
+            {
+                Err(AuthError::WrongLevel) => continue,
+                x => x?,
+            };
+            let blind_signature: mizaru::BlindedSignature =
+                bincode::deserialize(&resp.blind_signature_bincode)?;
+            let unblinded_signature = blind_signature.unblind(&unblinder);
+            // This checks that the 1. epoch is correct and 2. the Merkle proof is correct, so if the binder lied to us about the subkey, we will fail now and avoid being deanonymized
+            if unblinded_signature.epoch != epoch as usize
+                || !mizaru_pk.blind_verify(&digest, &unblinded_signature)
+            {
+                anyhow::bail!("an invalid signature was given by the binder")
+            }
+            let tok = BlindToken {
+                level,
+                unblinded_digest: digest.into(),
+                unblinded_signature_bincode: bincode::serialize(&unblinded_signature)?.into(),
+                version: std::env::var("GEPH_VERSION").ok().map(|s| s.into()),
+            };
+            // intentionally sleep between 3 and 8 seconds to increase the anonymity set
+            let duration = Duration::from_secs_f64(rand::thread_rng().gen_range(3.0, 8.0));
+            smol::Timer::after(duration).await;
+            return Ok((resp.user_info, tok));
+        }
+        unreachable!()
+    }
+
+    /// Obtains the overall network summary.
+    async fn get_summary(&self) -> anyhow::Result<MasterSummary> {
+        // load from the network
+        let summary = self.rpc.get_summary().await?;
+
+        if !self.verify_summary(&summary).await? {
+            anyhow::bail!(
+                "summary hash from binder: {:?} does not match gibbername summary history",
+                summary.clean_hash()
+            );
+        }
+
+        log::info!("successfully verified master summary against gibbername summary history!");
+        Ok(summary)
+    }
+
+    /// Verifies the given [`MasterSummary`] against what is stored in a gibbername chain on Mel.
+    /// NOTE: There may be an interval where newly updated exit lists in the binder database are't consistent with
+    /// what is stored on the corresponding gibbername chain.
+    ///
+    /// We check from newest to oldest until we find a match, or we run out of bindings.
+    /// Old domain names being used by other people is not a threat because
+    /// we also hash the sosistab2 public key of the servers, which other people can't get.
+    async fn verify_summary(&self, summary: &MasterSummary) -> anyhow::Result<bool> {
+        struct CustomRpcTransport {
+            binder_client: Arc<BinderClient>,
+            cache: Cache<HashVal, JrpcResponse>,
+        }
+
+        #[async_trait]
+        impl RpcTransport for CustomRpcTransport {
+            type Error = anyhow::Error;
+
+            async fn call_raw(&self, req: JrpcRequest) -> Result<JrpcResponse, Self::Error> {
+                let cache_key = (&req.method, &req.params).stdcode().hash();
+                if let Some(mut val) = self.cache.get(&cache_key) {
+                    val.id = req.id;
+                    return Ok(val);
+                }
+                log::debug!("calling method = {}, args = {:?}", req.method, req.params);
+                let resp = self.binder_client.reverse_proxy_melnode(req).await??;
+                self.cache.insert(cache_key, resp.clone());
+                Ok(resp)
+            }
+        }
+        let my_summary_hash = summary.clean_hash();
+        log::info!("about to verify summary hash from binder: {my_summary_hash}");
+
+        // Connect to a melnode that is reverse-proxied through the binder.
+        let client = melprot::Client::new(
+            melstructs::NetID::Mainnet,
+            NodeRpcClient::from(CustomRpcTransport {
+                binder_client: self.rpc.clone(),
+                cache: CacheBuilder::new(100)
+                    .time_to_live(Duration::from_secs(5))
+                    .build(),
+            }),
+        );
+        // you must load the client with a hardcoded known height + block hash before it can verify anything
+        let trusted_height = melbootstrap::checkpoint_height(melstructs::NetID::Mainnet)
+            .context("Unable to get checkpoint height")?;
+        client.trust(trusted_height);
+        log::info!("^__^ !! created reverse-proxied mel client !! ^__^");
+
+        let history = gibbername::lookup_whole_history(&client, "jermeb-beg").await?;
+        log::info!("history from gibbername: {:?}", history);
+        Ok(history
+            .iter()
+            .rev()
+            .any(|summary_hash| summary_hash == &my_summary_hash.to_string()))
+    }
+
+    fn get_mizaru_pk(&self, level: Level) -> anyhow::Result<mizaru::PublicKey> {
+        match level {
+            Level::Free => Ok(self.mizaru_free.clone()),
+            Level::Plus => Ok(self.mizaru_plus.clone()),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct ConnInfoInner {
+    user_info: UserInfoV2,
+    blind_token: BlindToken,
+    token_refresh_unix: u64,
+
+    cached_exit: String,
+    bridges: Vec<BridgeDescriptor>,
+    bridges_refresh_unix: u64,
+
+    summary: MasterSummary,
+    summary_refresh_unix: u64,
+}

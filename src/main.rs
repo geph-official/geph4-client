@@ -1,3 +1,5 @@
+mod conninfo_store;
+
 use binary_search::Direction;
 use geph4client::dispatch;
 

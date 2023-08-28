@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use geph4_protocol::binder::client::CachedBinderClient;
+use geph4_protocol::binder::client::SmartBinderClient;
 use parking_lot::RwLock;
 use smol::channel::{Receiver, Sender};
 use smol_str::SmolStr;
@@ -33,7 +33,7 @@ pub enum EndpointSource {
 
 #[derive(Clone)]
 pub struct BinderTunnelParams {
-    pub ccache: Arc<CachedBinderClient>,
+    pub ccache: Arc<SmartBinderClient>,
     pub exit_server: Option<String>,
     pub use_bridges: bool,
     pub force_bridge: Option<Ipv4Addr>,

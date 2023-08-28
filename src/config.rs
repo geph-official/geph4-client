@@ -8,7 +8,7 @@ use std::{
 use crate::fronts::parse_fronts;
 use anyhow::Context;
 use bytes::Bytes;
-use geph4_protocol::binder::client::{CachedBinderClient, DynBinderClient};
+use geph4_protocol::binder::client::{DynBinderClient, SmartBinderClient};
 use geph4_protocol::binder::protocol::{BinderClient, Credentials};
 use once_cell::sync::{Lazy, OnceCell};
 
@@ -286,7 +286,7 @@ impl CacheStaleGuard {
 pub fn get_cached_binder_client(
     common_opt: &CommonOpt,
     auth_opt: &AuthOpt,
-) -> anyhow::Result<CachedBinderClient> {
+) -> anyhow::Result<SmartBinderClient> {
     let auth_opt = auth_opt.clone();
 
     // create a dbpath based on hashing the username together with the password
@@ -311,7 +311,7 @@ pub fn get_cached_binder_client(
 
     dbpath.push(&user_cache_key);
     std::fs::create_dir_all(&dbpath)?;
-    let cbc = CachedBinderClient::new(
+    let cbc = SmartBinderClient::new(
         {
             let dbpath = dbpath.clone();
             move |key| {

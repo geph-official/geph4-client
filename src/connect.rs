@@ -4,7 +4,7 @@ use async_compat::Compat;
 
 use china::test_china;
 use futures_util::future::select_all;
-use geph4_protocol::{self, binder::client::CachedBinderClient};
+use geph4_protocol::{self, binder::client::SmartBinderClient};
 
 use once_cell::sync::Lazy;
 
@@ -38,7 +38,7 @@ static METRIC_SESSION_ID: Lazy<i64> = Lazy::new(|| {
 });
 
 /// The configured binder client
-static CACHED_BINDER_CLIENT: Lazy<Arc<CachedBinderClient>> = Lazy::new(|| {
+static CACHED_BINDER_CLIENT: Lazy<Arc<SmartBinderClient>> = Lazy::new(|| {
     Arc::new({
         let (common, auth) = match CONFIG.deref() {
             Opt::Connect(c) => (&c.common, &c.auth),
