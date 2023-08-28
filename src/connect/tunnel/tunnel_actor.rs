@@ -100,10 +100,16 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
         bridges,
         total_latency,
     })?;
-    log::debug!("Connection Metrics: {metrics_json}");
-    CACHED_BINDER_CLIENT
-        .add_metric(*METRIC_SESSION_ID, metrics_json)
-        .await?;
+    log::debug!(
+        "uploading connection metrics: {}",
+        serde_json::to_string(&metrics_json)?
+    );
+    smolscale::spawn(async move {
+        let _ = CACHED_BINDER_CLIENT
+            .add_metric(*METRIC_SESSION_ID, metrics_json)
+            .await;
+    })
+    .detach();
 
     let ctx2 = ctx.clone();
     scopeguard::defer!({

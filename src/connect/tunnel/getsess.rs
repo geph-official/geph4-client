@@ -185,7 +185,7 @@ async fn add_bridges(
         outer.push(async move {
             let all_futures: Vec<_> = bridges
                 .iter()
-                .map(|bridge| {
+                .flat_map(|bridge| {
                     let bridge = bridge.clone(); // Clone `bridge` here
                     let ctx = ctx.clone();
                     let sess_id = sess_id.to_string();
@@ -231,7 +231,6 @@ async fn add_bridges(
                         None
                     })
                 })
-                .filter_map(|x| x)
                 .collect();
 
             let mut unordered_futures = FuturesUnordered::from_iter(all_futures);
