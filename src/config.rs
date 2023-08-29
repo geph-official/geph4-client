@@ -1,14 +1,11 @@
 use std::{
     path::PathBuf,
     str::FromStr,
-    sync::atomic::{AtomicUsize, Ordering},
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use crate::{conninfo_store::ConnInfoStore, fronts::parse_fronts};
 use anyhow::Context;
-use bytes::Bytes;
-use geph4_protocol::binder::client::{DynBinderClient, SmartBinderClient};
+
 use geph4_protocol::binder::protocol::{BinderClient, Credentials};
 use once_cell::sync::{Lazy, OnceCell};
 
@@ -193,7 +190,7 @@ pub struct CommonOpt {
 
 impl CommonOpt {
     /// Connects to the binder, given these parameters.
-    pub fn get_binder_client(&self) -> DynBinderClient {
+    pub fn get_binder_client(&self) -> BinderClient {
         BinderClient(parse_fronts(
             *self.binder_master.as_bytes(),
             self.binder_http_fronts
@@ -258,98 +255,6 @@ fn str_to_mizaru_pk(src: &str) -> mizaru::PublicKey {
     let raw_bts = hex::decode(src).unwrap();
     let raw_bts: [u8; 32] = raw_bts.as_slice().try_into().unwrap();
     mizaru::PublicKey(raw_bts)
-}
-
-/// If greater than zero, then cache can be stale.
-static CACHE_STALELOCK_COUNT: AtomicUsize = AtomicUsize::new(0);
-
-/// Keep this alive to allow the cache to be stale.
-#[non_exhaustive]
-pub struct CacheStaleGuard {}
-
-impl Drop for CacheStaleGuard {
-    fn drop(&mut self) {
-        let lc = CACHE_STALELOCK_COUNT.fetch_sub(1, Ordering::SeqCst);
-        log::debug!("lockcount decr {lc}");
-    }
-}
-
-impl CacheStaleGuard {
-    pub fn new() -> Self {
-        let lc = CACHE_STALELOCK_COUNT.fetch_add(1, Ordering::SeqCst);
-        log::debug!("lockcount incr {lc}");
-        Self {}
-    }
-}
-
-/// Given the common and authentication options, produce a binder client.
-pub fn get_cached_binder_client(
-    common_opt: &CommonOpt,
-    auth_opt: &AuthOpt,
-) -> anyhow::Result<SmartBinderClient> {
-    let auth_opt = auth_opt.clone();
-
-    // create a dbpath based on hashing the username together with the password
-    let mut dbpath = auth_opt.credential_cache.clone();
-
-    let user_cache_key = hex::encode(blake3::hash(&auth_opt.auth_kind.stdcode()).as_bytes());
-
-    let auth_kind = auth_opt.auth_kind;
-    let get_creds = move || match auth_kind.clone() {
-        AuthKind::AuthPassword { username, password } => Credentials::Password {
-            username: username.into(),
-            password: password.into(),
-        },
-        AuthKind::AuthKeypair { sk_path } => {
-            let sk_raw = hex::decode(std::fs::read(sk_path).unwrap()).unwrap();
-            let sk = Ed25519SK::from_bytes(&sk_raw)
-                .context("cannot decode secret key")
-                .unwrap();
-            Credentials::new_keypair(&sk)
-        }
-    };
-
-    dbpath.push(&user_cache_key);
-    std::fs::create_dir_all(&dbpath)?;
-    let cbc = SmartBinderClient::new(
-        {
-            let dbpath = dbpath.clone();
-            move |key| {
-                let mut dbpath = dbpath.clone();
-                dbpath.push(format!("{}.json", key));
-                let r = std::fs::read(dbpath).ok()?;
-                let (tstamp, bts): (u64, Bytes) = bincode::deserialize(&r).ok()?;
-                if tstamp > SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs()
-                    || CACHE_STALELOCK_COUNT.load(Ordering::SeqCst) > 0
-                {
-                    Some(bts)
-                } else {
-                    None
-                }
-            }
-        },
-        {
-            let dbpath = dbpath.clone();
-            move |k, v, expires| {
-                let noviy_taymstamp = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-                    + expires.as_secs();
-                let to_write =
-                    bincode::serialize(&(noviy_taymstamp, Bytes::copy_from_slice(v))).unwrap();
-                let mut dbpath = dbpath.clone();
-                dbpath.push(format!("{}.json", k));
-                let _ = std::fs::write(dbpath, to_write);
-            }
-        },
-        common_opt.get_binder_client(),
-        get_creds,
-        common_opt.binder_mizaru_free.clone(),
-        common_opt.binder_mizaru_plus.clone(),
-    );
-
-    Ok(cbc)
 }
 
 /// Given the common and authentication options, produce a binder client.

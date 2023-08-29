@@ -2,7 +2,7 @@ use bytes::Bytes;
 use ed25519_dalek::ed25519::signature::Signature;
 use ed25519_dalek::{PublicKey, Verifier};
 use futures_util::{stream::FuturesUnordered, Future, StreamExt};
-use geph4_protocol::binder::protocol::{BridgeDescriptor, ExitDescriptor};
+use geph4_protocol::binder::protocol::{BridgeDescriptor};
 
 use itertools::Itertools;
 use native_tls::TlsConnector;
@@ -13,8 +13,14 @@ use smol_str::SmolStr;
 use smol_timeout::TimeoutExt;
 use sosistab2::{Multiplex, MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
 
-use crate::connect::tunnel::{autoconnect::AutoconnectPipe, delay::DelayPipe, TunnelStatus};
-use crate::metrics::BridgeMetrics;
+use crate::{connect::CONNINFO_STORE, metrics::BridgeMetrics};
+use crate::{
+    connect::{
+        tunnel::{autoconnect::AutoconnectPipe, delay::DelayPipe, TunnelStatus},
+        METRIC_SESSION_ID,
+    },
+    metrics::Metrics,
+};
 
 use super::{BinderTunnelParams, EndpointSource, TunnelCtx};
 use anyhow::Context;
@@ -101,6 +107,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             Ok(Arc::new(mplex))
         }
         EndpointSource::Binder(binder_tunnel_params) => {
+            let start = Instant::now();
             let summary = binder_tunnel_params.cstore.summary();
             let exit_names = summary.exits.iter().map(|e| &e.hostname).collect_vec();
             let selected_exit = summary
@@ -174,7 +181,8 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                             "uploading connection metrics: {}",
                             serde_json::to_string(&json).unwrap()
                         );
-                        let _ = CACHED_BINDER_CLIENT
+                        let _ = CONNINFO_STORE
+                            .rpc()
                             .add_metric(*METRIC_SESSION_ID, json)
                             .await;
                     }

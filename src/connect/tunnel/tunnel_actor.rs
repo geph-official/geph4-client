@@ -2,9 +2,7 @@ use crate::{
     connect::{
         stats::{StatItem, STATS_GATHERER, STATS_RECV_BYTES, STATS_SEND_BYTES},
         tunnel::{ConnectionStatus, EndpointSource},
-        CONNINFO_STORE, METRIC_SESSION_ID,
     },
-    metrics::Metrics,
 };
 
 use super::{
@@ -58,7 +56,7 @@ async fn print_stats_loop(mux: Arc<Multiplex>) {
 }
 
 async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
-    let start = Instant::now();
+    let _start = Instant::now();
 
     let ctx1 = ctx.clone();
     ctx.vpn_client_ip.store(0, Ordering::SeqCst);

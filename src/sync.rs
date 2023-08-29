@@ -2,10 +2,10 @@ use geph4_protocol::binder::protocol::Level;
 
 use itertools::Itertools;
 use serde::{Deserialize, Serialize};
-use stdcode::StdcodeSerializeExt;
+
 use structopt::StructOpt;
 
-use crate::config::{get_cached_binder_client, AuthOpt, CommonOpt};
+use crate::config::{get_conninfo_store, AuthOpt, CommonOpt};
 
 #[derive(Debug, StructOpt, Deserialize, Serialize, Clone)]
 pub struct SyncOpt {
@@ -27,20 +27,14 @@ pub async fn main_sync(opt: SyncOpt) -> anyhow::Result<()> {
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
-    if opt.force {
-        let mut dbpath = opt.auth.credential_cache.clone();
+    let binder_client = get_conninfo_store(&opt.common, &opt.auth, "").await?;
 
-        let user_cache_key = hex::encode(blake3::hash(&opt.auth.auth_kind.stdcode()).as_bytes());
-        dbpath.push(&user_cache_key);
-        // clear the entire directory, baby!
-        for _ in 0..10 {
-            let _ = std::fs::remove_dir_all(&dbpath);
-        }
+    if opt.force {
+        // TODO
     }
 
-    let binder_client = get_cached_binder_client(&opt.common, &opt.auth)?;
-    let master = binder_client.get_summary().await?;
-    let user = binder_client.get_auth_token().await?.0;
+    let master = binder_client.summary();
+    let user = binder_client.user_info();
     let exits = master
         .exits
         .into_iter()

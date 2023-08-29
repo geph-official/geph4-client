@@ -1,6 +1,6 @@
 use std::{process::Command, time::Duration};
 
-use crate::{config::CacheStaleGuard, connect::tunnel::TunnelStatus};
+use crate::connect::tunnel::TunnelStatus;
 use dashmap::DashMap;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
@@ -58,8 +58,6 @@ pub fn setup_routing() {
             log::debug!("waiting for tunnel to connect...");
             std::thread::sleep(Duration::from_secs(1));
         }
-
-        let _stale_guard = CacheStaleGuard::new();
 
         // set the DNS server
         let mut dns_listen = CONNECT_CONFIG.dns_listen;

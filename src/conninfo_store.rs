@@ -8,7 +8,7 @@ use acidjson::AcidJson;
 use anyhow::Context;
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures_util::{future::join_all, join};
+use futures_util::join;
 use geph4_protocol::binder::protocol::{
     AuthError, AuthRequestV2, AuthResponseV2, BinderClient, BlindToken, BridgeDescriptor,
     Credentials, Level, MasterSummary, UserInfoV2,
@@ -18,7 +18,7 @@ use moka::sync::{Cache, CacheBuilder};
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
-use smol::future::FutureExt;
+
 use stdcode::StdcodeSerializeExt;
 use tmelcrypt::{HashVal, Hashable};
 
@@ -153,6 +153,11 @@ impl ConnInfoStore {
     /// Gets the current master summary
     pub fn summary(&self) -> MasterSummary {
         self.inner.read().summary.clone()
+    }
+
+    /// Gets the current user info
+    pub fn user_info(&self) -> UserInfoV2 {
+        self.inner.read().user_info.clone()
     }
 
     /// Gets the current authentication token
