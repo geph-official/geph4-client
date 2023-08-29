@@ -546,9 +546,9 @@ checksum = "9e1b586273c5702936fe7b7d6896644d8be71e6314cfe09d3167c95f712589e8"
 
 [[package]]
 name = "base64"
-version = "0.21.2"
+version = "0.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "604178f6c5c21f02dc555784810edfb88d34ac2c73b2eae109655649ee73ce3d"
+checksum = "414dcefbc63d77c526a76b3afcf6fbb9b5e2791c19c3aa2297733208750c6e53"
 
 [[package]]
 name = "binary-search"
@@ -1863,6 +1863,7 @@ dependencies = [
 name = "geph4-client"
 version = "4.8.9"
 dependencies = [
+ "acidjson",
  "anyhow",
  "async-compat",
  "async-dup",
@@ -1892,6 +1893,7 @@ dependencies = [
  "geph-nat",
  "geph4-aioutils",
  "geph4-protocol",
+ "gibbername",
  "governor",
  "hex",
  "http",
@@ -1903,8 +1905,11 @@ dependencies = [
  "itertools",
  "libc",
  "log 0.4.19",
+ "melbootstrap",
  "melprot",
+ "melstructs",
  "mizaru",
+ "moka 0.11.3",
  "nanorpc",
  "native-tls",
  "once_cell",
@@ -1956,7 +1961,6 @@ dependencies = [
 [[package]]
 name = "geph4-protocol"
 version = "0.16.9"
-source = "git+https://github.com/geph-official/geph4-protocol?branch=metrics#40248bbf8a046aff10b5ece89ff6786090750d4a"
 dependencies = [
  "acidjson",
  "anyhow",
@@ -2693,6 +2697,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "mach2"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d0d1830bcd151a6fc4aea1369af235b36c1528fe976b8ff678683c9995eade8"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "matchers"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2726,7 +2739,7 @@ dependencies = [
  "itertools",
  "log 0.4.19",
  "lz4_flex",
- "moka",
+ "moka 0.9.7",
  "nanorpc",
  "nanorpc-http",
  "pin-project",
@@ -2898,6 +2911,28 @@ dependencies = [
  "once_cell",
  "parking_lot 0.12.1",
  "quanta 0.10.1",
+ "rustc_version 0.4.0",
+ "scheduled-thread-pool",
+ "skeptic",
+ "smallvec",
+ "tagptr",
+ "thiserror",
+ "triomphe",
+ "uuid",
+]
+
+[[package]]
+name = "moka"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fa6e72583bf6830c956235bff0d5afec8cf2952f579ebad18ae7821a917d950f"
+dependencies = [
+ "crossbeam-channel",
+ "crossbeam-epoch",
+ "crossbeam-utils",
+ "once_cell",
+ "parking_lot 0.12.1",
+ "quanta 0.11.1",
  "rustc_version 0.4.0",
  "scheduled-thread-pool",
  "skeptic",
@@ -3702,6 +3737,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "quanta"
+version = "0.11.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a17e662a7a8291a865152364c20c7abc5e60486ab2001e8ec10b24862de0b9ab"
+dependencies = [
+ "crossbeam-utils",
+ "libc",
+ "mach2",
+ "once_cell",
+ "raw-cpuid",
+ "wasi 0.11.0+wasi-snapshot-preview1",
+ "web-sys",
+ "winapi 0.3.9",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.29"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4051,7 +4102,7 @@ version = "0.11.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3e9ad3fe7488d7e34558a2033d45a0c90b72d97b4f80705666fea71472e2e6a1"
 dependencies = [
- "base64 0.21.2",
+ "base64 0.21.3",
  "bytes",
  "encoding_rs",
  "futures-core",
@@ -4775,7 +4826,7 @@ dependencies = [
  "itertools",
  "log 0.4.19",
  "lru 0.8.1",
- "moka",
+ "moka 0.9.7",
  "native-tls",
  "num_cpus",
  "once_cell",

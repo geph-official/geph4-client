@@ -4,7 +4,6 @@ use async_compat::Compat;
 
 use china::test_china;
 use futures_util::future::select_all;
-use geph4_protocol::{self, binder::client::CachedBinderClient};
 
 use once_cell::sync::Lazy;
 
@@ -14,8 +13,9 @@ use smol::{prelude::*, Task};
 use smol_timeout::TimeoutExt;
 
 use crate::{
-    config::{get_cached_binder_client, ConnectOpt, Opt, CONFIG},
+    config::{get_conninfo_store, ConnectOpt, Opt, CONFIG},
     connect::tunnel::{BinderTunnelParams, ClientTunnel, EndpointSource, TunnelStatus},
+    conninfo_store::ConnInfoStore,
 };
 
 use crate::china;
@@ -38,13 +38,27 @@ static METRIC_SESSION_ID: Lazy<i64> = Lazy::new(|| {
 });
 
 /// The configured binder client
-static CACHED_BINDER_CLIENT: Lazy<Arc<CachedBinderClient>> = Lazy::new(|| {
+static CONNINFO_STORE: Lazy<Arc<ConnInfoStore>> = Lazy::new(|| {
     Arc::new({
-        let (common, auth) = match CONFIG.deref() {
-            Opt::Connect(c) => (&c.common, &c.auth),
+        let (common, auth, exit_host) = match CONFIG.deref() {
+            Opt::Connect(c) => (
+                &c.common,
+                &c.auth,
+                c.exit_server.clone().unwrap_or_default(),
+            ),
             _ => panic!(),
         };
-        get_cached_binder_client(common, auth).unwrap()
+        log::debug!("about to construct the global conninfo");
+        smol::future::block_on(async move {
+            loop {
+                log::debug!("inside the blocked-on future for conninfo");
+                match get_conninfo_store(common, auth, &exit_host).await {
+                    Ok(val) => return val,
+                    Err(err) => log::warn!("could not get conninfo store: {:?}", err),
+                }
+                smol::Timer::after(Duration::from_secs(5)).await;
+            }
+        })
     })
 });
 
@@ -91,7 +105,7 @@ pub static TUNNEL: Lazy<ClientTunnel> = Lazy::new(|| {
             }
         } else {
             EndpointSource::Binder(BinderTunnelParams {
-                ccache: CACHED_BINDER_CLIENT.clone(),
+                cstore: CONNINFO_STORE.clone(),
                 exit_server: CONNECT_CONFIG.exit_server.clone(),
                 use_bridges: *SHOULD_USE_BRIDGES,
                 force_bridge: CONNECT_CONFIG.force_bridge,
@@ -112,7 +126,6 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
             CONNECT_CONFIG.force_protocol,
             CONNECT_CONFIG.use_bridges
         );
-        smol::Timer::after(Duration::from_secs(1)).await;
 
         // http proxy
         let _socks2h = smolscale::spawn(Compat::new(crate::socks2http::run_tokio(
@@ -131,6 +144,15 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
         ));
         // dns
         let dns_fut = smolscale::spawn(dns::dns_loop(CONNECT_CONFIG.dns_listen));
+        // refresh
+        let refresh_fut = smolscale::spawn(async {
+            loop {
+                if let Err(err) = CONNINFO_STORE.refresh().await {
+                    log::warn!("error refreshing store: {:?}", err);
+                }
+                smol::Timer::after(Duration::from_secs(120)).await;
+            }
+        });
 
         // port forwarders
         let port_forwarders: Vec<_> = CONNECT_CONFIG
@@ -146,7 +168,7 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
 
         // ready, set, go!
         Lazy::force(&vpn::VPN_SHUFFLE_TASK);
-        socks5_fut.race(dns_fut).await.unwrap();
+        socks5_fut.race(dns_fut).race(refresh_fut).await.unwrap();
         panic!("something died")
     })
 });
