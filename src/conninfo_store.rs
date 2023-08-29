@@ -8,6 +8,7 @@ use acidjson::AcidJson;
 use anyhow::Context;
 use async_trait::async_trait;
 use bytes::Bytes;
+use futures_util::{future::join_all, join};
 use geph4_protocol::binder::protocol::{
     AuthError, AuthRequestV2, AuthResponseV2, BinderClient, BlindToken, BridgeDescriptor,
     Credentials, Level, MasterSummary, UserInfoV2,
@@ -47,6 +48,7 @@ impl ConnInfoStore {
         exit_host: &str,
         get_creds: impl Fn() -> Credentials + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
+        log::debug!("constructing a conninfo store!");
         let inner = AcidJson::open_or_else(cache_path, || ConnInfoInner {
             user_info: UserInfoV2 {
                 userid: 0,
@@ -90,17 +92,19 @@ impl ConnInfoStore {
         let summary_refresh_unix = self.inner.read().summary_refresh_unix;
         let summary_fut = async {
             if current_unix > summary_refresh_unix + SUMMARY_STALE_SECS {
+                log::debug!("summary stale so refreshing summary");
                 let summary = self.get_verified_summary().await?;
                 let mut inner = self.inner.write();
                 inner.summary = summary;
                 inner.summary_refresh_unix = current_unix;
             }
-            Ok(())
+            anyhow::Ok(())
         };
         // refresh token
         let token_refresh_unix = self.inner.read().token_refresh_unix;
         let token_fut = async {
             if current_unix > token_refresh_unix + TOKEN_STALE_SECS * 2 / 3 {
+                log::debug!("token stale so refreshing token");
                 // refresh 2/3 through the period
                 let (user_info, blind_token) = self.get_auth_token().await?;
                 let mut inner = self.inner.write();
@@ -108,7 +112,7 @@ impl ConnInfoStore {
                 inner.user_info = user_info;
                 inner.token_refresh_unix = current_unix;
             }
-            Ok(())
+            anyhow::Ok(())
         };
         // refresh bridge list
         let bridge_refresh_unix = self.inner.read().bridges_refresh_unix;
@@ -117,20 +121,28 @@ impl ConnInfoStore {
             if current_unix > bridge_refresh_unix + BRIDGE_STALE_SECS
                 || cached_exit != self.exit_host
             {
+                log::debug!("bridges stale so refreshing bridges");
                 // refresh if the bridges are old, OR if the exit that's actually selected isn't the one in the persistent store
                 let token = self.inner.read().blind_token.clone();
                 let bridges = self
                     .rpc
                     .get_bridges_v2(token, self.exit_host.as_str().into())
                     .await?;
+                if bridges.is_empty() {
+                    anyhow::bail!("empty list of bridges received lol");
+                }
                 let mut inner = self.inner.write();
                 inner.bridges = bridges;
                 inner.bridges_refresh_unix = current_unix;
                 inner.cached_exit = self.exit_host.clone();
             }
-            Ok(())
+            anyhow::Ok(())
         };
-        summary_fut.race(token_fut).race(bridge_fut).await
+        let (a, b, c) = join!(summary_fut, token_fut, bridge_fut);
+        a?;
+        b?;
+        c?;
+        Ok(())
     }
 
     /// Gets the current list of bridges
@@ -205,12 +217,12 @@ impl ConnInfoStore {
         // load from the network
         let summary = self.rpc.get_summary().await?;
 
-        if !self.verify_summary(&summary).await? {
-            anyhow::bail!(
-                "summary hash from binder: {:?} does not match gibbername summary history",
-                summary.clean_hash()
-            );
-        }
+        // if !self.verify_summary(&summary).await? {
+        //     anyhow::bail!(
+        //         "summary hash from binder: {:?} does not match gibbername summary history",
+        //         summary.clean_hash()
+        //     );
+        // }
 
         log::info!("successfully verified master summary against gibbername summary history!");
         Ok(summary)

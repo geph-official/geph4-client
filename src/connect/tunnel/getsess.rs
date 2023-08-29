@@ -104,11 +104,15 @@ pub(crate) async fn get_session(
         }
         EndpointSource::Binder(binder_tunnel_params) => {
             let summary = binder_tunnel_params.cstore.summary();
+            let exit_names = summary.exits.iter().map(|e| &e.hostname).collect_vec();
             let selected_exit = summary
                 .exits
                 .iter()
                 .find(|s| Some(s.hostname.as_str()) == binder_tunnel_params.exit_server.as_deref())
-                .context("no such exit found in the list")?
+                .context(format!(
+                    "no such exit found in the list; list is {:?}",
+                    exit_names
+                ))?
                 .clone();
             let bridges = binder_tunnel_params.cstore.bridges();
             if bridges.is_empty() {

@@ -48,8 +48,10 @@ static CONNINFO_STORE: Lazy<Arc<ConnInfoStore>> = Lazy::new(|| {
             ),
             _ => panic!(),
         };
-        smolscale::block_on(async move {
+        log::debug!("about to construct the global conninfo");
+        smol::future::block_on(async move {
             loop {
+                log::debug!("inside the blocked-on future for conninfo");
                 match get_conninfo_store(common, auth, &exit_host).await {
                     Ok(val) => return val,
                     Err(err) => log::warn!("could not get conninfo store: {:?}", err),
