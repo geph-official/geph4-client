@@ -2,7 +2,7 @@ use bytes::Bytes;
 use ed25519_dalek::ed25519::signature::Signature;
 use ed25519_dalek::{PublicKey, Verifier};
 use futures_util::{stream::FuturesUnordered, Future, StreamExt};
-use geph4_protocol::binder::protocol::{BridgeDescriptor, ExitDescriptor};
+use geph4_protocol::binder::protocol::BridgeDescriptor;
 
 use itertools::Itertools;
 use native_tls::TlsConnector;
@@ -103,19 +103,19 @@ pub(crate) async fn get_session(
             Ok((Arc::new(mplex), vec![]))
         }
         EndpointSource::Binder(binder_tunnel_params) => {
-            let selected_exit = binder_tunnel_params
-                .ccache
-                .get_closest_exit(&binder_tunnel_params.exit_server.clone().unwrap_or_default())
-                .await
-                .context("cannot get closest exit")?;
-            log::info!("using exit {}", selected_exit.hostname);
-            let bridges = binder_tunnel_params
-                .ccache
-                .get_bridges_v2(&selected_exit.hostname, false)
-                .await
-                .context("cannot get bridges")?;
+            let summary = binder_tunnel_params.cstore.summary();
+            let selected_exit = summary
+                .exits
+                .iter()
+                .find(|s| Some(s.hostname.as_str()) == binder_tunnel_params.exit_server.as_deref())
+                .context("no such exit found in the list")?
+                .clone();
+            let bridges = binder_tunnel_params.cstore.bridges();
             if bridges.is_empty() {
-                anyhow::bail!("no sosistab2 routes to {}", selected_exit.hostname)
+                anyhow::bail!(
+                    "no sosistab2 routes to {:?}, is this a valid exit?",
+                    binder_tunnel_params.exit_server
+                )
             }
 
             log::debug!("{} routes", bridges.len());
@@ -151,7 +151,6 @@ pub(crate) async fn get_session(
             multiplex.add_drop_friend(smolscale::spawn(replace_dead(
                 ctx.clone(),
                 binder_tunnel_params.clone(),
-                selected_exit,
                 sess_id,
                 weak_multiplex,
             )));
@@ -355,19 +354,17 @@ async fn connect_once(
 async fn replace_dead(
     ctx: TunnelCtx,
     binder_tunnel_params: BinderTunnelParams,
-    selected_exit: ExitDescriptor,
+
     sess_id: String,
     weak_multiplex: Weak<Multiplex>,
 ) {
-    let ccache = binder_tunnel_params.ccache.clone();
+    let cstore = binder_tunnel_params.cstore.clone();
     let mut previous_bridges: Option<Vec<BridgeDescriptor>> = None;
     loop {
         smol::Timer::after(Duration::from_secs(120)).await;
         loop {
             let fallible_part = async {
-                let current_bridges = ccache
-                    .get_bridges_v2(&selected_exit.hostname, false)
-                    .await?;
+                let current_bridges = cstore.bridges();
                 let multiplex = weak_multiplex.upgrade().context("multiplex is dead")?;
                 for (i, pipe) in multiplex.iter_pipes().enumerate() {
                     log::debug!("pipe {i}: [{}] {}", pipe.protocol(), pipe.peer_addr());
@@ -406,7 +403,7 @@ async fn replace_dead(
                 anyhow::Ok(())
             };
             if let Err(err) = fallible_part.await {
-                log::warn!("error refreshing bridges: {:?}", err)
+                log::warn!("error replacing dead bridges: {:?}", err)
             } else {
                 break;
             }

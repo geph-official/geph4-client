@@ -1,5 +1,5 @@
 use bytes::Bytes;
-use geph4_protocol::binder::client::SmartBinderClient;
+
 use parking_lot::RwLock;
 use smol::channel::{Receiver, Sender};
 use smol_str::SmolStr;
@@ -23,6 +23,8 @@ pub mod tunnel_actor;
 
 use std::net::Ipv4Addr;
 
+use crate::conninfo_store::ConnInfoStore;
+
 use self::activity::notify_activity;
 
 #[derive(Clone)]
@@ -33,7 +35,7 @@ pub enum EndpointSource {
 
 #[derive(Clone)]
 pub struct BinderTunnelParams {
-    pub ccache: Arc<SmartBinderClient>,
+    pub cstore: Arc<ConnInfoStore>,
     pub exit_server: Option<String>,
     pub use_bridges: bool,
     pub force_bridge: Option<Ipv4Addr>,

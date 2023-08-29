@@ -20,6 +20,7 @@ use crate::{
 mod binderproxy;
 mod china;
 mod connect;
+mod conninfo_store;
 mod metrics;
 
 // #[cfg(target_os = "ios")]

@@ -1,4 +1,5 @@
 use std::{
+    path::Path,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -6,22 +7,23 @@ use std::{
 use acidjson::AcidJson;
 use anyhow::Context;
 use async_trait::async_trait;
-use geph4_protocol::binder::{
-    client::SmartBinderClient,
-    protocol::{
-        AuthError, AuthRequestV2, AuthResponseV2, BinderClient, BlindToken, BridgeDescriptor,
-        Credentials, Level, MasterSummary, UserInfoV2,
-    },
+use bytes::Bytes;
+use geph4_protocol::binder::protocol::{
+    AuthError, AuthRequestV2, AuthResponseV2, BinderClient, BlindToken, BridgeDescriptor,
+    Credentials, Level, MasterSummary, UserInfoV2,
 };
 use melprot::NodeRpcClient;
 use moka::sync::{Cache, CacheBuilder};
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
+use smol::future::FutureExt;
 use stdcode::StdcodeSerializeExt;
 use tmelcrypt::{HashVal, Hashable};
 
 const TOKEN_STALE_SECS: u64 = 86400;
+const SUMMARY_STALE_SECS: u64 = 3600;
+const BRIDGE_STALE_SECS: u64 = 600;
 
 /// Persistent storage for connection info, asynchronously refreshed.
 pub struct ConnInfoStore {
@@ -36,6 +38,48 @@ pub struct ConnInfoStore {
 }
 
 impl ConnInfoStore {
+    /// Creates a storage unit given the parameters. Ensures that the stored is not stale.
+    pub async fn connect(
+        cache_path: &Path,
+        rpc: BinderClient,
+        mizaru_free: mizaru::PublicKey,
+        mizaru_plus: mizaru::PublicKey,
+        exit_host: &str,
+        get_creds: impl Fn() -> Credentials + Send + Sync + 'static,
+    ) -> anyhow::Result<Self> {
+        let inner = AcidJson::open_or_else(cache_path, || ConnInfoInner {
+            user_info: UserInfoV2 {
+                userid: 0,
+                subscription: None,
+            },
+            blind_token: BlindToken {
+                level: Level::Free,
+                unblinded_digest: Bytes::new(),
+                unblinded_signature_bincode: Bytes::new(),
+                version: None,
+            },
+            token_refresh_unix: 0,
+            cached_exit: "".into(),
+            bridges: vec![],
+            bridges_refresh_unix: 0,
+            summary: MasterSummary {
+                exits: vec![],
+                bad_countries: vec![],
+            },
+            summary_refresh_unix: 0,
+        })?;
+        let toret = Self {
+            inner,
+            rpc: rpc.into(),
+            mizaru_free,
+            mizaru_plus,
+            exit_host: exit_host.to_owned(),
+            get_creds: Box::new(get_creds),
+        };
+        toret.refresh().await?;
+        Ok(toret)
+    }
+
     /// Refreshes the whole store. This should generally be called in a background task.
     pub async fn refresh(&self) -> anyhow::Result<()> {
         let current_unix = SystemTime::now()
@@ -44,40 +88,69 @@ impl ConnInfoStore {
             .as_secs();
         // refresh master summary
         let summary_refresh_unix = self.inner.read().summary_refresh_unix;
-        if current_unix > summary_refresh_unix + 3600 {
-            let summary = self.rpc.get_summary().await?;
-            let mut inner = self.inner.write();
-            inner.summary = summary;
-            inner.summary_refresh_unix = current_unix;
-        }
+        let summary_fut = async {
+            if current_unix > summary_refresh_unix + SUMMARY_STALE_SECS {
+                let summary = self.get_verified_summary().await?;
+                let mut inner = self.inner.write();
+                inner.summary = summary;
+                inner.summary_refresh_unix = current_unix;
+            }
+            Ok(())
+        };
         // refresh token
         let token_refresh_unix = self.inner.read().token_refresh_unix;
-        if current_unix > token_refresh_unix + TOKEN_STALE_SECS * 2 / 3 {
-            // refresh 2/3 through the period
-            let (user_info, blind_token) = self.get_auth_token().await?;
-            let mut inner = self.inner.write();
-            inner.blind_token = blind_token;
-            inner.user_info = user_info;
-            inner.token_refresh_unix = current_unix;
-        }
+        let token_fut = async {
+            if current_unix > token_refresh_unix + TOKEN_STALE_SECS * 2 / 3 {
+                // refresh 2/3 through the period
+                let (user_info, blind_token) = self.get_auth_token().await?;
+                let mut inner = self.inner.write();
+                inner.blind_token = blind_token;
+                inner.user_info = user_info;
+                inner.token_refresh_unix = current_unix;
+            }
+            Ok(())
+        };
         // refresh bridge list
         let bridge_refresh_unix = self.inner.read().bridges_refresh_unix;
         let cached_exit = self.inner.read().cached_exit.clone();
-        if current_unix > bridge_refresh_unix + 600 || cached_exit != self.exit_host {
-            // refresh if the bridges are old, OR if the exit that's actually selected isn't the one in the persistent store
-            let bridges = self
-                .rpc
-                .get_bridges_v2(
-                    self.inner.read().blind_token.clone(),
-                    self.exit_host.as_str().into(),
-                )
-                .await?;
-            let mut inner = self.inner.write();
-            inner.bridges = bridges;
-            inner.bridges_refresh_unix = current_unix;
-            inner.cached_exit = self.exit_host.clone();
-        }
-        Ok(())
+        let bridge_fut = async {
+            if current_unix > bridge_refresh_unix + BRIDGE_STALE_SECS
+                || cached_exit != self.exit_host
+            {
+                // refresh if the bridges are old, OR if the exit that's actually selected isn't the one in the persistent store
+                let token = self.inner.read().blind_token.clone();
+                let bridges = self
+                    .rpc
+                    .get_bridges_v2(token, self.exit_host.as_str().into())
+                    .await?;
+                let mut inner = self.inner.write();
+                inner.bridges = bridges;
+                inner.bridges_refresh_unix = current_unix;
+                inner.cached_exit = self.exit_host.clone();
+            }
+            Ok(())
+        };
+        summary_fut.race(token_fut).race(bridge_fut).await
+    }
+
+    /// Gets the current list of bridges
+    pub fn bridges(&self) -> Vec<BridgeDescriptor> {
+        self.inner.read().bridges.clone()
+    }
+
+    /// Gets the current master summary
+    pub fn summary(&self) -> MasterSummary {
+        self.inner.read().summary.clone()
+    }
+
+    /// Gets the current authentication token
+    pub fn blind_token(&self) -> BlindToken {
+        self.inner.read().blind_token.clone()
+    }
+
+    /// Gets the underlying RPC.
+    pub fn rpc(&self) -> &BinderClient {
+        &self.rpc
     }
 
     /// Obtains an authentication token.
@@ -128,7 +201,7 @@ impl ConnInfoStore {
     }
 
     /// Obtains the overall network summary.
-    async fn get_summary(&self) -> anyhow::Result<MasterSummary> {
+    async fn get_verified_summary(&self) -> anyhow::Result<MasterSummary> {
         // load from the network
         let summary = self.rpc.get_summary().await?;
 

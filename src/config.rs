@@ -5,7 +5,7 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
-use crate::fronts::parse_fronts;
+use crate::{conninfo_store::ConnInfoStore, fronts::parse_fronts};
 use anyhow::Context;
 use bytes::Bytes;
 use geph4_protocol::binder::client::{DynBinderClient, SmartBinderClient};
@@ -348,6 +348,51 @@ pub fn get_cached_binder_client(
         common_opt.binder_mizaru_free.clone(),
         common_opt.binder_mizaru_plus.clone(),
     );
+
+    Ok(cbc)
+}
+
+/// Given the common and authentication options, produce a binder client.
+pub async fn get_conninfo_store(
+    common_opt: &CommonOpt,
+    auth_opt: &AuthOpt,
+    exit_host: &str,
+) -> anyhow::Result<ConnInfoStore> {
+    let auth_opt = auth_opt.clone();
+
+    // create a dbpath based on hashing the username together with the password
+    let mut dbpath = auth_opt.credential_cache.clone();
+
+    let user_cache_key = hex::encode(blake3::hash(&auth_opt.auth_kind.stdcode()).as_bytes());
+
+    let auth_kind = auth_opt.auth_kind;
+    let get_creds = move || match auth_kind.clone() {
+        AuthKind::AuthPassword { username, password } => Credentials::Password {
+            username: username.into(),
+            password: password.into(),
+        },
+        AuthKind::AuthKeypair { sk_path } => {
+            let sk_raw = hex::decode(std::fs::read(sk_path).unwrap()).unwrap();
+            let sk = Ed25519SK::from_bytes(&sk_raw)
+                .context("cannot decode secret key")
+                .unwrap();
+            Credentials::new_keypair(&sk)
+        }
+    };
+
+    dbpath.push(&user_cache_key);
+    std::fs::create_dir_all(&dbpath)?;
+    dbpath.push("conninfo.json");
+
+    let cbc = ConnInfoStore::connect(
+        &dbpath,
+        common_opt.get_binder_client(),
+        common_opt.binder_mizaru_free.clone(),
+        common_opt.binder_mizaru_plus.clone(),
+        exit_host,
+        get_creds,
+    )
+    .await?;
 
     Ok(cbc)
 }

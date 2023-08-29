@@ -2,7 +2,7 @@ use crate::{
     connect::{
         stats::{StatItem, STATS_GATHERER, STATS_RECV_BYTES, STATS_SEND_BYTES},
         tunnel::{ConnectionStatus, EndpointSource},
-        CACHED_BINDER_CLIENT, METRIC_SESSION_ID,
+        CONNINFO_STORE, METRIC_SESSION_ID,
     },
     metrics::Metrics,
 };
@@ -75,7 +75,7 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
     if let EndpointSource::Binder(binder_tunnel_params) = ctx.endpoint.clone() {
         let auth_start = Instant::now();
         // authenticate
-        let token = binder_tunnel_params.ccache.get_auth_token().await?.1;
+        let token = binder_tunnel_params.cstore.blind_token();
         let ipv4 = authenticate_session(&tunnel_mux, &token)
             .timeout(Duration::from_secs(60))
             .await
@@ -105,7 +105,8 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
         serde_json::to_string(&metrics_json)?
     );
     smolscale::spawn(async move {
-        let _ = CACHED_BINDER_CLIENT
+        let _ = CONNINFO_STORE
+            .rpc()
             .add_metric(*METRIC_SESSION_ID, metrics_json)
             .await;
     })
