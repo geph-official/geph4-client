@@ -2,7 +2,7 @@ use bytes::Bytes;
 use ed25519_dalek::ed25519::signature::Signature;
 use ed25519_dalek::{PublicKey, Verifier};
 use futures_util::{stream::FuturesUnordered, Future, StreamExt};
-use geph4_protocol::binder::protocol::{BridgeDescriptor};
+use geph4_protocol::binder::protocol::BridgeDescriptor;
 
 use itertools::Itertools;
 use native_tls::TlsConnector;
@@ -145,12 +145,10 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                 let ctx = ctx.clone();
                 let multiplex = multiplex.clone();
                 let sess_id = sess_id.clone();
-                smolscale::spawn(async move {
-                    add_bridges(&ctx, &sess_id, &multiplex, &bridges, metrics_send)
-                        .timeout(Duration::from_secs(30))
-                        .await;
-                })
-                .detach();
+                add_bridges(&ctx, &sess_id, &multiplex, &bridges, metrics_send)
+                    .timeout(Duration::from_secs(30))
+                    .await
+                    .context("timed out")?;
             }
 
             // weak here to prevent a reference cycle!
