@@ -20,7 +20,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use stdcode::StdcodeSerializeExt;
-use tmelcrypt::{HashVal, Hashable};
+use tmelcrypt::{majority_beacon, HashVal, Hashable};
 
 const TOKEN_STALE_SECS: u64 = 86400;
 const SUMMARY_STALE_SECS: u64 = 3600;
@@ -100,10 +100,20 @@ impl ConnInfoStore {
             }
             anyhow::Ok(())
         };
+
+        let current_user_info = self.inner.read().user_info.clone();
+        let remote_user_info = self.rpc().get_user_info((self.get_creds)()).await??;
+        log::debug!(
+            "current user info == remote user info?: {}",
+            current_user_info == remote_user_info
+        );
+
         // refresh token
         let token_refresh_unix = self.inner.read().token_refresh_unix;
         let token_fut = async {
-            if current_unix > token_refresh_unix + TOKEN_STALE_SECS * 2 / 3 {
+            if current_unix > token_refresh_unix + TOKEN_STALE_SECS * 2 / 3
+                || current_user_info != remote_user_info
+            {
                 log::debug!("token stale so refreshing token");
                 // refresh 2/3 through the period
                 let (user_info, blind_token) = self.get_auth_token().await?;
@@ -117,6 +127,7 @@ impl ConnInfoStore {
         // refresh bridge list
         let bridge_refresh_unix = self.inner.read().bridges_refresh_unix;
         let cached_exit = self.inner.read().cached_exit.clone();
+
         let bridge_fut = async {
             if current_unix > bridge_refresh_unix + BRIDGE_STALE_SECS
                 || cached_exit != self.exit_host
@@ -138,6 +149,7 @@ impl ConnInfoStore {
             }
             anyhow::Ok(())
         };
+
         let (a, b, c) = join!(summary_fut, token_fut, bridge_fut);
         a?;
         b?;

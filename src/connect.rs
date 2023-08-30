@@ -150,7 +150,7 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
                 if let Err(err) = CONNINFO_STORE.refresh().await {
                     log::warn!("error refreshing store: {:?}", err);
                 }
-                smol::Timer::after(Duration::from_secs(120)).await;
+                smol::Timer::after(Duration::from_secs(5)).await;
             }
         });
 

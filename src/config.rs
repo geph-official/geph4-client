@@ -1,7 +1,4 @@
-use std::{
-    path::PathBuf,
-    str::FromStr,
-};
+use std::{path::PathBuf, str::FromStr};
 
 use crate::{conninfo_store::ConnInfoStore, fronts::parse_fronts};
 use anyhow::Context;
