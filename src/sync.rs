@@ -28,10 +28,7 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
     let binder_client = get_conninfo_store(&opt.common, &opt.auth, "").await?;
-
-    if opt.force {
-        binder_client.refresh().await?;
-    }
+    binder_client.refresh().await?; // we always refresh for the sync verb
 
     let master = binder_client.summary();
     let user = binder_client.user_info();
