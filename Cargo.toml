@@ -119,8 +119,8 @@ io-lifetimes = "=1.0.5"
 rustix = "=0.36.9"
 tmelcrypt = "0.2.7"
 
-# geph4-protocol = "0.17"
-geph4-protocol = { git = "https://github.com/geph-official/geph4-protocol", branch = "user-info" }
+geph4-protocol = "0.18"
+# geph4-protocol = { git = "https://github.com/geph-official/geph4-protocol", branch = "user-info" }
 
 melprot = "0.13.5"
 acidjson = "0.1.3"
