@@ -30,7 +30,7 @@ pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
     let binder_client = get_conninfo_store(&opt.common, &opt.auth, "").await?;
 
     if opt.force {
-        // TODO
+        binder_client.refresh().await?;
     }
 
     let master = binder_client.summary();

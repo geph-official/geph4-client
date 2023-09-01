@@ -20,7 +20,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 
 use stdcode::StdcodeSerializeExt;
-use tmelcrypt::{majority_beacon, HashVal, Hashable};
+use tmelcrypt::{HashVal, Hashable};
 
 const TOKEN_STALE_SECS: u64 = 86400;
 const SUMMARY_STALE_SECS: u64 = 3600;
@@ -78,7 +78,17 @@ impl ConnInfoStore {
             exit_host: exit_host.to_owned(),
             get_creds: Box::new(get_creds),
         };
-        toret.refresh().await?;
+
+        // only force a refresh here if the *token* is stale, because that is a hard error. other things being stale are totally fine.
+        let current_unix = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let must_refresh =
+            current_unix + 100 > toret.inner.read().token_refresh_unix + TOKEN_STALE_SECS;
+        if must_refresh {
+            toret.refresh().await?;
+        }
         Ok(toret)
     }
 
@@ -101,16 +111,15 @@ impl ConnInfoStore {
             anyhow::Ok(())
         };
 
-        let current_user_info = self.inner.read().user_info.clone();
-        let remote_user_info = self.rpc().get_user_info((self.get_creds)()).await??;
-        log::debug!(
-            "current user info == remote user info?: {}",
-            current_user_info == remote_user_info
-        );
-
         // refresh token
         let token_refresh_unix = self.inner.read().token_refresh_unix;
         let token_fut = async {
+            let current_user_info = self.inner.read().user_info.clone();
+            let remote_user_info = self.rpc().get_user_info((self.get_creds)()).await??;
+            log::debug!(
+                "current user info == remote user info?: {}",
+                current_user_info == remote_user_info
+            );
             if current_unix > token_refresh_unix + TOKEN_STALE_SECS * 2 / 3
                 || current_user_info != remote_user_info
             {
@@ -139,9 +148,9 @@ impl ConnInfoStore {
                     .rpc
                     .get_bridges_v2(token, self.exit_host.as_str().into())
                     .await?;
-                if bridges.is_empty() {
-                    anyhow::bail!("empty list of bridges received lol");
-                }
+                // if bridges.is_empty() {
+                //     anyhow::bail!("empty list of bridges received lol");
+                // }
                 let mut inner = self.inner.write();
                 inner.bridges = bridges;
                 inner.bridges_refresh_unix = current_unix;
