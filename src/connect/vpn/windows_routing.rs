@@ -1,4 +1,3 @@
-use crate::config::CacheStaleGuard;
 use crate::connect::tunnel::TunnelStatus;
 use dashmap::DashSet;
 use once_cell::sync::Lazy;
@@ -31,8 +30,6 @@ pub fn start_routing() -> Infallible {
         log::debug!("waiting for tunnel to connect first...");
         std::thread::sleep(Duration::from_secs(1));
     }
-
-    let _stale_guard = CacheStaleGuard::new();
 
     std::thread::spawn(upload_loop);
     download_loop()
