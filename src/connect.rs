@@ -56,7 +56,7 @@ static CONNINFO_STORE: Lazy<Arc<ConnInfoStore>> = Lazy::new(|| {
                     Ok(val) => return val,
                     Err(err) => log::warn!("could not get conninfo store: {:?}", err),
                 }
-                smol::Timer::after(Duration::from_secs(120)).await;
+                smol::Timer::after(Duration::from_secs(1)).await;
             }
         })
     })

@@ -88,6 +88,7 @@ impl ConnInfoStore {
             > toret.inner.read().token_refresh_unix + TOKEN_STALE_SECS)
             || toret.inner.read().cached_exit.as_str() != exit_host;
         if must_refresh {
+            log::debug!("blocking on construct because token is stale");
             toret.refresh().await?;
         }
         Ok(toret)
@@ -149,7 +150,7 @@ impl ConnInfoStore {
                     .rpc
                     .get_bridges_v2(token, self.exit_host.as_str().into())
                     .await?;
-                if bridges.is_empty() {
+                if bridges.is_empty() && !self.exit_host.is_empty() {
                     anyhow::bail!("empty list of bridges received");
                 }
                 let mut inner = self.inner.write();
@@ -250,8 +251,7 @@ impl ConnInfoStore {
         //         summary.clean_hash()
         //     );
         // }
-
-        log::info!("successfully verified master summary against gibbername summary history!");
+        // log::info!("successfully verified master summary against gibbername summary history!");
         Ok(summary)
     }
 
