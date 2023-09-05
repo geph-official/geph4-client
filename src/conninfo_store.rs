@@ -70,12 +70,17 @@ impl ConnInfoStore {
             },
             summary_refresh_unix: 0,
         })?;
+        let cached_exit = inner.read().cached_exit.clone();
         let toret = Self {
             inner,
             rpc: rpc.into(),
             mizaru_free,
             mizaru_plus,
-            exit_host: exit_host.to_owned(),
+            exit_host: if exit_host.is_empty() {
+                cached_exit.clone()
+            } else {
+                exit_host.to_owned()
+            },
             get_creds: Box::new(get_creds),
         };
 
