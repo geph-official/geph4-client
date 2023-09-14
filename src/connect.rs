@@ -144,15 +144,6 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
         ));
         // dns
         let dns_fut = smolscale::spawn(dns::dns_loop(CONNECT_CONFIG.dns_listen));
-        // refresh
-        let refresh_fut = smolscale::spawn(async {
-            loop {
-                if let Err(err) = CONNINFO_STORE.refresh().await {
-                    log::warn!("error refreshing store: {:?}", err);
-                }
-                smol::Timer::after(Duration::from_secs(120)).await;
-            }
-        });
 
         // port forwarders
         let port_forwarders: Vec<_> = CONNECT_CONFIG
@@ -165,10 +156,25 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
         }
 
         Lazy::force(&stats::STATS_THREAD);
-
-        // ready, set, go!
         Lazy::force(&vpn::VPN_SHUFFLE_TASK);
-        socks5_fut.race(dns_fut).race(refresh_fut).await.unwrap();
+
+        // refresh, if connect hasn't been overridden
+        if CONNECT_CONFIG.override_connect.is_none() {
+            let refresh_fut = smolscale::spawn(async {
+                loop {
+                    if let Err(err) = CONNINFO_STORE.refresh().await {
+                        log::warn!("error refreshing store: {:?}", err);
+                    }
+                    smol::Timer::after(Duration::from_secs(120)).await;
+                }
+            });
+
+            // ready, set, go!
+            socks5_fut.race(dns_fut).race(refresh_fut).await.unwrap();
+        } else {
+            // ready, set, go!
+            socks5_fut.race(dns_fut).await.unwrap();
+        }
         panic!("something died")
     })
 });

@@ -209,7 +209,7 @@ pub struct AuthOpt {
     pub credential_cache: PathBuf,
 
     #[structopt(subcommand)]
-    pub auth_kind: AuthKind,
+    pub auth_kind: Option<AuthKind>,
 }
 
 #[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
@@ -268,18 +268,20 @@ pub async fn get_conninfo_store(
     let user_cache_key = hex::encode(blake3::hash(&auth_opt.auth_kind.stdcode()).as_bytes());
 
     let auth_kind = auth_opt.auth_kind;
+
     let get_creds = move || match auth_kind.clone() {
-        AuthKind::AuthPassword { username, password } => Credentials::Password {
+        Some(AuthKind::AuthPassword { username, password }) => Credentials::Password {
             username: username.into(),
             password: password.into(),
         },
-        AuthKind::AuthKeypair { sk_path } => {
+        Some(AuthKind::AuthKeypair { sk_path }) => {
             let sk_raw = hex::decode(std::fs::read(sk_path).unwrap()).unwrap();
             let sk = Ed25519SK::from_bytes(&sk_raw)
                 .context("cannot decode secret key")
                 .unwrap();
             Credentials::new_keypair(&sk)
         }
+        None => panic!("Missing authentication credentials"),
     };
 
     dbpath.push(&user_cache_key);
