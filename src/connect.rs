@@ -53,7 +53,13 @@ static CONNINFO_STORE: Lazy<Arc<ConnInfoStore>> = Lazy::new(|| {
             loop {
                 log::debug!("inside the blocked-on future for conninfo");
                 match get_conninfo_store(common, auth, &exit_host).await {
-                    Ok(val) => return val,
+                    Ok(store) => {
+                        log::info!(
+                            "successfully created conninfo store with user_info: {:?}",
+                            store.user_info()
+                        );
+                        return store;
+                    }
                     Err(err) => log::warn!("could not get conninfo store: {:?}", err),
                 }
                 smol::Timer::after(Duration::from_secs(1)).await;

@@ -48,7 +48,7 @@ impl ConnInfoStore {
         exit_host: &str,
         get_creds: impl Fn() -> Credentials + Send + Sync + 'static,
     ) -> anyhow::Result<Self> {
-        log::debug!("constructing a conninfo store!");
+        log::debug!("attempting to construct a conninfo store!");
         let inner = AcidJson::open_or_else(cache_path, || ConnInfoInner {
             user_info: UserInfoV2 {
                 userid: 0,
@@ -92,15 +92,25 @@ impl ConnInfoStore {
         let must_refresh = (current_unix + 100
             > toret.inner.read().token_refresh_unix + TOKEN_STALE_SECS)
             || toret.inner.read().cached_exit.as_str() != exit_host;
+
         if must_refresh {
-            log::debug!("blocking on construct because token is stale");
-            toret.refresh().await?;
+            // log::debug!("blocking on construct because token is stale");
+            if let Err(err) = toret.refresh().await {
+                log::warn!(
+                    "return default conninfo store - failed to call refresh: {:?}",
+                    err
+                );
+
+                // return default connection info for now
+                return Ok(toret);
+            }
         }
         Ok(toret)
     }
 
     /// Refreshes the whole store. This should generally be called in a background task.
     pub async fn refresh(&self) -> anyhow::Result<()> {
+        log::info!("calling refresh now!");
         let current_unix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
