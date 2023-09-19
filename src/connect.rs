@@ -1,4 +1,4 @@
-use std::{convert::Infallible, ops::Deref, sync::Arc, time::Duration};
+use std::{convert::Infallible, ops::Deref, time::Duration};
 
 use async_compat::Compat;
 
@@ -13,14 +13,15 @@ use smol::{prelude::*, Task};
 use smol_timeout::TimeoutExt;
 
 use crate::{
-    config::{get_conninfo_store, ConnectOpt, Opt, CONFIG},
+    config::{ConnectOpt, Opt, CONFIG},
     connect::tunnel::{BinderTunnelParams, ClientTunnel, EndpointSource, TunnelStatus},
-    conninfo_store::ConnInfoStore,
 };
 
 use crate::china;
 
 mod dns;
+mod global_conninfo_store;
+pub use global_conninfo_store::global_conninfo_store;
 mod port_forwarder;
 mod socks5;
 mod stats;
@@ -35,37 +36,6 @@ pub fn start_main_connect() {
 static METRIC_SESSION_ID: Lazy<i64> = Lazy::new(|| {
     let mut rng = rand::thread_rng();
     rng.gen()
-});
-
-/// The configured binder client
-static CONNINFO_STORE: Lazy<Arc<ConnInfoStore>> = Lazy::new(|| {
-    Arc::new({
-        let (common, auth, exit_host) = match CONFIG.deref() {
-            Opt::Connect(c) => (
-                &c.common,
-                &c.auth,
-                c.exit_server.clone().unwrap_or_default(),
-            ),
-            _ => panic!(),
-        };
-        log::debug!("about to construct the global conninfo");
-        smol::future::block_on(async move {
-            loop {
-                log::debug!("inside the blocked-on future for conninfo");
-                match get_conninfo_store(common, auth, &exit_host).await {
-                    Ok(store) => {
-                        log::info!(
-                            "successfully created conninfo store with user_info: {:?}",
-                            store.user_info()
-                        );
-                        return store;
-                    }
-                    Err(err) => log::warn!("could not get conninfo store: {:?}", err),
-                }
-                smol::Timer::after(Duration::from_secs(1)).await;
-            }
-        })
-    })
 });
 
 static CONNECT_CONFIG: Lazy<ConnectOpt> = Lazy::new(|| match CONFIG.deref() {
@@ -111,7 +81,6 @@ pub static TUNNEL: Lazy<ClientTunnel> = Lazy::new(|| {
             }
         } else {
             EndpointSource::Binder(BinderTunnelParams {
-                cstore: CONNINFO_STORE.clone(),
                 exit_server: CONNECT_CONFIG.exit_server.clone(),
                 use_bridges: *SHOULD_USE_BRIDGES,
                 force_bridge: CONNECT_CONFIG.force_bridge,
@@ -168,7 +137,7 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
         if CONNECT_CONFIG.override_connect.is_none() {
             let refresh_fut = smolscale::spawn(async {
                 loop {
-                    if let Err(err) = CONNINFO_STORE.refresh().await {
+                    if let Err(err) = global_conninfo_store().await.refresh().await {
                         log::warn!("error refreshing store: {:?}", err);
                     }
                     smol::Timer::after(Duration::from_secs(120)).await;

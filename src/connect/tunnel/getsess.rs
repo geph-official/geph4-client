@@ -13,7 +13,7 @@ use smol_str::SmolStr;
 use smol_timeout::TimeoutExt;
 use sosistab2::{Multiplex, MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
 
-use crate::{connect::CONNINFO_STORE, metrics::BridgeMetrics};
+use crate::{connect::global_conninfo_store, metrics::BridgeMetrics};
 use crate::{
     connect::{
         tunnel::{autoconnect::AutoconnectPipe, delay::DelayPipe, TunnelStatus},
@@ -108,7 +108,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
         }
         EndpointSource::Binder(binder_tunnel_params) => {
             let start = Instant::now();
-            let summary = binder_tunnel_params.cstore.summary();
+            let summary = global_conninfo_store().await.summary();
             let exit_names = summary.exits.iter().map(|e| &e.hostname).collect_vec();
             let selected_exit = summary
                 .exits
@@ -119,7 +119,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                     exit_names
                 ))?
                 .clone();
-            let bridges = binder_tunnel_params.cstore.bridges();
+            let bridges = global_conninfo_store().await.bridges();
             if bridges.is_empty() {
                 anyhow::bail!(
                     "no sosistab2 routes to {:?}, is this a valid exit?",
@@ -179,7 +179,8 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                             "uploading connection metrics: {}",
                             serde_json::to_string(&json).unwrap()
                         );
-                        let _ = CONNINFO_STORE
+                        let _ = global_conninfo_store()
+                            .await
                             .rpc()
                             .add_metric(*METRIC_SESSION_ID, json)
                             .await;
@@ -387,11 +388,11 @@ async fn connect_once(
 
 async fn replace_dead(
     ctx: TunnelCtx,
-    binder_tunnel_params: BinderTunnelParams,
+    _binder_tunnel_params: BinderTunnelParams,
     sess_id: String,
     weak_multiplex: Weak<Multiplex>,
 ) {
-    let cstore = binder_tunnel_params.cstore.clone();
+    let cstore = global_conninfo_store().await.clone();
     let mut previous_bridges: Option<Vec<BridgeDescriptor>> = None;
     loop {
         smol::Timer::after(Duration::from_secs(120)).await;

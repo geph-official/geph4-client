@@ -23,7 +23,7 @@ pub mod tunnel_actor;
 
 use std::net::Ipv4Addr;
 
-use crate::conninfo_store::ConnInfoStore;
+
 
 use self::activity::notify_activity;
 
@@ -35,7 +35,6 @@ pub enum EndpointSource {
 
 #[derive(Clone)]
 pub struct BinderTunnelParams {
-    pub cstore: Arc<ConnInfoStore>,
     pub exit_server: Option<String>,
     pub use_bridges: bool,
     pub force_bridge: Option<Ipv4Addr>,

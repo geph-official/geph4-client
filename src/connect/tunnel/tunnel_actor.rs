@@ -1,8 +1,7 @@
-use crate::{
-    connect::{
-        stats::{StatItem, STATS_GATHERER, STATS_RECV_BYTES, STATS_SEND_BYTES},
-        tunnel::{ConnectionStatus, EndpointSource},
-    },
+use crate::connect::{
+    global_conninfo_store,
+    stats::{StatItem, STATS_GATHERER, STATS_RECV_BYTES, STATS_SEND_BYTES},
+    tunnel::{ConnectionStatus, EndpointSource},
 };
 
 use super::{
@@ -64,10 +63,10 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
 
     let tunnel_mux = get_session(ctx.clone()).await?;
 
-    if let EndpointSource::Binder(binder_tunnel_params) = ctx.endpoint.clone() {
+    if let EndpointSource::Binder(_binder_tunnel_params) = ctx.endpoint.clone() {
         let auth_start = Instant::now();
         // authenticate
-        let token = binder_tunnel_params.cstore.blind_token();
+        let token = global_conninfo_store().await.blind_token();
         let ipv4 = authenticate_session(&tunnel_mux, &token)
             .timeout(Duration::from_secs(60))
             .await

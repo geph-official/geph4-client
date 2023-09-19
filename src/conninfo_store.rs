@@ -89,21 +89,13 @@ impl ConnInfoStore {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        let must_refresh = (current_unix + 100
+        let must_refresh = (current_unix
             > toret.inner.read().token_refresh_unix + TOKEN_STALE_SECS)
             || toret.inner.read().cached_exit.as_str() != exit_host;
 
         if must_refresh {
-            // log::debug!("blocking on construct because token is stale");
-            if let Err(err) = toret.refresh().await {
-                log::warn!(
-                    "return default conninfo store - failed to call refresh: {:?}",
-                    err
-                );
-
-                // return default connection info for now
-                return Ok(toret);
-            }
+            log::debug!("blocking on construct because token is stale, or exit host changed");
+            toret.refresh().await?;
         }
         Ok(toret)
     }
