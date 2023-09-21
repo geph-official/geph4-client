@@ -27,8 +27,8 @@ pub async fn main_sync(opt: SyncOpt) -> anyhow::Result<()> {
     println!("{}", sync_json(opt).await?);
     Ok(())
 }
-const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
     log::info!("SYNC getting conninfo store");
 
@@ -58,12 +58,13 @@ pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
                 load: exit.load,
             })
             .collect_vec();
-        Ok(format!(
-            "{{\"exits\": {}, \"user\": {}, \"version\": {:?}}}",
-            serde_json::to_string(&exits)?,
-            serde_json::to_string(&user)?,
-            VERSION
-        ))
+
+        Ok(serde_json::json!({
+            "exits": exits,
+            "user": user,
+            "version": VERSION
+        })
+        .to_string())
     })
     .timeout(timeout_duration)
     .await;
