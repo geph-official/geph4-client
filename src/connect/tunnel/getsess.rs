@@ -399,7 +399,14 @@ async fn replace_dead(
         loop {
             let fallible_part = async {
                 let current_bridges = cstore.bridges();
-                let multiplex = weak_multiplex.upgrade().context("multiplex is dead")?;
+                let multiplex = match weak_multiplex.upgrade() {
+                    Some(mux) => mux,
+                    None => {
+                        log::error!("multiplex dropped");
+                        return Ok(());
+                    }
+                };
+
                 for (i, pipe) in multiplex.iter_pipes().enumerate() {
                     log::debug!("pipe {i}: [{}] {}", pipe.protocol(), pipe.peer_addr());
                 }
@@ -437,7 +444,8 @@ async fn replace_dead(
                 anyhow::Ok(())
             };
             if let Err(err) = fallible_part.await {
-                log::warn!("error replacing dead bridges: {:?}", err)
+                log::warn!("error replacing dead bridges: {:?}", err);
+                smol::Timer::after(Duration::from_secs(1)).await;
             } else {
                 break;
             }
