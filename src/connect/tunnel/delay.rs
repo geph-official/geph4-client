@@ -25,7 +25,7 @@ impl<P: Pipe> DelayPipe<P> {
             loop {
                 let (pkt, deadline) = recv_outgoing.recv().await?;
                 smol::Timer::at(deadline).await;
-                out_pipe.send(pkt).await;
+                out_pipe.send(pkt);
             }
         });
         Self {
@@ -38,11 +38,10 @@ impl<P: Pipe> DelayPipe<P> {
 }
 #[async_trait]
 impl<P: Pipe> Pipe for DelayPipe<P> {
-    async fn send(&self, to_send: Bytes) {
+    fn send(&self, to_send: Bytes) {
         let _ = self
             .send_outgoing
-            .send((to_send, Instant::now() + self.delay))
-            .await;
+            .try_send((to_send, Instant::now() + self.delay));
     }
 
     async fn recv(&self) -> std::io::Result<Bytes> {

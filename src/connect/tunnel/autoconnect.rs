@@ -60,8 +60,8 @@ impl<P: Pipe> AutoconnectPipe<P> {
 
 #[async_trait]
 impl<P: Pipe> Pipe for AutoconnectPipe<P> {
-    async fn send(&self, to_send: Bytes) {
-        let _ = self.send_up.send(to_send).await;
+    fn send(&self, to_send: Bytes) {
+        let _ = self.send_up.try_send(to_send);
     }
 
     async fn recv(&self) -> std::io::Result<Bytes> {
@@ -127,7 +127,7 @@ async fn autoconnect_loop<P: Pipe>(
 
         match up_event.or(replace_event.or(dn_event)).await {
             Ok(Event::Up(up)) => {
-                current_pipe.send(up).await;
+                current_pipe.send(up);
                 // on average, we need 5 packets to break through
                 if replace_task.is_none() && fastrand::f64() < 0.2 {
                     let (send, recv) = smol::channel::bounded(1);

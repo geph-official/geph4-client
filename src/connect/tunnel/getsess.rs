@@ -145,7 +145,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                 let ctx = ctx.clone();
                 let multiplex = multiplex.clone();
                 let sess_id = sess_id.clone();
-                add_bridges(&ctx, &sess_id, &multiplex, &bridges, metrics_send)
+                add_bridges(&ctx, &sess_id, multiplex.clone(), &bridges, metrics_send)
                     .timeout(Duration::from_secs(30))
                     .await
                     .context("timed out")?;
@@ -197,12 +197,14 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
     }
 }
 
-const NUM_PIPES_PER_PROTOCOL: usize = 3;
+const MIN_PIPES_PER_PROTOCOL: usize = 1;
+
+const MAX_PIPES_PER_PROTOCOL: usize = 3;
 
 async fn add_bridges(
     ctx: &TunnelCtx,
     sess_id: &str,
-    mplex: &Multiplex,
+    mplex: Arc<Multiplex>,
     bridges: &[BridgeDescriptor],
     metrics_send: Sender<BridgeMetrics>,
 ) {
@@ -218,6 +220,7 @@ async fn add_bridges(
             .collect_vec();
 
         let metrics_send = metrics_send.clone();
+        let mplex = mplex.clone();
         outer.push(async move {
             let all_futures: Vec<_> = bridges
                 .iter()
@@ -269,7 +272,7 @@ async fn add_bridges(
             let mut unordered_futures = FuturesUnordered::from_iter(all_futures);
             let mut count = 0;
             while let Some(maybe_pipe) = unordered_futures.next().await {
-                if count >= NUM_PIPES_PER_PROTOCOL {
+                if count >= MIN_PIPES_PER_PROTOCOL {
                     break;
                 }
 
@@ -282,8 +285,23 @@ async fn add_bridges(
 
             // Drain the remaining futures in the background for metrics.
             // They aren't added to the multiplex.
-            smolscale::spawn(async move { while unordered_futures.next().await.is_some() {} })
-                .detach();
+            smolscale::spawn({
+                let mplex = mplex.clone();
+                async move {
+                    while let Some(maybe_pipe) = unordered_futures.next().await {
+                        if count >= MAX_PIPES_PER_PROTOCOL {
+                            break;
+                        }
+
+                        if let Some(pipe) = maybe_pipe {
+                            log::debug!("adding pipe {} @ {}", pipe.protocol(), pipe.peer_addr());
+                            mplex.add_pipe(pipe);
+                            count += 1;
+                        }
+                    }
+                }
+            })
+            .detach();
         });
     }
     while outer.next().await.is_some() {}
@@ -294,7 +312,7 @@ async fn connect_udp(desc: BridgeDescriptor, meta: String) -> anyhow::Result<Obf
     let cookie: ObfsUdpPublic =
         bincode::deserialize(&desc.cookie).context("cannot decode pipe cookie")?;
     ObfsUdpPipe::connect(desc.endpoint, cookie, &meta)
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(30))
         .await
         .context("pipe connection timeout")?
 }
@@ -315,7 +333,7 @@ async fn connect_tls(desc: BridgeDescriptor, meta: String) -> anyhow::Result<Obf
         desc.cookie.clone(),
         &meta,
     )
-    .timeout(Duration::from_secs(10))
+    .timeout(Duration::from_secs(30))
     .await
     .context("pipe connection timeout")??;
     Ok(connection)
@@ -436,7 +454,7 @@ async fn replace_dead(
                         to_add.len()
                     );
                     let (dummy_send, _dummy_recv) = smol::channel::bounded(1);
-                    add_bridges(&ctx, &sess_id, &multiplex, &to_add, dummy_send)
+                    add_bridges(&ctx, &sess_id, multiplex.clone(), &to_add, dummy_send)
                         .timeout(Duration::from_secs(30))
                         .await
                         .context("add_bridges timed out")?;
