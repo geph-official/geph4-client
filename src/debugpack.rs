@@ -150,7 +150,7 @@ impl DebugPack {
         let conn = self.conn.clone();
         smol::unblock(move || {
             let conn = conn.lock();
-            let mut stmt = conn.prepare("select cast(strftime('%s', timestamp) as integer), line from loglines where timestamp > datetime(?1, 'unixepoch')")?;
+            let mut stmt = conn.prepare("select cast(strftime('%s', timestamp) as integer), line from loglines where timestamp > datetime(?1, 'unixepoch') limit 1000")?;
             let after_timestamp = after.duration_since(SystemTime::UNIX_EPOCH)?.as_secs();
             let rows = stmt.query_map(params![after_timestamp], |row| {
                 let timestamp: i64 = row.get(0)?;
