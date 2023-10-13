@@ -4096,6 +4096,8 @@ checksum = "e3a8614ee435691de62bcffcf4a66d91b3594bf1428a5722e79103249a095690"
 [[package]]
 name = "replay_filter"
 version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e92f12b45df65374163d6bf4327abd0e8c3d2e198bebfbd5f53c13edaeb900ea"
 dependencies = [
  "bitvec 1.0.1",
  "honggfuzz",
@@ -4819,6 +4821,8 @@ dependencies = [
 [[package]]
 name = "sosistab2"
 version = "0.9.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3f408d05cbe2a2ce386c4185ff9b721a009efb200f07406f0942565e9236a302"
 dependencies = [
  "ahash 0.8.3",
  "anyhow",
@@ -5553,7 +5557,7 @@ version = "1.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
- "cfg-if 0.1.10",
+ "cfg-if 1.0.0",
  "static_assertions",
 ]
 
