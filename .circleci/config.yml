@@ -58,8 +58,10 @@ jobs:
       - run: |
           b2 authorize-account $B2_KEYID $B2_APPKEY
       - run: cargo install cross --locked
-      - run: cross build --release --locked  --target armv7-linux-androideabi
-      - run: cross build --release --locked  --target aarch64-linux-android
+      - run: cross build --release --locked --target armv7-linux-androideabi
+      - run: cross build --release --locked --target aarch64-linux-android
+      - run: cross build --release --locked --target x86_64-linux-android
+      - run: cross build --release --locked --target i386-linux-android
       - run: sh move_built.sh
       - run: b2 sync ~/repo/OUTPUT/ b2://geph-dl/geph4-binaries/
   build_cross_linux:
