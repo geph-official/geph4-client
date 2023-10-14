@@ -46,8 +46,8 @@ jobs:
   build_cross_android:
     working_directory: ~/repo/
     machine:
-      image: ubuntu-2204:2022.04.1
-    resource_class: xlarge
+      image: ubuntu-2204:2023.07.2
+    resource_class: arm.xlarge
     steps:
       - checkout
       - run: curl https://sh.rustup.rs -sSf | sh -s -- -y
