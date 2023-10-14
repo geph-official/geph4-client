@@ -85,6 +85,15 @@ impl DebugPack {
         )?;
 
         conn.execute(
+            "create index if not exists loglines_idx on loglines (timestamp)",
+            [],
+        )?;
+        conn.execute(
+            "create index if not exists timeseries_idx on loglines (timestamp)",
+            [],
+        )?;
+
+        conn.execute(
             "delete from loglines where datetime(timestamp, '+1 day') < datetime()",
             params![],
         )?;
