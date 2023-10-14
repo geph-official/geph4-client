@@ -8,6 +8,17 @@ rustflags = [
 [target.armv7-unknown-linux-musleabihf]
 linker = "armv7-unknown-linux-musleabihf-gcc"
 
+[target.x86_64-linux-android]
+rustflags = [
+  "-C", "link-arg=-lgcc"
+]
+
+[target.i686-linux-android]
+rustflags = [
+  "-C", "link-arg=-lgcc"
+]
+
+
 [target.aarch64-apple-ios]
 rustflags = [
   "-C", "panic=unwind"

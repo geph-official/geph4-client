@@ -151,6 +151,6 @@ opt-level = 3
 panic = "abort"
 opt-level = 3
 debug = 0
-lto = true
+# lto = true
 strip = true
 codegen-units = 1
