@@ -7,6 +7,13 @@ image = "ghcr.io/cross-rs/aarch64-linux-android:local"
 [target.armv7-linux-androideabi]
 image = "ghcr.io/cross-rs/armv7-linux-androideabi:local"
 
+[target.i686-linux-android]
+image = "ghcr.io/cross-rs/i686-linux-android:local"
+
+[target.x86_64-linux-android]
+image = "ghcr.io/cross-rs/x86_64-linux-android:local"
+
+
 [build.env]
 passthrough = [
     "CARGO_TARGET_DIR",
