@@ -33,7 +33,7 @@ pub struct ConnInfoStore {
 
     mizaru_free: mizaru::PublicKey,
     mizaru_plus: mizaru::PublicKey,
-    exit_host: String,
+    selected_exit: String,
 
     get_creds: Box<dyn Fn() -> Credentials + Send + Sync + 'static>,
 }
@@ -70,17 +70,13 @@ impl ConnInfoStore {
             },
             summary_refresh_unix: 0,
         })?;
-        let cached_exit = inner.read().cached_exit.clone();
+
         let toret = Self {
             inner,
             rpc: rpc.into(),
             mizaru_free,
             mizaru_plus,
-            exit_host: if exit_host.is_empty() {
-                cached_exit.clone()
-            } else {
-                exit_host.to_owned()
-            },
+            selected_exit: exit_host.to_owned(),
             get_creds: Box::new(get_creds),
         };
 
@@ -145,25 +141,35 @@ impl ConnInfoStore {
         // refresh bridge list
         let bridge_refresh_unix = self.inner.read().bridges_refresh_unix;
         let cached_exit = self.inner.read().cached_exit.clone();
-
         let bridge_fut = async {
+            // if we have selected no exit, then we synchronize the cached exit
+            let effective_exit_host = if self.selected_exit.is_empty() {
+                cached_exit
+            } else {
+                self.selected_exit.clone()
+            };
+            // but if we have no cached exit either, we just skip bridge synchronization
+            if effective_exit_host.is_empty() {
+                return Ok(());
+            }
+
             if current_unix > bridge_refresh_unix + BRIDGE_STALE_SECS
-                || cached_exit != self.exit_host
+                || effective_exit_host != self.selected_exit
             {
                 log::debug!("bridges stale so refreshing bridges");
                 // refresh if the bridges are old, OR if the exit that's actually selected isn't the one in the persistent store
                 let token = self.inner.read().blind_token.clone();
                 let bridges = self
                     .rpc
-                    .get_bridges_v2(token, self.exit_host.as_str().into())
+                    .get_bridges_v2(token, effective_exit_host.as_str().into())
                     .await?;
-                if bridges.is_empty() && !self.exit_host.is_empty() {
+                if bridges.is_empty() && !self.selected_exit.is_empty() {
                     anyhow::bail!("empty list of bridges received");
                 }
                 let mut inner = self.inner.write();
                 inner.bridges = bridges;
                 inner.bridges_refresh_unix = current_unix;
-                inner.cached_exit = self.exit_host.clone();
+                inner.cached_exit = self.selected_exit.clone();
             }
             anyhow::Ok(())
         };
