@@ -144,7 +144,7 @@ impl ConnInfoStore {
         let bridge_fut = async {
             // if we have selected no exit, then we synchronize the cached exit
             let effective_exit_host = if self.selected_exit.is_empty() {
-                cached_exit
+                cached_exit.clone()
             } else {
                 self.selected_exit.clone()
             };
@@ -153,8 +153,9 @@ impl ConnInfoStore {
                 return Ok(());
             }
 
+            // we refresh in two cases: if the bridges are stale, OR if the exit we want bridges for is NOT the exit that the bridges are in the cache for.
             if current_unix > bridge_refresh_unix + BRIDGE_STALE_SECS
-                || effective_exit_host != self.selected_exit
+                || cached_exit != effective_exit_host
             {
                 log::debug!("bridges stale so refreshing bridges");
                 // refresh if the bridges are old, OR if the exit that's actually selected isn't the one in the persistent store
