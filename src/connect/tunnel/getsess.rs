@@ -205,6 +205,9 @@ async fn add_bridges(
     bridges: &[BridgeDescriptor],
     metrics_send: Sender<BridgeMetrics>,
 ) {
+    if bridges.is_empty() {
+        return;
+    }
     let something_works = Arc::new(ManualResetEvent::new(false));
     let protocols: BTreeSet<SmolStr> = bridges.iter().map(|b| b.protocol.clone()).collect();
     for protocol in protocols {
