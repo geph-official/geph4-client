@@ -55,7 +55,7 @@ governor = "0.3.2"
 async-dup = "1.2.2"
 bytes = { version = "1.5.0", features = ["serde"] }
 tap = "1.0.1"
-smolscale = "0.3.53"
+smolscale = "0.4"
 async-compat = "0.2.2"
 im = "15.1.0"
 event-listener = "2.5.3"

@@ -1970,7 +1970,7 @@ dependencies = [
  "smol",
  "smol-timeout",
  "smol_str",
- "smolscale",
+ "smolscale 0.4.0",
  "socket2 0.3.19",
  "socksv5",
  "sosistab2",
@@ -2038,7 +2038,7 @@ dependencies = [
  "smol",
  "smol-timeout",
  "smol_str",
- "smolscale",
+ "smolscale 0.3.53",
  "stdcode",
  "strsim 0.10.0",
  "tap",
@@ -2775,7 +2775,7 @@ dependencies = [
  "smol",
  "smol-timeout",
  "smol_str",
- "smolscale",
+ "smolscale 0.3.53",
  "thiserror",
 ]
 
@@ -2808,7 +2808,7 @@ dependencies = [
  "serde_json",
  "smol",
  "smol_str",
- "smolscale",
+ "smolscale 0.3.53",
  "stdcode",
  "thiserror",
  "tmelcrypt",
@@ -4812,6 +4812,45 @@ dependencies = [
 ]
 
 [[package]]
+name = "smolscale"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f4b0b47c6b6f655e648314e7be0b7fd535dad37d87ecd6d496c28bc839820943"
+dependencies = [
+ "anyhow",
+ "async-channel",
+ "async-executor",
+ "async-global-executor",
+ "async-io",
+ "async-task",
+ "backtrace 0.3.69",
+ "cache-padded",
+ "crossbeam-deque",
+ "crossbeam-queue",
+ "crossbeam-utils",
+ "dashmap 5.5.3",
+ "event-listener 2.5.3",
+ "fastrand 1.9.0",
+ "flume",
+ "futures-intrusive 0.4.2",
+ "futures-lite",
+ "futures-util",
+ "log 0.4.20",
+ "num_cpus",
+ "once_cell",
+ "parking_lot 0.12.1",
+ "pin-project-lite 0.2.13",
+ "rustc-hash",
+ "scopeguard",
+ "slab",
+ "smallvec",
+ "st3",
+ "tabwriter",
+ "thread_local",
+ "waker-fn",
+]
+
+[[package]]
 name = "socket2"
 version = "0.3.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4905,7 +4944,7 @@ dependencies = [
  "smol",
  "smol-timeout",
  "smol_str",
- "smolscale",
+ "smolscale 0.3.53",
  "socket2 0.3.19",
  "stdcode",
  "subtle",
