@@ -19,6 +19,7 @@ use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 use rand::Rng;
 use serde::{Deserialize, Serialize};
 
+use smol_timeout::TimeoutExt;
 use stdcode::StdcodeSerializeExt;
 use tmelcrypt::{HashVal, Hashable};
 
@@ -103,12 +104,17 @@ impl ConnInfoStore {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_secs();
+        const TIMEOUT: Duration = Duration::from_secs(60);
         // refresh master summary
         let summary_refresh_unix = self.inner.read().summary_refresh_unix;
         let summary_fut = async {
             if current_unix > summary_refresh_unix + SUMMARY_STALE_SECS {
                 log::debug!("summary stale so refreshing summary");
-                let summary = self.get_verified_summary().await?;
+                let summary = self
+                    .get_verified_summary()
+                    .timeout(TIMEOUT)
+                    .await
+                    .context("getting summary timed out")??;
                 let mut inner = self.inner.write();
                 inner.summary = summary;
                 inner.summary_refresh_unix = current_unix;
@@ -120,7 +126,12 @@ impl ConnInfoStore {
         let token_refresh_unix = self.inner.read().token_refresh_unix;
         let token_fut = async {
             let current_user_info = self.inner.read().user_info.clone();
-            let remote_user_info = self.rpc().get_user_info((self.get_creds)()).await??;
+            let remote_user_info = self
+                .rpc()
+                .get_user_info((self.get_creds)())
+                .timeout(TIMEOUT)
+                .await
+                .context("getting remote user info timed out")???;
             log::debug!(
                 "current user info == remote user info?: {}",
                 current_user_info == remote_user_info
@@ -130,8 +141,12 @@ impl ConnInfoStore {
             {
                 log::debug!("token stale so refreshing token");
                 // refresh 2/3 through the period
-                let (user_info, blind_token) = self.get_auth_token().await?;
-                let mut inner = self.inner.write();
+                let (user_info, blind_token) = self
+                    .get_auth_token()
+                    .timeout(TIMEOUT)
+                    .await
+                    .context("getting blind token timed out")??;
+                let mut inner: acidjson::AcidJsonWriteGuard<ConnInfoInner> = self.inner.write();
                 inner.blind_token = blind_token;
                 inner.user_info = user_info;
                 inner.token_refresh_unix = current_unix;
@@ -163,7 +178,9 @@ impl ConnInfoStore {
                 let bridges = self
                     .rpc
                     .get_bridges_v2(token, effective_exit_host.as_str().into())
-                    .await?;
+                    .timeout(TIMEOUT)
+                    .await
+                    .context("getting bridges timed out")??;
                 if bridges.is_empty() && !self.selected_exit.is_empty() {
                     anyhow::bail!("empty list of bridges received");
                 }

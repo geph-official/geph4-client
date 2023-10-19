@@ -1,6 +1,7 @@
 use bytes::Bytes;
 use ed25519_dalek::ed25519::signature::Signature;
 use ed25519_dalek::{PublicKey, Verifier};
+use futures_intrusive::sync::ManualResetEvent;
 use futures_util::{stream::FuturesUnordered, Future, StreamExt};
 use geph4_protocol::binder::protocol::BridgeDescriptor;
 
@@ -197,10 +198,6 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
     }
 }
 
-const MIN_PIPES_PER_PROTOCOL: usize = 1;
-
-const MAX_PIPES_PER_PROTOCOL: usize = 3;
-
 async fn add_bridges(
     ctx: &TunnelCtx,
     sess_id: &str,
@@ -208,9 +205,8 @@ async fn add_bridges(
     bridges: &[BridgeDescriptor],
     metrics_send: Sender<BridgeMetrics>,
 ) {
-    // we pick only the 3 best out of every protocol
+    let something_works = Arc::new(ManualResetEvent::new(false));
     let protocols: BTreeSet<SmolStr> = bridges.iter().map(|b| b.protocol.clone()).collect();
-    let mut outer = FuturesUnordered::new();
     for protocol in protocols {
         let protocol = protocol.clone();
         let bridges = bridges
@@ -221,90 +217,75 @@ async fn add_bridges(
 
         let metrics_send = metrics_send.clone();
         let mplex = mplex.clone();
-        outer.push(async move {
-            let all_futures: Vec<_> = bridges
-                .iter()
-                .flat_map(|bridge| {
-                    let bridge = bridge.clone(); // Clone `bridge` here
-                    let ctx = ctx.clone();
-                    let sess_id = sess_id.to_string();
-                    let metrics_send = metrics_send.clone();
-                    if let EndpointSource::Binder(params) = &ctx.endpoint {
-                        if params.use_bridges && bridge.is_direct {
+        let something_works = something_works.clone();
+        let all_futures: Vec<_> = bridges
+            .iter()
+            .flat_map(|bridge| {
+                let bridge = bridge.clone(); // Clone `bridge` here
+                let ctx = ctx.clone();
+                let sess_id = sess_id.to_string();
+                let metrics_send = metrics_send.clone();
+                if let EndpointSource::Binder(params) = &ctx.endpoint {
+                    if params.use_bridges && bridge.is_direct {
+                        return None;
+                    }
+                    if let Some(regex) = &params.force_protocol {
+                        let compiled = Regex::new(regex).expect("invalid protocol force");
+                        if !compiled.is_match(&bridge.protocol) {
                             return None;
                         }
-                        if let Some(regex) = &params.force_protocol {
-                            let compiled = Regex::new(regex).expect("invalid protocol force");
-                            if !compiled.is_match(&bridge.protocol) {
-                                return None;
-                            }
+                    }
+                }
+                let protocol = protocol.clone();
+                Some(async move {
+                    let mut bridge_metrics = BridgeMetrics {
+                        address: bridge.endpoint,
+                        protocol: protocol.clone().into(),
+                        pipe_latency: None,
+                    };
+                    match connect_once(ctx.clone(), bridge.clone(), &sess_id).await {
+                        Ok((pipe, latency)) => {
+                            bridge_metrics.pipe_latency = Some(latency);
+                            let _ = metrics_send.send(bridge_metrics).await;
+                            Some(pipe)
+                        }
+                        Err(err) => {
+                            log::warn!(
+                                "pipe creation failed for {} ({}): {:?}",
+                                bridge.endpoint,
+                                bridge.protocol,
+                                err
+                            );
+
+                            let _ = metrics_send.send(bridge_metrics).await;
+                            None
                         }
                     }
-                    let protocol = protocol.clone();
-                    Some(async move {
-                        let mut bridge_metrics = BridgeMetrics {
-                            address: bridge.endpoint,
-                            protocol: protocol.clone().into(),
-                            pipe_latency: None,
-                        };
-                        match connect_once(ctx.clone(), bridge.clone(), &sess_id).await {
-                            Ok((pipe, latency)) => {
-                                bridge_metrics.pipe_latency = Some(latency);
-                                let _ = metrics_send.send(bridge_metrics).await;
-                                Some(pipe)
-                            }
-                            Err(err) => {
-                                log::warn!(
-                                    "pipe creation failed for {} ({}): {:?}",
-                                    bridge.endpoint,
-                                    bridge.protocol,
-                                    err
-                                );
-
-                                let _ = metrics_send.send(bridge_metrics).await;
-                                None
-                            }
-                        }
-                    })
                 })
-                .collect();
+            })
+            .collect();
 
-            let mut unordered_futures = FuturesUnordered::from_iter(all_futures);
-            let mut count = 0;
-            while let Some(maybe_pipe) = unordered_futures.next().await {
-                if count >= MIN_PIPES_PER_PROTOCOL {
-                    break;
-                }
+        let mut unordered_futures = FuturesUnordered::from_iter(all_futures);
 
-                if let Some(pipe) = maybe_pipe {
-                    log::debug!("adding pipe {} @ {}", pipe.protocol(), pipe.peer_addr());
-                    mplex.add_pipe(pipe);
-                    count += 1;
+        // Drain the remaining futures in the background for metrics.
+        smolscale::spawn({
+            let mplex = mplex.clone();
+
+            async move {
+                while let Some(maybe_pipe) = unordered_futures.next().await {
+                    if let Some(pipe) = maybe_pipe {
+                        log::debug!("adding pipe {} @ {}", pipe.protocol(), pipe.peer_addr());
+                        mplex.add_pipe(pipe);
+
+                        something_works.set();
+                    }
                 }
             }
-
-            // Drain the remaining futures in the background for metrics.
-            // They aren't added to the multiplex.
-            smolscale::spawn({
-                let mplex = mplex.clone();
-                async move {
-                    while let Some(maybe_pipe) = unordered_futures.next().await {
-                        if count >= MAX_PIPES_PER_PROTOCOL {
-                            break;
-                        }
-
-                        if let Some(pipe) = maybe_pipe {
-                            log::debug!("adding pipe {} @ {}", pipe.protocol(), pipe.peer_addr());
-                            mplex.add_pipe(pipe);
-                            count += 1;
-                        }
-                    }
-                }
-            })
-            .detach();
-        });
+        })
+        .detach();
     }
-    while outer.next().await.is_some() {}
+    // we wait until one pipe is added
+    something_works.wait().await;
     log::debug!("finished add_bridges");
 }
 
