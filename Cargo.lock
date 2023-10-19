@@ -1872,7 +1872,7 @@ dependencies = [
 
 [[package]]
 name = "geph4-client"
-version = "4.9.8"
+version = "4.9.9"
 dependencies = [
  "acidjson",
  "anyhow",
