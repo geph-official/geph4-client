@@ -12,7 +12,9 @@ use regex::Regex;
 use smol::channel::Sender;
 use smol_str::SmolStr;
 use smol_timeout::TimeoutExt;
-use sosistab2::{Multiplex, MuxPublic, MuxSecret, ObfsTlsPipe, ObfsUdpPipe, ObfsUdpPublic, Pipe};
+use sosistab2::{Multiplex, MuxPublic, MuxSecret, Pipe};
+use sosistab2_obfstls::ObfsTlsPipe;
+use sosistab2_obfsudp::{ObfsUdpPipe, ObfsUdpPublic};
 
 use crate::{connect::global_conninfo_store, metrics::BridgeMetrics};
 use crate::{

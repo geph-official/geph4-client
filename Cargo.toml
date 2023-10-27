@@ -1,6 +1,6 @@
 [package]
 name = "geph4-client"
-version = "4.9.9"
+version = "4.10.0"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2021"
 description = "Geph client"
@@ -106,7 +106,13 @@ eff-wordlist = "1.0.2"
 blake3 = "1.5.0"
 byteorder = "1.5.0"
 smol_str = "0.1.24"
-sosistab2 = "0.9.7"
+
+
+sosistab2={git="https://github.com/geph-official/sosistab2", branch="refactor"}
+sosistab2-obfsudp={git="https://github.com/geph-official/sosistab2-obfsudp"}
+sosistab2-obfstls={git="https://github.com/geph-official/sosistab2-obfstls"}
+
+
 stdcode = "0.1.14"
 # jemallocator-global = "0.3.2"
 panic-message = "0.3.0"
