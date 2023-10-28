@@ -1,5 +1,5 @@
 #!/bin/sh
-VERSION=$(cargo pkgid | cut -d "#" -f2)
+VERSION=$(git describe)
 mkdir -p ./OUTPUT/$VERSION/
 mv ./target/x86_64-unknown-linux-musl/release/geph4-client ./OUTPUT/$VERSION/geph4-client-linux-amd64
 mv ./target/x86_64-unknown-linux-gnu/release/geph4-vpn-helper ./OUTPUT/$VERSION/geph4-vpn-helper-linux-amd64
