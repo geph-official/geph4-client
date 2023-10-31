@@ -5,6 +5,7 @@ use async_compat::Compat;
 use china::test_china;
 use futures_util::future::select_all;
 
+use itertools::Itertools;
 use once_cell::sync::Lazy;
 
 use parking_lot::RwLock;
@@ -121,22 +122,23 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
         let dns_fut = smolscale::spawn(dns::dns_loop(CONNECT_CONFIG.dns_listen));
 
         // port forwarders
-        let port_forwarders: Vec<_> = CONNECT_CONFIG
+        let _port_forwarders = CONNECT_CONFIG
             .forward_ports
             .iter()
             .map(|v| smolscale::spawn(port_forwarder::port_forwarder(v.clone())))
-            .collect();
-        if !port_forwarders.is_empty() {
-            smolscale::spawn(select_all(port_forwarders)).await;
-        }
+            .collect_vec();
 
+        log::debug!("GONNA DO STATS!!!");
         Lazy::force(&stats::STATS_THREAD);
+        log::debug!("GONNA DO VPN!!!");
         Lazy::force(&vpn::VPN_SHUFFLE_TASK);
 
         // refresh, if connect hasn't been overridden
         if CONNECT_CONFIG.override_connect.is_none() {
+            log::debug!("GOOTT HERE!!!");
             let refresh_fut = smolscale::spawn(async {
                 loop {
+                    log::debug!("about to refresh...");
                     if let Err(err) = global_conninfo_store().await.refresh().await {
                         log::warn!("error refreshing store: {:?}", err);
                     }
