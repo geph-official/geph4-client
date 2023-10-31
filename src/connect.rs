@@ -128,14 +128,11 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
             .map(|v| smolscale::spawn(port_forwarder::port_forwarder(v.clone())))
             .collect_vec();
 
-        log::debug!("GONNA DO STATS!!!");
         Lazy::force(&stats::STATS_THREAD);
-        log::debug!("GONNA DO VPN!!!");
         Lazy::force(&vpn::VPN_SHUFFLE_TASK);
 
         // refresh, if connect hasn't been overridden
         if CONNECT_CONFIG.override_connect.is_none() {
-            log::debug!("GOOTT HERE!!!");
             let refresh_fut = smolscale::spawn(async {
                 loop {
                     log::debug!("about to refresh...");
