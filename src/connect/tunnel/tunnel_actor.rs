@@ -40,6 +40,9 @@ pub(crate) async fn tunnel_actor(ctx: TunnelCtx) -> anyhow::Result<()> {
         // Run until a failure happens, log the error, then restart
         if let Err(err) = tunnel_actor_once(ctx.clone()).await {
             log::warn!("tunnel_actor restarting: {:?}", err);
+            if let Err(err) = global_conninfo_store().await.refresh().await {
+                log::warn!("force-refresh failed: {:?}", err);
+            }
             smol::Timer::after(Duration::from_secs(1)).await;
         }
     }

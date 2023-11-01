@@ -27,12 +27,12 @@ use crate::{
 
 use super::{BinderTunnelParams, EndpointSource, TunnelCtx};
 use anyhow::Context;
-use std::time::Instant;
 use std::{
     collections::{BTreeSet, HashSet},
     net::SocketAddr,
     sync::Weak,
 };
+use std::{net::IpAddr, time::Instant};
 
 use std::{convert::TryFrom, sync::Arc, time::Duration};
 
@@ -122,6 +122,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                     exit_names
                 ))?
                 .clone();
+            log::debug!("obtaining global conninfo store");
             let bridges = global_conninfo_store().await.bridges();
             if bridges.is_empty() {
                 anyhow::bail!(
@@ -148,6 +149,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                 let ctx = ctx.clone();
                 let multiplex = multiplex.clone();
                 let sess_id = sess_id.clone();
+                log::debug!("about to add bridges now!");
                 add_bridges(&ctx, &sess_id, multiplex.clone(), &bridges, metrics_send)
                     .timeout(Duration::from_secs(30))
                     .await
@@ -207,6 +209,10 @@ async fn add_bridges(
     bridges: &[BridgeDescriptor],
     metrics_send: Sender<BridgeMetrics>,
 ) {
+    let force_bridge = match &ctx.endpoint {
+        EndpointSource::Independent { endpoint: _ } => None,
+        EndpointSource::Binder(b) => b.force_bridge,
+    };
     if bridges.is_empty() {
         return;
     }
@@ -217,6 +223,10 @@ async fn add_bridges(
         let bridges = bridges
             .iter()
             .filter(|s| s.protocol == protocol)
+            .filter(|s| match force_bridge {
+                None => true,
+                Some(ip) => s.endpoint.ip() == IpAddr::from(ip),
+            })
             .cloned()
             .collect_vec();
 
