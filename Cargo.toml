@@ -108,9 +108,9 @@ byteorder = "1.5.0"
 smol_str = "0.1.24"
 
 
-sosistab2={git="https://github.com/geph-official/sosistab2", branch="refactor"}
-sosistab2-obfsudp={git="https://github.com/geph-official/sosistab2-obfsudp"}
-sosistab2-obfstls={git="https://github.com/geph-official/sosistab2-obfstls"}
+sosistab2="0.10"
+sosistab2-obfsudp="0.1"
+sosistab2-obfstls="0.1"
 
 
 stdcode = "0.1.14"

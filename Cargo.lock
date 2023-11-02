@@ -4187,16 +4187,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "replay_filter"
-version = "0.1.2"
-source = "git+https://github.com/geph-official/sosistab2?branch=refactor#652b07bc4f900dddaf7b96df2703a2e55b5c2ffb"
-dependencies = [
- "bitvec 1.0.1",
- "honggfuzz",
- "log 0.4.20",
-]
-
-[[package]]
 name = "reqwest"
 version = "0.11.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4955,7 +4945,8 @@ dependencies = [
 [[package]]
 name = "sosistab2"
 version = "0.10.0"
-source = "git+https://github.com/geph-official/sosistab2?branch=refactor#652b07bc4f900dddaf7b96df2703a2e55b5c2ffb"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9622767f829ce8dc9ea37d3148c832d5d68c2ad434e28924e9f3a8d9caeeba5b"
 dependencies = [
  "ahash 0.8.6",
  "anyhow",
@@ -4984,7 +4975,7 @@ dependencies = [
  "rand 0.7.3",
  "rand_chacha 0.2.2",
  "recycle-box",
- "replay_filter 0.1.2 (git+https://github.com/geph-official/sosistab2?branch=refactor)",
+ "replay_filter",
  "ring 0.16.20",
  "scopeguard",
  "serde",
@@ -5002,7 +4993,8 @@ dependencies = [
 [[package]]
 name = "sosistab2-obfstls"
 version = "0.1.0"
-source = "git+https://github.com/geph-official/sosistab2-obfstls#61f11fddeede5654dda286e86dd9e18127799e62"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d934684302a6b7a3fffb41c8c0e2f5c6e9423b21125766e7b3cd01252ed84e0f"
 dependencies = [
  "anyhow",
  "arrayref",
@@ -5026,7 +5018,8 @@ dependencies = [
 [[package]]
 name = "sosistab2-obfsudp"
 version = "0.1.0"
-source = "git+https://github.com/geph-official/sosistab2-obfsudp#e8c2f1cce0d66f704040182b3b9c7ad5f7408061"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2978713b0db80ac6a1abdbfbf0fcc4dbff2dc1a16c2c35c35dc5ba799ffbcc15"
 dependencies = [
  "ahash 0.8.6",
  "anyhow",
@@ -5046,7 +5039,7 @@ dependencies = [
  "probability",
  "rand 0.7.3",
  "reed-solomon-erasure",
- "replay_filter 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "replay_filter",
  "ring 0.17.5",
  "scopeguard",
  "serde",
