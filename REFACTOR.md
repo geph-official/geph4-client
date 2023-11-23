@@ -7,7 +7,7 @@ This is niceish for a binary crate, but we want to refactor geph4-client to be a
 This has several benefits:
 
 - iOS support is easier and more robust
-  - iOS does not support multiple processes, so currently we use a hack where `geph4-client` is compiled as a C library with a single function that calls the `main` function. But that's a very bad hack overall.
+  - iOS does not support multiple processes, so currently we use a hack where `geph4-client` is compiled as a C library with a single function that calls the `main` function. But that's a very bad hack overall, due to reentrance etc issues.
 - Geph can be _embedded_ into GUIs like `gephgui-wry` rather than separately compiled and packaged in. This simplifies coding and packaging greatly.
 
 # The interface after refactoring
