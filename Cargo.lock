@@ -1961,6 +1961,7 @@ dependencies = [
  "cached 0.23.0",
  "cap",
  "chrono",
+ "clone-macro",
  "colored",
  "dashmap 5.5.3",
  "default-net",
@@ -2020,7 +2021,7 @@ dependencies = [
  "smol",
  "smol-timeout",
  "smol_str",
- "smolscale 0.4.1",
+ "smolscale 0.4.2",
  "socket2 0.3.19",
  "socksv5",
  "sosistab2",
@@ -4933,9 +4934,9 @@ dependencies = [
 
 [[package]]
 name = "smolscale"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0a61d4e44ff45d7f2a1e26b2f5556bc8ce86148101d819ade249254c9bb4434c"
+checksum = "568141ded9ba02e1c0d3614f6bcc818d391db7c8fccbc2937e1dcdd728250be1"
 dependencies = [
  "anyhow",
  "async-channel 1.9.0",
@@ -5053,7 +5054,7 @@ dependencies = [
  "smallvec",
  "smol",
  "smol-timeout",
- "smolscale 0.4.1",
+ "smolscale 0.4.2",
  "stdcode",
  "subtle",
  "thiserror",
@@ -5079,7 +5080,7 @@ dependencies = [
  "serde",
  "smol",
  "smol-timeout",
- "smolscale 0.4.1",
+ "smolscale 0.4.2",
  "sosistab2",
  "stdcode",
  "subtle",
@@ -5087,9 +5088,7 @@ dependencies = [
 
 [[package]]
 name = "sosistab2-obfsudp"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1de29b3ba3939d554d92c6b3b83141499a27fa184ae4237a54f5a270d496b7b0"
+version = "0.1.11"
 dependencies = [
  "ahash 0.8.6",
  "anyhow",
@@ -5115,7 +5114,7 @@ dependencies = [
  "serde",
  "smol",
  "smol-timeout",
- "smolscale 0.4.1",
+ "smolscale 0.4.2",
  "sosistab2",
  "stdcode",
  "x25519-dalek",
@@ -5784,7 +5783,7 @@ version = "1.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
 dependencies = [
- "cfg-if 0.1.10",
+ "cfg-if 1.0.0",
  "static_assertions",
 ]
 
@@ -6411,7 +6410,3 @@ dependencies = [
  "quote",
  "syn 2.0.39",
 ]
-
-[[patch.unused]]
-name = "sosistab2-obfsudp"
-version = "0.1.11"

@@ -3,7 +3,8 @@ use std::{convert::Infallible, ops::Deref, time::Duration};
 use async_compat::Compat;
 
 use china::test_china;
-use futures_util::future::select_all;
+use clone_macro::clone;
+use futures_util::{future::select_all, TryFutureExt};
 
 use itertools::Itertools;
 use once_cell::sync::Lazy;
@@ -12,10 +13,12 @@ use parking_lot::RwLock;
 use rand::Rng;
 use smol::{prelude::*, Task};
 use smol_timeout::TimeoutExt;
+use smolscale::immortal::{Immortal, RespawnStrategy};
 
 use crate::{
     config::{ConnectOpt, Opt, CONFIG},
     connect::tunnel::{BinderTunnelParams, ClientTunnel, EndpointSource, TunnelStatus},
+    log_restart_error,
 };
 
 use crate::china;
@@ -28,6 +31,11 @@ mod socks5;
 mod stats;
 mod tunnel;
 pub(crate) mod vpn;
+
+struct ConnectContext {
+    config: ConnectOpt,
+    tunnel: ClientTunnel,
+}
 
 /// Main function for `connect` subcommand
 pub fn start_main_connect() {
@@ -92,6 +100,59 @@ pub static TUNNEL: Lazy<ClientTunnel> = Lazy::new(|| {
     log::debug!("gonna construct the tunnel");
     ClientTunnel::new(endpoint, |status| TUNNEL_STATUS_CALLBACK.read()(status))
 });
+
+async fn connect_main(opt: ConnectOpt) -> Infallible {
+    log::info!(
+        "connect mode starting: exit = {:?}, force_protocol = {:?}, use_bridges = {}",
+        opt.exit_server,
+        opt.force_protocol,
+        opt.use_bridges
+    );
+
+    let endpoint = {
+        if let Some(override_url) = CONNECT_CONFIG.override_connect.clone() {
+            EndpointSource::Independent {
+                endpoint: override_url,
+            }
+        } else {
+            EndpointSource::Binder(BinderTunnelParams {
+                exit_server: CONNECT_CONFIG.exit_server.clone(),
+                use_bridges: *SHOULD_USE_BRIDGES,
+                force_bridge: CONNECT_CONFIG.force_bridge,
+                force_protocol: CONNECT_CONFIG.force_protocol.clone(),
+            })
+        }
+    };
+
+    let tunnel = ClientTunnel::new(endpoint, |_| {});
+
+    let respawn_strategy =
+        RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5));
+
+    let _socks2http_loop = Immortal::respawn(
+        respawn_strategy,
+        clone!([opt], move || crate::socks2http::run_tokio(
+            opt.http_listen,
+            {
+                let mut addr = opt.socks5_listen;
+                addr.set_ip("127.0.0.1".parse().unwrap());
+                addr
+            }
+        )
+        .map_err(log_restart_error("socks2http"))),
+    );
+
+    let _socks5_loop = Immortal::respawn(
+        respawn_strategy,
+        clone!([opt], move || socks5::socks5_loop(
+            opt.socks5_listen,
+            opt.exclude_prc,
+        )
+        .map_err(log_restart_error("socks2http"))),
+    );
+
+    todo!()
+}
 
 static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
     smolscale::spawn(async {

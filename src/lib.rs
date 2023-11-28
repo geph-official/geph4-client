@@ -111,3 +111,10 @@ fn config_melprot_cache() -> anyhow::Result<()> {
     }
     Ok(())
 }
+
+fn log_restart_error<E>(label: &str) -> impl FnOnce(E) + '_
+where
+    E: std::fmt::Debug,
+{
+    move |s| log::warn!("{label} restart, error: {:?}", s)
+}
