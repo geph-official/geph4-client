@@ -5,7 +5,7 @@ use smol::channel::{Receiver, Sender};
 use smol_str::SmolStr;
 use std::net::SocketAddr;
 
-use sosistab2::MuxStream;
+use sosistab2::Stream;
 use std::{
     sync::{
         atomic::{AtomicU32, Ordering},
@@ -22,8 +22,6 @@ mod delay;
 pub mod tunnel_actor;
 
 use std::net::Ipv4Addr;
-
-
 
 use self::activity::notify_activity;
 
@@ -44,7 +42,7 @@ pub struct BinderTunnelParams {
 #[derive(Clone)]
 pub(crate) struct TunnelCtx {
     pub endpoint: EndpointSource,
-    pub recv_socks5_conn: Receiver<(String, Sender<MuxStream>)>,
+    pub recv_socks5_conn: Receiver<(String, Sender<Stream>)>,
     pub vpn_client_ip: Arc<AtomicU32>,
 
     pub connect_status: Arc<RwLock<ConnectionStatus>>,
@@ -86,7 +84,7 @@ pub struct ClientTunnel {
     send_vpn_outgoing: Sender<Bytes>,
     recv_vpn_incoming: Receiver<Bytes>,
 
-    open_socks5_conn: Sender<(String, Sender<MuxStream>)>,
+    open_socks5_conn: Sender<(String, Sender<Stream>)>,
 
     _task: Arc<smol::Task<anyhow::Result<()>>>,
 }
@@ -139,7 +137,7 @@ impl ClientTunnel {
     }
 
     /// Returns a sosistab stream to the given remote host.
-    pub async fn connect_stream(&self, remote: &str) -> anyhow::Result<MuxStream> {
+    pub async fn connect_stream(&self, remote: &str) -> anyhow::Result<Stream> {
         let (send, recv) = smol::channel::bounded(1);
         self.open_socks5_conn
             .send((remote.to_string(), send))

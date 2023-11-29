@@ -1,10 +1,10 @@
-use std::{convert::Infallible, ops::Deref, time::Duration};
+use std::{convert::Infallible, ops::Deref, sync::Arc, time::Duration};
 
 use async_compat::Compat;
 
 use china::test_china;
 use clone_macro::clone;
-use futures_util::{future::select_all, TryFutureExt};
+use futures_util::{future::select_all, FutureExt};
 
 use itertools::Itertools;
 use once_cell::sync::Lazy;
@@ -13,12 +13,10 @@ use parking_lot::RwLock;
 use rand::Rng;
 use smol::{prelude::*, Task};
 use smol_timeout::TimeoutExt;
-use smolscale::immortal::{Immortal, RespawnStrategy};
 
 use crate::{
     config::{ConnectOpt, Opt, CONFIG},
     connect::tunnel::{BinderTunnelParams, ClientTunnel, EndpointSource, TunnelStatus},
-    log_restart_error,
 };
 
 use crate::china;
@@ -32,9 +30,10 @@ mod stats;
 mod tunnel;
 pub(crate) mod vpn;
 
-struct ConnectContext {
-    config: ConnectOpt,
-    tunnel: ClientTunnel,
+#[derive(Clone)]
+pub struct ConnectContext {
+    opt: ConnectOpt,
+    tunnel: Arc<ClientTunnel>,
 }
 
 /// Main function for `connect` subcommand
@@ -101,7 +100,7 @@ pub static TUNNEL: Lazy<ClientTunnel> = Lazy::new(|| {
     ClientTunnel::new(endpoint, |status| TUNNEL_STATUS_CALLBACK.read()(status))
 });
 
-async fn connect_main(opt: ConnectOpt) -> Infallible {
+async fn connect_loop(opt: ConnectOpt) -> anyhow::Result<()> {
     log::info!(
         "connect mode starting: exit = {:?}, force_protocol = {:?}, use_bridges = {}",
         opt.exit_server,
@@ -124,34 +123,48 @@ async fn connect_main(opt: ConnectOpt) -> Infallible {
         }
     };
 
-    let tunnel = ClientTunnel::new(endpoint, |_| {});
+    let tunnel = ClientTunnel::new(endpoint, |_| {}).into();
+    let ctx = ConnectContext {
+        tunnel,
+        opt: opt.clone(),
+    };
 
-    let respawn_strategy =
-        RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5));
+    let socks2http = smolscale::spawn(crate::socks2http::run_tokio(opt.http_listen, {
+        let mut addr = opt.socks5_listen;
+        addr.set_ip("127.0.0.1".parse().unwrap());
+        addr
+    }));
 
-    let _socks2http_loop = Immortal::respawn(
-        respawn_strategy,
-        clone!([opt], move || crate::socks2http::run_tokio(
-            opt.http_listen,
-            {
-                let mut addr = opt.socks5_listen;
-                addr.set_ip("127.0.0.1".parse().unwrap());
-                addr
+    let socks5 = smolscale::spawn(socks5::socks5_loop(ctx.clone()));
+
+    let dns = smolscale::spawn(dns::dns_loop(opt.dns_listen));
+
+    let forward_ports = opt
+        .forward_ports
+        .iter()
+        .map(|v| smolscale::spawn(port_forwarder::port_forwarder(v.clone())))
+        .collect_vec();
+
+    let refresh = smolscale::spawn(clone!([opt], async move {
+        if opt.override_connect.is_none() {
+            loop {
+                log::debug!("about to refresh...");
+                if let Err(err) = global_conninfo_store().await.refresh().await {
+                    log::warn!("error refreshing store: {:?}", err);
+                }
+                smol::Timer::after(Duration::from_secs(120)).await;
             }
-        )
-        .map_err(log_restart_error("socks2http"))),
-    );
+        } else {
+            smol::future::pending().await
+        }
+    }));
 
-    let _socks5_loop = Immortal::respawn(
-        respawn_strategy,
-        clone!([opt], move || socks5::socks5_loop(
-            opt.socks5_listen,
-            opt.exclude_prc,
-        )
-        .map_err(log_restart_error("socks2http"))),
-    );
-
-    todo!()
+    socks2http
+        .race(socks5)
+        .race(dns)
+        .race(refresh)
+        .race(select_all(forward_ports).map(|s| s.0))
+        .await
 }
 
 static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
@@ -175,10 +188,7 @@ static CONNECT_TASK: Lazy<Task<Infallible>> = Lazy::new(|| {
         )));
 
         // socks5 proxy
-        let socks5_fut = smolscale::spawn(socks5::socks5_loop(
-            CONNECT_CONFIG.socks5_listen,
-            CONNECT_CONFIG.exclude_prc,
-        ));
+        let socks5_fut = smolscale::spawn(socks5::socks5_loop(todo!()));
         // dns
         let dns_fut = smolscale::spawn(dns::dns_loop(CONNECT_CONFIG.dns_listen));
 

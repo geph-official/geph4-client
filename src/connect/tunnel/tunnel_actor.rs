@@ -26,7 +26,7 @@ use smol::{
     prelude::*,
 };
 use smol_timeout::TimeoutExt;
-use sosistab2::{Multiplex, MuxStream, Pipe};
+use sosistab2::{Multiplex, Pipe, Stream};
 
 use std::{
     sync::{atomic::Ordering, Arc},
@@ -113,7 +113,7 @@ async fn authenticate_session(
     session: &sosistab2::Multiplex,
     token: &BlindToken,
 ) -> anyhow::Result<Ipv4Addr> {
-    let tport = MuxStreamTransport::new(session.open_conn(CLIENT_EXIT_PSEUDOHOST).await?);
+    let tport = StreamTransport::new(session.open_conn(CLIENT_EXIT_PSEUDOHOST).await?);
     let client = ClientExitClient::from(tport);
     if !client.validate(token.clone()).await? {
         anyhow::bail!("invalid authentication token")
@@ -125,13 +125,13 @@ async fn authenticate_session(
     Ok(addr)
 }
 
-struct MuxStreamTransport {
-    write: smol::lock::Mutex<MuxStream>,
-    read: smol::lock::Mutex<BufReader<MuxStream>>,
+struct StreamTransport {
+    write: smol::lock::Mutex<Stream>,
+    read: smol::lock::Mutex<BufReader<Stream>>,
 }
 
-impl MuxStreamTransport {
-    fn new(stream: MuxStream) -> Self {
+impl StreamTransport {
+    fn new(stream: Stream) -> Self {
         Self {
             write: stream.clone().into(),
             read: BufReader::new(stream).into(),
@@ -140,7 +140,7 @@ impl MuxStreamTransport {
 }
 
 #[async_trait]
-impl RpcTransport for MuxStreamTransport {
+impl RpcTransport for StreamTransport {
     type Error = anyhow::Error;
 
     async fn call_raw(&self, jrpc: JrpcRequest) -> anyhow::Result<JrpcResponse> {
