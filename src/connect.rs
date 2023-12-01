@@ -2,7 +2,6 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Context;
 
-
 use clone_macro::clone;
 use futures_util::{future::select_all, FutureExt};
 
@@ -13,14 +12,11 @@ use parking_lot::RwLock;
 use rand::Rng;
 use smol::prelude::*;
 
-
 use crate::{
     config::{get_conninfo_store, ConnectOpt},
     connect::tunnel::{BinderTunnelParams, ClientTunnel, EndpointSource, TunnelStatus},
     conninfo_store::ConnInfoStore,
 };
-
-
 
 mod dns;
 
@@ -39,13 +35,6 @@ pub struct ConnectContext {
 static METRIC_SESSION_ID: Lazy<i64> = Lazy::new(|| {
     let mut rng = rand::thread_rng();
     rng.gen()
-});
-
-type StatusCallback = Box<dyn Fn(TunnelStatus) + Send + Sync + 'static>;
-static TUNNEL_STATUS_CALLBACK: Lazy<RwLock<StatusCallback>> = Lazy::new(|| {
-    RwLock::new(Box::new(|addr| {
-        log::debug!("tunnel reported {:?} to dummy", addr);
-    }))
 });
 
 pub async fn connect_loop(opt: ConnectOpt) -> anyhow::Result<()> {
@@ -106,6 +95,7 @@ pub async fn connect_loop(opt: ConnectOpt) -> anyhow::Result<()> {
         .forward_ports
         .iter()
         .map(|v| smolscale::spawn(port_forwarder::port_forwarder(ctx.clone(), v.clone())))
+        .chain(std::iter::once(smolscale::spawn(smol::future::pending()))) // ensures there's at least one
         .collect_vec();
 
     let refresh = smolscale::spawn(clone!([ctx, opt], async move {
@@ -127,5 +117,6 @@ pub async fn connect_loop(opt: ConnectOpt) -> anyhow::Result<()> {
         .race(dns)
         .race(refresh)
         .race(select_all(forward_ports).map(|s| s.0))
-        .await
+        .await?;
+    anyhow::bail!("somehow ran off the edge of a cliff")
 }

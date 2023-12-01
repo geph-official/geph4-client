@@ -5,8 +5,8 @@ use anyhow::Context;
 
 use geph4_protocol::binder::protocol::{BinderClient, Credentials};
 
-
 use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
 use std::net::{Ipv4Addr, SocketAddr};
 use stdcode::StdcodeSerializeExt;
 use structopt::StructOpt;
@@ -19,7 +19,6 @@ pub enum Opt {
     BridgeTest(crate::main_bridgetest::BridgeTestOpt),
     Sync(crate::sync::SyncOpt),
     BinderProxy(crate::binderproxy::BinderProxyOpt),
-    Debugpack(crate::debugpack::DebugPackOpt),
 }
 
 #[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
@@ -276,10 +275,17 @@ pub async fn get_conninfo_store(
 
     dbpath.push(&user_cache_key);
     std::fs::create_dir_all(&dbpath)?;
-    dbpath.push("conninfo.json");
+    dbpath.push("conninfo.db");
+
+    // TODO: WAL mode
+    let db = SqlitePool::connect(&dbg!(format!(
+        "sqlite://{}?mode=rwc",
+        dbpath.to_string_lossy()
+    )))
+    .await?;
 
     let cbc = ConnInfoStore::connect(
-        &dbpath,
+        db,
         common_opt.get_binder_client(),
         common_opt.binder_mizaru_free.clone(),
         common_opt.binder_mizaru_plus.clone(),

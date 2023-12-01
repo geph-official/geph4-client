@@ -1,17 +1,16 @@
+use std::sync::atomic::Ordering;
 use std::{io::Write, sync::atomic::AtomicUsize, time::Duration};
-use std::{sync::atomic::Ordering};
 
 mod config;
 mod fronts;
 
-mod melprot_cache;
 mod socks2http;
 
 use cap::Cap;
 use clone_macro::clone;
 use colored::Colorize;
 
-
+use futures_util::TryFutureExt;
 use pad::{Alignment, PadStr};
 use smolscale::immortal::{Immortal, RespawnStrategy};
 use structopt::StructOpt;
@@ -23,7 +22,6 @@ mod connect;
 mod conninfo_store;
 mod metrics;
 
-mod debugpack;
 mod main_bridgetest;
 mod sync;
 
@@ -45,14 +43,14 @@ pub fn dispatch() -> anyhow::Result<()> {
             Opt::Connect(opt) => {
                 let _loop = Immortal::respawn(
                     RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),
-                    clone!([opt], move || connect::connect_loop(opt.clone())),
+                    clone!([opt], move || connect::connect_loop(opt.clone())
+                        .map_err(|e| log::error!("connect loop restarted! {:?}", e))),
                 );
                 smol::future::pending().await
             }
             Opt::Sync(opt) => sync::main_sync(opt.clone()).await,
             Opt::BinderProxy(opt) => binderproxy::main_binderproxy(opt.clone()).await,
             Opt::BridgeTest(opt) => main_bridgetest::main_bridgetest(opt.clone()).await,
-            Opt::Debugpack(_opt) => todo!(),
         }
     })
 }

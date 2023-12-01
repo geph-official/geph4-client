@@ -54,7 +54,7 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
     if let EndpointSource::Binder(conninfo, _) = ctx.endpoint.clone() {
         let auth_start = Instant::now();
         // authenticate
-        let token = conninfo.blind_token();
+        let token = conninfo.blind_token().await?;
         let ipv4 = authenticate_session(&tunnel_mux, &token)
             .timeout(Duration::from_secs(60))
             .await

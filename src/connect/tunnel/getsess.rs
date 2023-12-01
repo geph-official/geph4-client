@@ -25,7 +25,7 @@ use crate::{
 };
 use crate::{conninfo_store::ConnInfoStore, metrics::BridgeMetrics};
 
-use super::{EndpointSource, TunnelCtx};
+use super::{BinderTunnelParams, EndpointSource, TunnelCtx};
 use anyhow::Context;
 use std::{
     collections::{BTreeSet, HashSet},
@@ -111,7 +111,7 @@ pub(super) async fn get_session(ctx: &TunnelCtx) -> anyhow::Result<Arc<sosistab2
         }
         EndpointSource::Binder(conn_info, binder_tunnel_params) => {
             let start = Instant::now();
-            let summary = conn_info.summary();
+            let summary = conn_info.summary().await?;
             let exit_names = summary.exits.iter().map(|e| &e.hostname).collect_vec();
             let selected_exit = summary
                 .exits
@@ -123,13 +123,7 @@ pub(super) async fn get_session(ctx: &TunnelCtx) -> anyhow::Result<Arc<sosistab2
                 ))?
                 .clone();
             log::debug!("obtaining global conninfo store");
-            let bridges = conn_info.bridges();
-            if bridges.is_empty() {
-                anyhow::bail!(
-                    "no sosistab2 routes to {:?}, is this a valid exit?",
-                    binder_tunnel_params.exit_server
-                )
-            }
+            let bridges = conn_info.bridges().await?;
 
             log::debug!("{} routes", bridges.len());
 
@@ -407,7 +401,7 @@ async fn replace_dead(
         smol::Timer::after(Duration::from_secs(120)).await;
         loop {
             let fallible_part = async {
-                let current_bridges = conn_info.bridges();
+                let current_bridges = conn_info.bridges().await?;
                 let multiplex = match weak_multiplex.upgrade() {
                     Some(mux) => mux,
                     None => {
