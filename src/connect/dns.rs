@@ -9,13 +9,13 @@ use std::net::SocketAddr;
 use std::time::Duration;
 use std::{sync::Arc, time::Instant};
 
-use super::TUNNEL;
+use super::ConnectContext;
 
 /// Handle DNS requests from localhost
-pub async fn dns_loop(addr: SocketAddr) -> anyhow::Result<()> {
+pub async fn dns_loop(ctx: ConnectContext, addr: SocketAddr) -> anyhow::Result<()> {
     let socket = smol::net::UdpSocket::bind(addr).await?;
     let mut buf = [0; 2048];
-    let pool = Arc::new(DnsPool::new());
+    let pool = Arc::new(DnsPool::new(ctx));
     log::debug!("DNS loop started");
     loop {
         let (n, c_addr) = socket.recv_from(&mut buf).await?;
@@ -41,16 +41,18 @@ pub async fn dns_loop(addr: SocketAddr) -> anyhow::Result<()> {
 }
 
 /// A DNS connection pool
-pub struct DnsPool {
+struct DnsPool {
+    ctx: ConnectContext,
     send_conn: Sender<(Stream, Instant)>,
     recv_conn: Receiver<(Stream, Instant)>,
 }
 
 impl DnsPool {
     /// Create a new pool
-    pub fn new() -> Self {
+    pub fn new(ctx: ConnectContext) -> Self {
         let (send_conn, recv_conn) = smol::channel::unbounded();
         Self {
+            ctx,
             send_conn,
             recv_conn,
         }
@@ -71,7 +73,9 @@ impl DnsPool {
             };
             match lala {
                 Some(v) => v,
-                _ => TUNNEL
+                _ => self
+                    .ctx
+                    .tunnel
                     .connect_stream("1.0.0.1:53")
                     .timeout(dns_timeout)
                     .await?

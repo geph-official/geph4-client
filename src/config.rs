@@ -4,23 +4,13 @@ use crate::{conninfo_store::ConnInfoStore, fronts::parse_fronts};
 use anyhow::Context;
 
 use geph4_protocol::binder::protocol::{BinderClient, Credentials};
-use once_cell::sync::{Lazy, OnceCell};
+
 
 use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddr};
 use stdcode::StdcodeSerializeExt;
 use structopt::StructOpt;
 use tmelcrypt::Ed25519SK;
-
-static INIT_CONFIG: OnceCell<Opt> = OnceCell::new();
-
-/// Must be called *before* CONFIG is ever referenced
-pub fn override_config(opt: Opt) {
-    INIT_CONFIG.get_or_init(|| opt);
-}
-
-/// The global configuration of the client.
-pub static CONFIG: Lazy<Opt> = Lazy::new(|| INIT_CONFIG.get_or_init(Opt::from_args).clone());
 
 #[derive(Debug, StructOpt, Deserialize, Serialize, Clone)]
 #[allow(clippy::large_enum_variant)]

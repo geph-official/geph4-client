@@ -15,20 +15,22 @@ use std::{
 };
 use tunnel_actor::tunnel_actor;
 pub mod activity;
-pub mod getsess;
+mod getsess;
 
 mod autoconnect;
 mod delay;
-pub mod tunnel_actor;
+mod tunnel_actor;
 
 use std::net::Ipv4Addr;
+
+use crate::conninfo_store::ConnInfoStore;
 
 use self::activity::notify_activity;
 
 #[derive(Clone)]
 pub enum EndpointSource {
     Independent { endpoint: String },
-    Binder(BinderTunnelParams),
+    Binder(Arc<ConnInfoStore>, BinderTunnelParams),
 }
 
 #[derive(Clone)]
@@ -40,12 +42,12 @@ pub struct BinderTunnelParams {
 }
 
 #[derive(Clone)]
-pub(crate) struct TunnelCtx {
-    pub endpoint: EndpointSource,
-    pub recv_socks5_conn: Receiver<(String, Sender<Stream>)>,
-    pub vpn_client_ip: Arc<AtomicU32>,
+struct TunnelCtx {
+    endpoint: EndpointSource,
+    recv_socks5_conn: Receiver<(String, Sender<Stream>)>,
+    vpn_client_ip: Arc<AtomicU32>,
 
-    pub connect_status: Arc<RwLock<ConnectionStatus>>,
+    connect_status: Arc<RwLock<ConnectionStatus>>,
     recv_vpn_outgoing: Receiver<Bytes>,
     send_vpn_incoming: Sender<Bytes>,
 
@@ -99,8 +101,6 @@ impl ClientTunnel {
         let (send_outgoing, recv_outgoing) = smol::channel::bounded(10000);
         let (send_incoming, recv_incoming) = smol::channel::bounded(10000);
         let current_state = Arc::new(AtomicU32::new(0));
-
-        let _last_ping_ms = Arc::new(AtomicU32::new(0));
 
         let connect_status = Arc::new(RwLock::new(ConnectionStatus::Connecting));
         let ctx = TunnelCtx {

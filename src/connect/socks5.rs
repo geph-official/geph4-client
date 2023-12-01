@@ -1,4 +1,4 @@
-use std::{sync::atomic::Ordering, time::Duration};
+use std::{time::Duration};
 
 use anyhow::Context;
 use futures_util::TryFutureExt;
@@ -86,11 +86,11 @@ async fn handle_socks5(
         )
         .await?;
         smol::future::race(
-            geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |n| {
+            geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |_n| {
                 // STATS_RECV_BYTES.fetch_add(n as u64, Ordering::Relaxed);
                 notify_activity();
             }),
-            geph4_aioutils::copy_with_stats(s5client, conn, |n| {
+            geph4_aioutils::copy_with_stats(s5client, conn, |_n| {
                 // STATS_SEND_BYTES.fetch_add(n as u64, Ordering::Relaxed);
                 notify_activity();
             }),
