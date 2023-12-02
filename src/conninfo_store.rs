@@ -85,7 +85,7 @@ impl ConnInfoStore {
             .fetch_optional(&self.storage)
             .await?;
         if let Some((bts,)) = bts {
-            Ok(stdcode::deserialize(&bts)?)
+            Ok(Some(stdcode::deserialize(&bts)?))
         } else {
             Ok(None)
         }
