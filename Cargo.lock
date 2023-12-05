@@ -4367,15 +4367,6 @@ checksum = "e3a8614ee435691de62bcffcf4a66d91b3594bf1428a5722e79103249a095690"
 [[package]]
 name = "replay_filter"
 version = "0.1.2"
-dependencies = [
- "bitvec 1.0.1",
- "honggfuzz",
- "log 0.4.20",
-]
-
-[[package]]
-name = "replay_filter"
-version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e92f12b45df65374163d6bf4327abd0e8c3d2e198bebfbd5f53c13edaeb900ea"
 dependencies = [
@@ -5141,6 +5132,8 @@ dependencies = [
 [[package]]
 name = "sosistab2"
 version = "0.10.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff9a6bc8da3d1b7f02a306461e1c7d9a3905e7279dde076c85054f10dbe47ba8"
 dependencies = [
  "ahash 0.8.6",
  "anyhow",
@@ -5170,7 +5163,7 @@ dependencies = [
  "rand 0.7.3",
  "rand_chacha 0.2.2",
  "recycle-box",
- "replay_filter 0.1.2",
+ "replay_filter",
  "ring 0.16.20",
  "scopeguard",
  "serde",
@@ -5213,6 +5206,8 @@ dependencies = [
 [[package]]
 name = "sosistab2-obfsudp"
 version = "0.1.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5d61f019a7c6fe0e6eb5e0449fc9fea6e3eabc98579f56642b046bb5a449999"
 dependencies = [
  "ahash 0.8.6",
  "anyhow",
@@ -5232,7 +5227,7 @@ dependencies = [
  "probability",
  "rand 0.7.3",
  "reed-solomon-erasure",
- "replay_filter 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "replay_filter",
  "ring 0.17.6",
  "scopeguard",
  "serde",

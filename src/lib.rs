@@ -1,5 +1,5 @@
 use std::sync::atomic::Ordering;
-use std::{io::Write, sync::atomic::AtomicUsize, time::Duration};
+use std::{io::Write, sync::atomic::AtomicUsize};
 
 mod config;
 mod fronts;
@@ -7,15 +7,15 @@ mod fronts;
 mod socks2http;
 
 use cap::Cap;
-use clone_macro::clone;
+
 use colored::Colorize;
 
-use futures_util::TryFutureExt;
+
 use pad::{Alignment, PadStr};
-use smolscale::immortal::{Immortal, RespawnStrategy};
+
 use structopt::StructOpt;
 
-use crate::config::Opt;
+use crate::{config::Opt, connect::ConnectDaemon};
 mod binderproxy;
 mod china;
 mod connect;
@@ -41,11 +41,7 @@ pub fn dispatch() -> anyhow::Result<()> {
     smolscale::block_on(async move {
         match opt {
             Opt::Connect(opt) => {
-                let _loop = Immortal::respawn(
-                    RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),
-                    clone!([opt], move || connect::connect_loop(opt.clone())
-                        .map_err(|e| log::error!("connect loop restarted! {:?}", e))),
-                );
+                let _connect = ConnectDaemon::start(opt).await?;
                 smol::future::pending().await
             }
             Opt::Sync(opt) => sync::main_sync(opt.clone()).await,

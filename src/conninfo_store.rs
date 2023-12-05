@@ -1,13 +1,12 @@
 use std::{
-    path::Path,
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use acidjson::AcidJson;
+
 use anyhow::Context;
-use async_trait::async_trait;
-use bytes::Bytes;
+
+
 use futures_util::join;
 use geph4_protocol::binder::protocol::{
     AuthError, AuthRequestV2, AuthResponseV2, BinderClient, BlindToken, BridgeDescriptor,
@@ -218,34 +217,34 @@ impl ConnInfoStore {
 
     /// Gets the current list of bridges
     pub async fn bridges(&self) -> anyhow::Result<Vec<BridgeDescriptor>> {
-        Ok(self
+        self
             .kv_read("bridges")
             .await?
-            .context("no bridges available yet")?)
+            .context("no bridges available yet")
     }
 
     /// Gets the current master summary
     pub async fn summary(&self) -> anyhow::Result<MasterSummary> {
-        Ok(self
+        self
             .kv_read("summary")
             .await?
-            .context("no summary available yet")?)
+            .context("no summary available yet")
     }
 
     /// Gets the current user info
     pub async fn user_info(&self) -> anyhow::Result<UserInfoV2> {
-        Ok(self
+        self
             .kv_read("user_info")
             .await?
-            .context("no user info available yet")?)
+            .context("no user info available yet")
     }
 
     /// Gets the current authentication token
     pub async fn blind_token(&self) -> anyhow::Result<BlindToken> {
-        Ok(self
+        self
             .kv_read("blind_token")
             .await?
-            .context("no blind token available yet")?)
+            .context("no blind token available yet")
     }
 
     /// Gets the underlying RPC.

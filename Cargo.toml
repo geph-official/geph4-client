@@ -10,8 +10,8 @@ repository = "https://github.com/geph-official/geph4-client"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [patch.crates-io]
-sosistab2-obfsudp={path="../sosistab2-obfsudp"}
-sosistab2={path="../sosistab2"}
+# sosistab2-obfsudp={path="../sosistab2-obfsudp"}
+# sosistab2={path="../sosistab2"}
 
 [lib]
 name = "geph4client"

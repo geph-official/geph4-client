@@ -25,7 +25,7 @@ use crate::{
 };
 use crate::{conninfo_store::ConnInfoStore, metrics::BridgeMetrics};
 
-use super::{BinderTunnelParams, EndpointSource, TunnelCtx};
+use super::{EndpointSource, TunnelCtx};
 use anyhow::Context;
 use std::{
     collections::{BTreeSet, HashSet},
