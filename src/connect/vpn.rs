@@ -1,13 +1,10 @@
 use anyhow::Context;
-use bytes::Bytes;
-use geph_nat::GephNat;
 
 use super::ConnectContext;
 use crate::config::VpnMode;
 
 #[cfg(unix)]
 use std::os::unix::prelude::{AsRawFd, FromRawFd};
-use std::sync::atomic::AtomicU32;
 
 pub(super) async fn vpn_loop(ctx: ConnectContext) -> anyhow::Result<()> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -45,12 +42,17 @@ fn configure_tun_device() -> tun::platform::Device {
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 async unsafe fn fd_vpn_loop(ctx: ConnectContext, fd_num: i32) -> anyhow::Result<()> {
+    log::info!("entering fd_vpn_loop");
+
     use futures_util::{AsyncReadExt, AsyncWriteExt};
 
     use smol::future::FutureExt;
 
-    let mut up_file = smol::Async::new(std::fs::File::from_raw_fd(fd_num))?;
-    let mut dn_file = smol::Async::new(std::fs::File::from_raw_fd(fd_num))?;
+    let mut up_file = async_dup::Arc::new(async_dup::Mutex::new(
+        smol::Async::new(std::fs::File::from_raw_fd(fd_num)).context("cannot init up_file")?,
+    ));
+
+    let mut dn_file = up_file.clone();
 
     let up_loop = async {
         let mut bts = vec![0; 65536];

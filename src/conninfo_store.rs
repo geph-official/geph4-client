@@ -3,10 +3,9 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-
 use anyhow::Context;
 
-
+use event_listener::Event;
 use futures_util::join;
 use geph4_protocol::binder::protocol::{
     AuthError, AuthRequestV2, AuthResponseV2, BinderClient, BlindToken, BridgeDescriptor,
@@ -33,6 +32,8 @@ pub struct ConnInfoStore {
     selected_exit: String,
 
     get_creds: Box<dyn Fn() -> Credentials + Send + Sync + 'static>,
+
+    notify: Event,
 }
 
 impl ConnInfoStore {
@@ -60,6 +61,7 @@ impl ConnInfoStore {
             mizaru_plus,
             selected_exit: exit_host.to_owned(),
             get_creds: Box::new(get_creds),
+            notify: Event::new(),
         };
 
         // // only force a refresh here if the *token* is stale, because that is a hard error. other things being stale are totally fine.
@@ -90,6 +92,19 @@ impl ConnInfoStore {
         }
     }
 
+    async fn kv_read_or_wait<T: DeserializeOwned>(&self, k: &str) -> anyhow::Result<T> {
+        loop {
+            let notify = self.notify.listen();
+            if let Some(v) = self.kv_read(k).await? {
+                return Ok(v);
+            } else {
+                log::warn!("waiting for key {:?}", k);
+
+                notify.await;
+            }
+        }
+    }
+
     async fn kv_write<T: Serialize>(&self, k: &str, v: &T) -> anyhow::Result<()> {
         let serialized_v = stdcode::serialize(v)?;
         sqlx::query("INSERT INTO conninfo_store (k, v) VALUES ($1, $2) ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v")
@@ -97,6 +112,7 @@ impl ConnInfoStore {
             .bind(&serialized_v)
             .execute(&self.storage)
             .await?;
+        self.notify.notify(usize::MAX);
         Ok(())
     }
 
@@ -184,10 +200,7 @@ impl ConnInfoStore {
                     {
                         log::debug!("bridges stale so refreshing bridges");
                         // refresh if the bridges are old, OR if the exit that's actually selected isn't the one in the persistent store
-                        let token: BlindToken = self
-                            .kv_read("blind_token")
-                            .await?
-                            .context("no blind token available yet")?;
+                        let token: BlindToken = self.kv_read_or_wait("blind_token").await?;
                         let bridges = self
                             .rpc
                             .get_bridges_v2(token, effective_exit_host.as_str().into())
@@ -217,34 +230,22 @@ impl ConnInfoStore {
 
     /// Gets the current list of bridges
     pub async fn bridges(&self) -> anyhow::Result<Vec<BridgeDescriptor>> {
-        self
-            .kv_read("bridges")
-            .await?
-            .context("no bridges available yet")
+        self.kv_read_or_wait("bridges").await
     }
 
     /// Gets the current master summary
     pub async fn summary(&self) -> anyhow::Result<MasterSummary> {
-        self
-            .kv_read("summary")
-            .await?
-            .context("no summary available yet")
+        self.kv_read_or_wait("summary").await
     }
 
     /// Gets the current user info
     pub async fn user_info(&self) -> anyhow::Result<UserInfoV2> {
-        self
-            .kv_read("user_info")
-            .await?
-            .context("no user info available yet")
+        self.kv_read_or_wait("user_info").await
     }
 
     /// Gets the current authentication token
     pub async fn blind_token(&self) -> anyhow::Result<BlindToken> {
-        self
-            .kv_read("blind_token")
-            .await?
-            .context("no blind token available yet")
+        self.kv_read_or_wait("blind_token").await
     }
 
     /// Gets the underlying RPC.

@@ -3,7 +3,7 @@ use std::{sync::Arc, time::Duration};
 use anyhow::Context;
 
 use clone_macro::clone;
-use futures_util::{future::select_all, FutureExt};
+use futures_util::{future::select_all, FutureExt, TryFutureExt};
 
 use itertools::Itertools;
 use once_cell::sync::Lazy;
@@ -80,7 +80,8 @@ impl ConnectDaemon {
             ctx: ctx.clone(),
             _task: Immortal::respawn(
                 RespawnStrategy::JitterDelay(Duration::from_secs(1), Duration::from_secs(5)),
-                clone!([ctx], move || connect_loop(ctx.clone())),
+                clone!([ctx], move || connect_loop(ctx.clone())
+                    .map_err(|e| log::error!("connect_loop restart: {:?}", e))),
             ),
         })
     }
@@ -131,11 +132,14 @@ async fn connect_loop(ctx: ConnectContext) -> anyhow::Result<()> {
         }
     }));
 
+    let vpn = smolscale::spawn(vpn::vpn_loop(ctx.clone()));
+
     socks2http
         .race(socks5)
         .race(dns)
         .race(refresh)
         .race(select_all(forward_ports).map(|s| s.0))
+        .race(vpn)
         .await?;
     anyhow::bail!("somehow ran off the edge of a cliff")
 }
