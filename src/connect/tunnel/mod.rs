@@ -1,9 +1,13 @@
+use anyhow::Context;
 use bytes::Bytes;
 
+use derivative::Derivative;
+use geph_nat::GephNat;
 use parking_lot::RwLock;
+use pnet_packet::ipv4::Ipv4;
 use smol::channel::{Receiver, Sender};
 use smol_str::SmolStr;
-use std::net::SocketAddr;
+use std::{net::SocketAddr, ops::Deref};
 
 use sosistab2::Stream;
 use std::{
@@ -45,7 +49,6 @@ pub struct BinderTunnelParams {
 struct TunnelCtx {
     endpoint: EndpointSource,
     recv_socks5_conn: Receiver<(String, Sender<Stream>)>,
-    vpn_client_ip: Arc<AtomicU32>,
 
     connect_status: Arc<RwLock<ConnectionStatus>>,
     recv_vpn_outgoing: Receiver<Bytes>,
@@ -63,10 +66,16 @@ pub enum TunnelStatus {
 }
 
 /// A ConnectionStatus shows the status of the tunnel.
-#[derive(Clone, Debug, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Clone, Derivative)]
+#[derivative(Debug)]
 pub enum ConnectionStatus {
     Connecting,
-    Connected { protocol: SmolStr, address: SmolStr },
+    Connected {
+        protocol: SmolStr,
+        address: SmolStr,
+        #[derivative(Debug = "ignore")]
+        vpn_client_ip: Option<(Ipv4Addr, Arc<GephNat>)>,
+    },
 }
 
 impl ConnectionStatus {
@@ -80,7 +89,7 @@ impl ConnectionStatus {
 /// This can be thought of as analogous to TcpStream, except all reads and writes are datagram-based and unreliable.
 pub struct ClientTunnel {
     endpoint: EndpointSource,
-    client_ip_addr: Arc<AtomicU32>,
+
     connect_status: Arc<RwLock<ConnectionStatus>>,
 
     send_vpn_outgoing: Sender<Bytes>,
@@ -100,13 +109,11 @@ impl ClientTunnel {
         let (send_socks5, recv_socks5) = smol::channel::unbounded();
         let (send_outgoing, recv_outgoing) = smol::channel::bounded(10000);
         let (send_incoming, recv_incoming) = smol::channel::bounded(10000);
-        let current_state = Arc::new(AtomicU32::new(0));
 
         let connect_status = Arc::new(RwLock::new(ConnectionStatus::Connecting));
         let ctx = TunnelCtx {
             endpoint: endpoint.clone(),
             recv_socks5_conn: recv_socks5,
-            vpn_client_ip: current_state.clone(),
 
             connect_status: connect_status.clone(),
             send_vpn_incoming: send_incoming,
@@ -117,7 +124,7 @@ impl ClientTunnel {
 
         ClientTunnel {
             endpoint,
-            client_ip_addr: current_state,
+
             send_vpn_outgoing: send_outgoing,
             recv_vpn_incoming: recv_incoming,
             open_socks5_conn: send_socks5,
@@ -129,11 +136,7 @@ impl ClientTunnel {
 
     /// Returns the current connection status.
     pub fn status(&self) -> ConnectionStatus {
-        if self.client_ip_addr.load(Ordering::Relaxed) == 0 {
-            ConnectionStatus::Connecting
-        } else {
-            self.connect_status.read().clone()
-        }
+        self.connect_status.read().clone()
     }
 
     /// Returns a sosistab stream to the given remote host.
@@ -145,26 +148,40 @@ impl ClientTunnel {
         Ok(recv.recv().await?)
     }
 
-    pub async fn send_vpn(&self, msg: Bytes) -> anyhow::Result<()> {
+    pub async fn send_vpn(&self, msg: &[u8]) -> anyhow::Result<()> {
         notify_activity();
-        self.send_vpn_outgoing.send(msg).await?;
+        let mangled_msg = {
+            let status = self.connect_status.read();
+            if let ConnectionStatus::Connected {
+                protocol: _,
+                address: _,
+                vpn_client_ip: Some((_, nat)),
+            } = status.deref()
+            {
+                nat.mangle_upstream_pkt(msg)
+            } else {
+                None
+            }
+        };
+        if let Some(msg) = mangled_msg {
+            self.send_vpn_outgoing.send(msg).await?;
+        }
         Ok(())
     }
 
     pub async fn recv_vpn(&self) -> anyhow::Result<Bytes> {
         let msg = self.recv_vpn_incoming.recv().await?;
-        Ok(msg)
-    }
-
-    pub async fn get_vpn_client_ip(&self) -> Ipv4Addr {
-        loop {
-            let current_state = self.client_ip_addr.load(Ordering::Relaxed);
-
-            if current_state == 0 {
-                smol::Timer::after(Duration::from_millis(500)).await;
-            } else {
-                return Ipv4Addr::from(current_state);
-            }
+        let status = self.connect_status.read();
+        if let ConnectionStatus::Connected {
+            protocol: _,
+            address: _,
+            vpn_client_ip: Some((_, nat)),
+        } = status.deref()
+        {
+            nat.mangle_downstream_pkt(&msg)
+                .context("could not mangle downstream")
+        } else {
+            anyhow::bail!("cannot processed received VPN when connection status is not connected")
         }
     }
 

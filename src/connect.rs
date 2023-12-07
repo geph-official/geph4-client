@@ -8,7 +8,6 @@ use futures_util::{future::select_all, FutureExt};
 use itertools::Itertools;
 use once_cell::sync::Lazy;
 
-
 use rand::Rng;
 use smol::prelude::*;
 use smolscale::immortal::{Immortal, RespawnStrategy};
@@ -25,6 +24,7 @@ mod port_forwarder;
 mod socks5;
 
 mod tunnel;
+mod vpn;
 
 pub struct ConnectDaemon {
     ctx: ConnectContext,

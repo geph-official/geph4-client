@@ -1,0 +1,70 @@
+use anyhow::Context;
+use bytes::Bytes;
+use geph_nat::GephNat;
+
+use super::ConnectContext;
+use crate::config::VpnMode;
+
+#[cfg(unix)]
+use std::os::unix::prelude::{AsRawFd, FromRawFd};
+use std::sync::atomic::AtomicU32;
+
+pub(super) async fn vpn_loop(ctx: ConnectContext) -> anyhow::Result<()> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    if ctx.opt.vpn_mode == Some(VpnMode::InheritedFd) {
+        let fd_num: i32 = std::env::var("GEPH_VPN_FD")
+            .ok()
+            .and_then(|e| e.parse().ok())
+            .expect("must set GEPH_VPN_FD to a file descriptor in order to use inherited-fd mode");
+        return unsafe { fd_vpn_loop(ctx, fd_num).await };
+    }
+
+    #[cfg(target_os = "linux")]
+    if ctx.opt.vpn_mode == Some(VpnMode::TunRoute) || ctx.opt.vpn_mode == Some(VpnMode::TunNoRoute)
+    {
+        let device = configure_tun_device();
+        return unsafe { fd_vpn_loop(ctx, device.as_raw_fd()).await };
+    }
+
+    smol::future::pending().await
+}
+
+fn configure_tun_device() -> tun::platform::Device {
+    let device = tun::platform::Device::new(
+        tun::Configuration::default()
+            .name("tun-geph")
+            .address("100.64.89.64")
+            .netmask("255.255.255.0")
+            .destination("100.64.0.1")
+            .mtu(16384)
+            .up(),
+    )
+    .expect("could not initialize TUN device");
+    device
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+async unsafe fn fd_vpn_loop(ctx: ConnectContext, fd_num: i32) -> anyhow::Result<()> {
+    use futures_util::{AsyncReadExt, AsyncWriteExt};
+
+    use smol::future::FutureExt;
+
+    let mut up_file = smol::Async::new(std::fs::File::from_raw_fd(fd_num))?;
+    let mut dn_file = smol::Async::new(std::fs::File::from_raw_fd(fd_num))?;
+
+    let up_loop = async {
+        let mut bts = vec![0; 65536];
+        loop {
+            let n = up_file.read(&mut bts).await?;
+
+            ctx.tunnel.send_vpn(&bts[..n]).await?;
+        }
+    };
+    let dn_loop = async {
+        loop {
+            let bts = ctx.tunnel.recv_vpn().await?;
+            dn_file.write_all(&bts).await?;
+        }
+    };
+    up_loop.race(dn_loop).await
+}

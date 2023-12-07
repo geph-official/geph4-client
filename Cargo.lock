@@ -2050,6 +2050,7 @@ dependencies = [
  "colored",
  "dashmap 5.5.3",
  "default-net",
+ "derivative",
  "dirs",
  "ed25519-dalek",
  "eff-wordlist",

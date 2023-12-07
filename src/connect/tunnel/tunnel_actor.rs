@@ -12,6 +12,7 @@ use geph4_protocol::{
     binder::protocol::BlindToken,
     client_exit::{ClientExitClient, CLIENT_EXIT_PSEUDOHOST},
 };
+use geph_nat::GephNat;
 use std::net::Ipv4Addr;
 
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
@@ -46,12 +47,12 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
     let _start = Instant::now();
 
     let ctx1 = ctx.clone();
-    ctx.vpn_client_ip.store(0, Ordering::SeqCst);
+
     notify_activity();
 
     let tunnel_mux = get_session(&ctx).await?;
 
-    if let EndpointSource::Binder(conninfo, _) = ctx.endpoint.clone() {
+    let vpn_ip = if let EndpointSource::Binder(conninfo, _) = ctx.endpoint.clone() {
         let auth_start = Instant::now();
         // authenticate
         let token = conninfo.blind_token().await?;
@@ -62,15 +63,16 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
         let auth_time = auth_start.elapsed().as_secs_f64();
         log::debug!("auth time: {}s", auth_time);
         log::info!("VPN private IP assigned: {ipv4}");
-        ctx.vpn_client_ip.store(ipv4.into(), Ordering::SeqCst);
+        Some(ipv4)
     } else {
-        ctx.vpn_client_ip.store(12345, Ordering::SeqCst);
-    }
+        None
+    };
 
     log::info!("TUNNEL_ACTOR MAIN LOOP!");
     *ctx.connect_status.write() = ConnectionStatus::Connected {
         protocol: "sosistab2".into(),
         address: "dynamic".into(),
+        vpn_client_ip: vpn_ip.map(|ip| (ip, Arc::new(GephNat::new(1000, ip)))),
     };
 
     let ctx2 = ctx.clone();

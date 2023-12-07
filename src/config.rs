@@ -108,10 +108,18 @@ pub struct ConnectOpt {
 /// An enum represennting the various VPN modes.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq, Hash, Serialize, Deserialize)]
 pub enum VpnMode {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     InheritedFd,
+
+    #[cfg(target_os = "linux")]
     TunNoRoute,
+
+    #[cfg(target_os = "linux")]
     TunRoute,
+
+    #[cfg(windows)]
     WinDivert,
+
     Stdio,
 }
 
@@ -119,10 +127,18 @@ impl FromStr for VpnMode {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            #[cfg(any(target_os = "linux", target_os = "android"))]
             "inherited-fd" => Ok(Self::InheritedFd),
+
+            #[cfg(target_os = "linux")]
             "tun-no-route" => Ok(Self::TunNoRoute),
+
+            #[cfg(target_os = "linux")]
             "tun-route" => Ok(Self::TunRoute),
+
+            #[cfg(windows)]
             "windivert" => Ok(Self::WinDivert),
+
             "stdio" => Ok(Self::Stdio),
 
             x => anyhow::bail!("unrecognized VPN mode {}", x),
