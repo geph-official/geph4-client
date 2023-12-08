@@ -9,10 +9,10 @@ pub struct PacketHandle {
     handle: Handle,
     buffer: VecDeque<Vec<u8>>,
 }
-//
-// unsafe impl Sync for PacketHandle {}
-//
-// unsafe impl Send for PacketHandle {}
+
+unsafe impl Sync for PacketHandle {}
+
+unsafe impl Send for PacketHandle {}
 
 static LAST_RECV_ADDR: Lazy<Mutex<Option<bindings::WINDIVERT_ADDRESS>>> =
     Lazy::new(|| Mutex::new(None));
@@ -68,5 +68,9 @@ impl PacketHandle {
             log::warn!("ignoring packets because we don't know how to inject");
         };
         Ok(())
+    }
+
+    pub fn shutdown(&self) {
+        self.handle.shutdown()
     }
 }

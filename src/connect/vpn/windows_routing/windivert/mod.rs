@@ -127,6 +127,10 @@ impl Handle {
         check_c_error(maybe_injected, |b| *b > 0)?;
         Ok(())
     }
+
+    pub fn shutdown(&self) {
+        unsafe { bindings::WinDivertClose(self.handle) };
+    }
 }
 
 /// This prevents us from ever forgetting to close a handle.
