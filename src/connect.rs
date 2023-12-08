@@ -18,11 +18,13 @@ use crate::{
     conninfo_store::ConnInfoStore,
 };
 
+use crate::debugpack::DebugPack;
 mod dns;
 
 mod port_forwarder;
 mod socks5;
 
+mod stats;
 mod tunnel;
 mod vpn;
 
@@ -75,6 +77,7 @@ impl ConnectDaemon {
             conn_info,
             tunnel,
             opt: opt.clone(),
+            debug: Arc::new(DebugPack::new(&opt.common.debugpack_path)?),
         };
         Ok(Self {
             ctx: ctx.clone(),
@@ -85,6 +88,11 @@ impl ConnectDaemon {
             ),
         })
     }
+
+    /// Gets a handle to the debug pack from the outside.
+    pub fn debug(&self) -> &DebugPack {
+        &self.ctx.debug
+    }
 }
 
 #[derive(Clone)]
@@ -92,6 +100,7 @@ pub struct ConnectContext {
     opt: ConnectOpt,
     conn_info: Arc<ConnInfoStore>,
     tunnel: Arc<ClientTunnel>,
+    debug: Arc<DebugPack>,
 }
 
 static METRIC_SESSION_ID: Lazy<i64> = Lazy::new(|| {
@@ -134,12 +143,15 @@ async fn connect_loop(ctx: ConnectContext) -> anyhow::Result<()> {
 
     let vpn = smolscale::spawn(vpn::vpn_loop(ctx.clone()));
 
+    let stats = smolscale::spawn(stats::serve_stats_loop(ctx.clone()));
+
     socks2http
         .race(socks5)
         .race(dns)
         .race(refresh)
         .race(select_all(forward_ports).map(|s| s.0))
         .race(vpn)
+        .race(stats)
         .await?;
     anyhow::bail!("somehow ran off the edge of a cliff")
 }

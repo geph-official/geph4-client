@@ -7,7 +7,7 @@ use clone_macro::clone;
 use dashmap::DashMap;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
-use parking_lot::Mutex;
+
 use smol::stream::StreamExt;
 
 use std::net::IpAddr;

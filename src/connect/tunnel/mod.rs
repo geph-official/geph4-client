@@ -1,4 +1,4 @@
-use anyhow::Context;
+
 use bytes::Bytes;
 
 use derivative::Derivative;
@@ -10,11 +10,7 @@ use smol_str::SmolStr;
 use std::{net::SocketAddr, ops::Deref};
 
 use sosistab2::Stream;
-use std::{
-    sync::{
-        Arc,
-    },
-};
+use std::sync::Arc;
 use tunnel_actor::tunnel_actor;
 pub mod activity;
 mod getsess;
@@ -168,18 +164,23 @@ impl ClientTunnel {
     }
 
     pub async fn recv_vpn(&self) -> anyhow::Result<Bytes> {
-        let msg = self.recv_vpn_incoming.recv().await?;
-        let status = self.connect_status.read();
-        if let ConnectionStatus::Connected {
-            protocol: _,
-            address: _,
-            vpn_client_ip: Some((_, nat)),
-        } = status.deref()
-        {
-            nat.mangle_downstream_pkt(&msg)
-                .context("could not mangle downstream")
-        } else {
-            anyhow::bail!("cannot processed received VPN when connection status is not connected")
+        loop {
+            let msg = self.recv_vpn_incoming.recv().await?;
+            let status = self.connect_status.read();
+            if let ConnectionStatus::Connected {
+                protocol: _,
+                address: _,
+                vpn_client_ip: Some((_, nat)),
+            } = status.deref()
+            {
+                if let Some(msg) = nat.mangle_downstream_pkt(&msg) {
+                    return Ok(msg);
+                }
+            } else {
+                anyhow::bail!(
+                    "cannot processed received VPN when connection status is not connected"
+                )
+            }
         }
     }
 

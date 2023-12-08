@@ -19,6 +19,7 @@ pub enum Opt {
     BridgeTest(crate::main_bridgetest::BridgeTestOpt),
     Sync(crate::sync::SyncOpt),
     BinderProxy(crate::binderproxy::BinderProxyOpt),
+    DebugPack(crate::debugpack::DebugPackOpt),
 }
 
 #[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]

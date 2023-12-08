@@ -10,19 +10,19 @@ use cap::Cap;
 
 use colored::Colorize;
 
-
 use pad::{Alignment, PadStr};
 
+use smol::channel::Sender;
 use structopt::StructOpt;
 
-use crate::{config::Opt, connect::ConnectDaemon};
+use crate::{config::Opt, connect::ConnectDaemon, debugpack::DebugPack};
 mod binderproxy;
 mod china;
 mod connect;
 mod conninfo_store;
-mod metrics;
-
+mod debugpack;
 mod main_bridgetest;
+mod metrics;
 mod sync;
 
 #[global_allocator]
@@ -32,7 +32,8 @@ pub fn dispatch() -> anyhow::Result<()> {
     std::env::remove_var("http_proxy");
     std::env::remove_var("https_proxy");
 
-    config_logging();
+    let (send_logs, recv_logs) = smol::channel::bounded(1000);
+    config_logging(send_logs);
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
     std::env::set_var("GEPH_VERSION", version);
@@ -41,19 +42,27 @@ pub fn dispatch() -> anyhow::Result<()> {
     smolscale::block_on(async move {
         match opt {
             Opt::Connect(opt) => {
-                let _connect = ConnectDaemon::start(opt).await?;
-                smol::future::pending().await
+                let daemon = ConnectDaemon::start(opt).await?;
+                loop {
+                    let log = recv_logs.recv().await?;
+                    daemon.debug().add_logline(&log);
+                }
             }
             Opt::Sync(opt) => sync::main_sync(opt.clone()).await,
             Opt::BinderProxy(opt) => binderproxy::main_binderproxy(opt.clone()).await,
             Opt::BridgeTest(opt) => main_bridgetest::main_bridgetest(opt.clone()).await,
+            Opt::DebugPack(opt) => {
+                let pack = DebugPack::new(&opt.common.debugpack_path)?;
+                pack.backup(&opt.export_to)?;
+                Ok(())
+            }
         }
     })
 }
 
 static LONGEST_LINE_EVER: AtomicUsize = AtomicUsize::new(0);
 
-fn config_logging() {
+fn config_logging(logs: Sender<String>) {
     if let Err(e) = env_logger::Builder::from_env(
         env_logger::Env::default()
             .default_filter_or("geph4client=debug,geph4_protocol=debug,melprot=debug,warn"),
@@ -78,7 +87,9 @@ fn config_logging() {
             + &preamble;
         let line = format!("{} {}", preamble, record.args());
         writeln!(buf, "{}", line).unwrap();
-
+        let _ = logs.try_send(
+            String::from_utf8_lossy(&strip_ansi_escapes::strip(line).unwrap()).to_string(),
+        );
         Ok(())
     })
     .format_target(false)
