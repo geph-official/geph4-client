@@ -1,7 +1,11 @@
 use anyhow::Context;
+use smol::future::FutureExt;
 
 use super::ConnectContext;
 use crate::config::VpnMode;
+
+#[cfg(target_os = "linux")]
+mod linux_routing;
 
 #[cfg(unix)]
 use std::os::unix::prelude::{AsRawFd, FromRawFd};
@@ -17,10 +21,19 @@ pub(super) async fn vpn_loop(ctx: ConnectContext) -> anyhow::Result<()> {
     }
 
     #[cfg(target_os = "linux")]
-    if ctx.opt.vpn_mode == Some(VpnMode::TunRoute) || ctx.opt.vpn_mode == Some(VpnMode::TunNoRoute)
-    {
+    if ctx.opt.vpn_mode == Some(VpnMode::TunNoRoute) {
         let device = configure_tun_device();
         return unsafe { fd_vpn_loop(ctx, device.as_raw_fd()).await };
+    }
+
+    #[cfg(target_os = "linux")]
+    if ctx.opt.vpn_mode == Some(VpnMode::TunRoute) {
+        let device = configure_tun_device();
+        return unsafe {
+            fd_vpn_loop(ctx.clone(), device.as_raw_fd())
+                .race(linux_routing::routing_loop(ctx.clone()))
+                .await
+        };
     }
 
     smol::future::pending().await
@@ -45,8 +58,6 @@ async unsafe fn fd_vpn_loop(ctx: ConnectContext, fd_num: i32) -> anyhow::Result<
     log::info!("entering fd_vpn_loop");
 
     use futures_util::{AsyncReadExt, AsyncWriteExt};
-
-    use smol::future::FutureExt;
 
     let mut up_file = async_dup::Arc::new(async_dup::Mutex::new(
         smol::Async::new(std::fs::File::from_raw_fd(fd_num)).context("cannot init up_file")?,

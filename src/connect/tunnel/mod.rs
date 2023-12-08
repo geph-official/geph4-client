@@ -4,7 +4,7 @@ use bytes::Bytes;
 use derivative::Derivative;
 use geph_nat::GephNat;
 use parking_lot::RwLock;
-use pnet_packet::ipv4::Ipv4;
+
 use smol::channel::{Receiver, Sender};
 use smol_str::SmolStr;
 use std::{net::SocketAddr, ops::Deref};
@@ -12,10 +12,8 @@ use std::{net::SocketAddr, ops::Deref};
 use sosistab2::Stream;
 use std::{
     sync::{
-        atomic::{AtomicU32, Ordering},
         Arc,
     },
-    time::Duration,
 };
 use tunnel_actor::tunnel_actor;
 pub mod activity;

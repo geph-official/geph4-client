@@ -26,7 +26,7 @@ use smol_timeout::TimeoutExt;
 use sosistab2::{Pipe, Stream};
 
 use std::{
-    sync::{atomic::Ordering, Arc},
+    sync::{Arc},
     time::Duration,
     time::Instant,
 };

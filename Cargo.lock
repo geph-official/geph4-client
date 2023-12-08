@@ -2036,6 +2036,7 @@ dependencies = [
  "async-dup",
  "async-h1",
  "async-once-cell",
+ "async-signal",
  "async-trait",
  "backoff",
  "binary-search",
