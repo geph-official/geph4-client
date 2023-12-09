@@ -1,17 +1,15 @@
 mod gatherer;
 
 use std::{
-    convert::Infallible,
     sync::atomic::{AtomicU64, Ordering},
-    thread::JoinHandle,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
+use anyhow::Context;
 use async_trait::async_trait;
 use itertools::Itertools;
 use smol_str::SmolStr;
-
-use crate::debugpack::DEBUGPACK;
+use smolscale::reaper::TaskReaper;
 
 use self::gatherer::StatsGatherer;
 pub use gatherer::StatItem;
@@ -20,31 +18,39 @@ use nanorpc::RpcService;
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 
-use super::{CONNECT_CONFIG, TUNNEL};
+use super::ConnectContext;
 
 /// The main stats-serving thread.
-pub static STATS_THREAD: Lazy<JoinHandle<Infallible>> = Lazy::new(|| {
-    std::thread::spawn(|| loop {
-        let server = tiny_http::Server::http(CONNECT_CONFIG.stats_listen).unwrap();
-        for mut request in server.incoming_requests() {
-            smolscale::spawn(async move {
-                if let Ok(key) = std::env::var("GEPH_RPC_KEY") {
-                    if !request.url().contains(&key) {
-                        anyhow::bail!("missing rpc key")
+pub async fn serve_stats_loop(ctx: ConnectContext) -> anyhow::Result<()> {
+    smol::unblock(move || {
+        let reaper = TaskReaper::new();
+        let ctx = ctx.clone();
+        loop {
+            let server = tiny_http::Server::http(ctx.opt.stats_listen)
+                .ok()
+                .context("could not start listening")?;
+
+            for mut request in server.incoming_requests() {
+                let ctx = ctx.clone();
+                reaper.attach(smolscale::spawn(async move {
+                    if let Ok(key) = std::env::var("GEPH_RPC_KEY") {
+                        if !request.url().contains(&key) {
+                            anyhow::bail!("missing rpc key")
+                        }
                     }
-                }
-                let mut s = String::new();
-                request.as_reader().read_to_string(&mut s)?;
-                let resp = StatsControlService(DummyImpl)
-                    .respond_raw(serde_json::from_str(&s)?)
-                    .await;
-                request.respond(tiny_http::Response::from_data(serde_json::to_vec(&resp)?))?;
-                anyhow::Ok(())
-            })
-            .detach()
+                    let mut s = String::new();
+                    request.as_reader().read_to_string(&mut s)?;
+                    let resp = StatsControlService(StatsControlProtocolImpl { ctx })
+                        .respond_raw(serde_json::from_str(&s)?)
+                        .await;
+                    request.respond(tiny_http::Response::from_data(serde_json::to_vec(&resp)?))?;
+                    anyhow::Ok(())
+                }));
+            }
         }
     })
-});
+    .await
+}
 
 /// Basic tunnel statistics.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -57,23 +63,23 @@ pub struct BasicStats {
     pub address: SmolStr,
 }
 
-#[derive(Copy, Clone)]
-struct DummyImpl;
+#[derive(Clone)]
+struct StatsControlProtocolImpl {
+    ctx: ConnectContext,
+}
 
-impl StatsControlProtocol for DummyImpl {}
-
-#[nanorpc_derive]
 #[async_trait]
-pub trait StatsControlProtocol {
+impl StatsControlProtocol for StatsControlProtocolImpl {
     /// Obtains whether or not the daemon is connected.
     async fn is_connected(&self) -> bool {
-        TUNNEL.status().connected()
+        self.ctx.tunnel.status().connected()
     }
 
     /// Obtains statistics.
     async fn basic_stats(&self) -> BasicStats {
         loop {
             let stats = STATS_GATHERER.all_items().last().cloned();
+
             if let Some(stats) = stats {
                 return BasicStats {
                     address: stats.endpoint,
@@ -89,7 +95,9 @@ pub trait StatsControlProtocol {
 
     /// Get all logs after the given Unix timestamp.
     async fn get_logs(&self, timestamp: u64) -> Vec<(u64, String)> {
-        let logs = match DEBUGPACK
+        let logs = match self
+            .ctx
+            .debug
             .get_loglines(UNIX_EPOCH + Duration::from_secs(timestamp))
             .await
         {
@@ -166,6 +174,25 @@ pub trait StatsControlProtocol {
         .detach();
         true
     }
+}
+
+#[nanorpc_derive]
+#[async_trait]
+pub trait StatsControlProtocol {
+    /// Obtains whether or not the daemon is connected.
+    async fn is_connected(&self) -> bool;
+
+    /// Obtains statistics.
+    async fn basic_stats(&self) -> BasicStats;
+
+    /// Get all logs after the given Unix timestamp.
+    async fn get_logs(&self, timestamp: u64) -> Vec<(u64, String)>;
+
+    /// Obtains time-series statistics.
+    async fn timeseries_stats(&self, series: Timeseries) -> Vec<(u64, f32)>;
+
+    /// Turns off the daemon.
+    async fn kill(&self) -> bool;
 }
 
 #[derive(Copy, Clone, Serialize, Deserialize, Debug)]

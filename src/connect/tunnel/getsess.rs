@@ -16,7 +16,6 @@ use sosistab2::{Multiplex, MuxPublic, MuxSecret, Pipe};
 use sosistab2_obfstls::ObfsTlsPipe;
 use sosistab2_obfsudp::{ObfsUdpPipe, ObfsUdpPublic};
 
-use crate::{connect::global_conninfo_store, metrics::BridgeMetrics};
 use crate::{
     connect::{
         tunnel::{autoconnect::AutoconnectPipe, delay::DelayPipe, TunnelStatus},
@@ -24,8 +23,9 @@ use crate::{
     },
     metrics::Metrics,
 };
+use crate::{conninfo_store::ConnInfoStore, metrics::BridgeMetrics};
 
-use super::{BinderTunnelParams, EndpointSource, TunnelCtx};
+use super::{EndpointSource, TunnelCtx};
 use anyhow::Context;
 use std::{
     collections::{BTreeSet, HashSet},
@@ -81,10 +81,10 @@ fn verify_exit_signatures(
     Ok(())
 }
 
-pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2::Multiplex>> {
-    match &ctx.endpoint {
+pub(super) async fn get_session(ctx: &TunnelCtx) -> anyhow::Result<Arc<sosistab2::Multiplex>> {
+    match ctx.endpoint.clone() {
         EndpointSource::Independent { endpoint } => {
-            let (addr, raw_key) = parse_independent_endpoint(endpoint)?;
+            let (addr, raw_key) = parse_independent_endpoint(&endpoint)?;
             let obfs_pk = ObfsUdpPublic::from_bytes(raw_key);
             let sessid = rand::thread_rng().gen::<u128>().to_string();
             let mplex = Multiplex::new(MuxSecret::generate(), None);
@@ -109,9 +109,9 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             }
             Ok(Arc::new(mplex))
         }
-        EndpointSource::Binder(binder_tunnel_params) => {
+        EndpointSource::Binder(conn_info, binder_tunnel_params) => {
             let start = Instant::now();
-            let summary = global_conninfo_store().await.summary();
+            let summary = conn_info.summary().await?;
             let exit_names = summary.exits.iter().map(|e| &e.hostname).collect_vec();
             let selected_exit = summary
                 .exits
@@ -123,13 +123,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                 ))?
                 .clone();
             log::debug!("obtaining global conninfo store");
-            let bridges = global_conninfo_store().await.bridges();
-            if bridges.is_empty() {
-                anyhow::bail!(
-                    "no sosistab2 routes to {:?}, is this a valid exit?",
-                    binder_tunnel_params.exit_server
-                )
-            }
+            let bridges = conn_info.bridges().await?;
 
             log::debug!("{} routes", bridges.len());
 
@@ -160,7 +154,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
             let weak_multiplex = Arc::downgrade(&multiplex);
             multiplex.add_drop_friend(smolscale::spawn(replace_dead(
                 ctx.clone(),
-                binder_tunnel_params.clone(),
+                conn_info.clone(),
                 sess_id,
                 weak_multiplex,
             )));
@@ -184,11 +178,7 @@ pub(crate) async fn get_session(ctx: TunnelCtx) -> anyhow::Result<Arc<sosistab2:
                             "uploading connection metrics: {}",
                             serde_json::to_string(&json).unwrap()
                         );
-                        let _ = global_conninfo_store()
-                            .await
-                            .rpc()
-                            .add_metric(*METRIC_SESSION_ID, json)
-                            .await;
+                        let _ = conn_info.rpc().add_metric(*METRIC_SESSION_ID, json).await;
                     }
                     Err(e) => {
                         log::warn!("Failed to serialize metrics: {}", e);
@@ -211,7 +201,7 @@ async fn add_bridges(
 ) {
     let force_bridge = match &ctx.endpoint {
         EndpointSource::Independent { endpoint: _ } => None,
-        EndpointSource::Binder(b) => b.force_bridge,
+        EndpointSource::Binder(_, b) => b.force_bridge,
     };
     if bridges.is_empty() {
         return;
@@ -240,7 +230,7 @@ async fn add_bridges(
                 let ctx = ctx.clone();
                 let sess_id = sess_id.to_string();
                 let metrics_send = metrics_send.clone();
-                if let EndpointSource::Binder(params) = &ctx.endpoint {
+                if let EndpointSource::Binder(_, params) = &ctx.endpoint {
                     if params.use_bridges && bridge.is_direct {
                         return None;
                     }
@@ -402,17 +392,16 @@ async fn connect_once(
 
 async fn replace_dead(
     ctx: TunnelCtx,
-    _binder_tunnel_params: BinderTunnelParams,
+    conn_info: Arc<ConnInfoStore>,
     sess_id: String,
     weak_multiplex: Weak<Multiplex>,
 ) {
-    let cstore = global_conninfo_store().await.clone();
     let mut previous_bridges: Option<Vec<BridgeDescriptor>> = None;
     loop {
         smol::Timer::after(Duration::from_secs(120)).await;
         loop {
             let fallible_part = async {
-                let current_bridges = cstore.bridges();
+                let current_bridges = conn_info.bridges().await?;
                 let multiplex = match weak_multiplex.upgrade() {
                     Some(mux) => mux,
                     None => {

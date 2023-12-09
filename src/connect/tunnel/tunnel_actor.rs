@@ -1,5 +1,4 @@
 use crate::connect::{
-    global_conninfo_store,
     stats::{StatItem, STATS_GATHERER, STATS_RECV_BYTES, STATS_SEND_BYTES},
     tunnel::{ConnectionStatus, EndpointSource},
 };
@@ -16,7 +15,8 @@ use geph4_protocol::{
     binder::protocol::BlindToken,
     client_exit::{ClientExitClient, CLIENT_EXIT_PSEUDOHOST},
 };
-use std::{net::Ipv4Addr, time::SystemTime};
+use geph_nat::GephNat;
+use std::{net::Ipv4Addr, sync::atomic::Ordering, time::SystemTime};
 
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 
@@ -26,16 +26,12 @@ use smol::{
     prelude::*,
 };
 use smol_timeout::TimeoutExt;
-use sosistab2::{Multiplex, MuxStream, Pipe};
+use sosistab2::{Pipe, Stream};
 
-use std::{
-    sync::{atomic::Ordering, Arc},
-    time::Duration,
-    time::Instant,
-};
+use std::{sync::Arc, time::Duration, time::Instant};
 
 /// Background task of a TunnelManager
-pub(crate) async fn tunnel_actor(ctx: TunnelCtx) -> anyhow::Result<()> {
+pub(super) async fn tunnel_actor(ctx: TunnelCtx) -> anyhow::Result<()> {
     loop {
         // Run until a failure happens, log the error, then restart
         if let Err(err) = tunnel_actor_once(ctx.clone()).await {
@@ -46,28 +42,19 @@ pub(crate) async fn tunnel_actor(ctx: TunnelCtx) -> anyhow::Result<()> {
     }
 }
 
-async fn print_stats_loop(mux: Arc<Multiplex>) {
-    for _ctr in 0u64.. {
-        if let Some(pipe) = mux.last_recv_pipe() {
-            log::info!("RECV-CONN {} / PROT {} ", pipe.peer_addr(), pipe.protocol(),);
-        }
-        smol::Timer::after(Duration::from_secs(30)).await;
-    }
-}
-
 async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
     let _start = Instant::now();
 
     let ctx1 = ctx.clone();
-    ctx.vpn_client_ip.store(0, Ordering::SeqCst);
+
     notify_activity();
 
-    let tunnel_mux = get_session(ctx.clone()).await?;
+    let tunnel_mux = get_session(&ctx).await?;
 
-    if let EndpointSource::Binder(_binder_tunnel_params) = ctx.endpoint.clone() {
+    let vpn_ip = if let EndpointSource::Binder(conninfo, _) = ctx.endpoint.clone() {
         let auth_start = Instant::now();
         // authenticate
-        let token = global_conninfo_store().await.blind_token();
+        let token = conninfo.blind_token().await?;
         let ipv4 = authenticate_session(&tunnel_mux, &token)
             .timeout(Duration::from_secs(60))
             .await
@@ -75,15 +62,16 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
         let auth_time = auth_start.elapsed().as_secs_f64();
         log::debug!("auth time: {}s", auth_time);
         log::info!("VPN private IP assigned: {ipv4}");
-        ctx.vpn_client_ip.store(ipv4.into(), Ordering::SeqCst);
+        Some(ipv4)
     } else {
-        ctx.vpn_client_ip.store(12345, Ordering::SeqCst);
-    }
+        None
+    };
 
     log::info!("TUNNEL_ACTOR MAIN LOOP!");
     *ctx.connect_status.write() = ConnectionStatus::Connected {
         protocol: "sosistab2".into(),
         address: "dynamic".into(),
+        vpn_client_ip: vpn_ip.map(|ip| (ip, Arc::new(GephNat::new(1000, ip)))),
     };
 
     let ctx2 = ctx.clone();
@@ -92,7 +80,7 @@ async fn tunnel_actor_once(ctx: TunnelCtx) -> anyhow::Result<()> {
     });
 
     let (send_death, recv_death) = smol::channel::unbounded();
-    let _lala = smolscale::spawn(print_stats_loop(tunnel_mux.clone()));
+
     connection_handler_loop(ctx1.clone(), tunnel_mux.clone(), send_death)
         .or(async {
             // kill the whole session if any one connection fails
@@ -113,7 +101,7 @@ async fn authenticate_session(
     session: &sosistab2::Multiplex,
     token: &BlindToken,
 ) -> anyhow::Result<Ipv4Addr> {
-    let tport = MuxStreamTransport::new(session.open_conn(CLIENT_EXIT_PSEUDOHOST).await?);
+    let tport = StreamTransport::new(session.open_conn(CLIENT_EXIT_PSEUDOHOST).await?);
     let client = ClientExitClient::from(tport);
     if !client.validate(token.clone()).await? {
         anyhow::bail!("invalid authentication token")
@@ -125,13 +113,13 @@ async fn authenticate_session(
     Ok(addr)
 }
 
-struct MuxStreamTransport {
-    write: smol::lock::Mutex<MuxStream>,
-    read: smol::lock::Mutex<BufReader<MuxStream>>,
+struct StreamTransport {
+    write: smol::lock::Mutex<Stream>,
+    read: smol::lock::Mutex<BufReader<Stream>>,
 }
 
-impl MuxStreamTransport {
-    fn new(stream: MuxStream) -> Self {
+impl StreamTransport {
+    fn new(stream: Stream) -> Self {
         Self {
             write: stream.clone().into(),
             read: BufReader::new(stream).into(),
@@ -140,7 +128,7 @@ impl MuxStreamTransport {
 }
 
 #[async_trait]
-impl RpcTransport for MuxStreamTransport {
+impl RpcTransport for StreamTransport {
     type Error = anyhow::Error;
 
     async fn call_raw(&self, jrpc: JrpcRequest) -> anyhow::Result<JrpcResponse> {
@@ -264,7 +252,12 @@ async fn watchdog_loop(
                 recv_bytes: STATS_RECV_BYTES.load(Ordering::Relaxed),
             };
             STATS_GATHERER.push(item.clone());
-            log::debug!("** watchdog completed in {:?} **", ping);
+            log::debug!(
+                "** watchdog completed in {:?} through {}/{} **",
+                ping,
+                pipe.protocol(),
+                pipe.peer_addr()
+            );
         }
 
         let timer = smol::Timer::after(Duration::from_secs(10));

@@ -4,23 +4,16 @@ use crate::{conninfo_store::ConnInfoStore, fronts::parse_fronts};
 use anyhow::Context;
 
 use geph4_protocol::binder::protocol::{BinderClient, Credentials};
-use once_cell::sync::{Lazy, OnceCell};
 
 use serde::{Deserialize, Serialize};
+use sqlx::{
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous},
+    SqlitePool,
+};
 use std::net::{Ipv4Addr, SocketAddr};
 use stdcode::StdcodeSerializeExt;
 use structopt::StructOpt;
 use tmelcrypt::Ed25519SK;
-
-static INIT_CONFIG: OnceCell<Opt> = OnceCell::new();
-
-/// Must be called *before* CONFIG is ever referenced
-pub fn override_config(opt: Opt) {
-    INIT_CONFIG.get_or_init(|| opt);
-}
-
-/// The global configuration of the client.
-pub static CONFIG: Lazy<Opt> = Lazy::new(|| INIT_CONFIG.get_or_init(Opt::from_args).clone());
 
 #[derive(Debug, StructOpt, Deserialize, Serialize, Clone)]
 #[allow(clippy::large_enum_variant)]
@@ -29,7 +22,7 @@ pub enum Opt {
     BridgeTest(crate::main_bridgetest::BridgeTestOpt),
     Sync(crate::sync::SyncOpt),
     BinderProxy(crate::binderproxy::BinderProxyOpt),
-    Debugpack(crate::debugpack::DebugPackOpt),
+    DebugPack(crate::debugpack::DebugPackOpt),
 }
 
 #[derive(Debug, StructOpt, Clone, Deserialize, Serialize)]
@@ -119,10 +112,18 @@ pub struct ConnectOpt {
 /// An enum represennting the various VPN modes.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Ord, Eq, Hash, Serialize, Deserialize)]
 pub enum VpnMode {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     InheritedFd,
+
+    #[cfg(target_os = "linux")]
     TunNoRoute,
+
+    #[cfg(target_os = "linux")]
     TunRoute,
+
+    #[cfg(windows)]
     WinDivert,
+
     Stdio,
 }
 
@@ -130,10 +131,18 @@ impl FromStr for VpnMode {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
+            #[cfg(any(target_os = "linux", target_os = "android"))]
             "inherited-fd" => Ok(Self::InheritedFd),
+
+            #[cfg(target_os = "linux")]
             "tun-no-route" => Ok(Self::TunNoRoute),
+
+            #[cfg(target_os = "linux")]
             "tun-route" => Ok(Self::TunRoute),
+
+            #[cfg(windows)]
             "windivert" => Ok(Self::WinDivert),
+
             "stdio" => Ok(Self::Stdio),
 
             x => anyhow::bail!("unrecognized VPN mode {}", x),
@@ -145,14 +154,14 @@ impl FromStr for VpnMode {
 pub struct CommonOpt {
     #[structopt(
         long,
-        default_value = "https://www.netlify.com/v4/next-gen,https://vuejs.org/v4/next-gen,https://www.cdn77.com/next-gen,https://ajax.aspnetcdn.com/next-gen,https://dtnins2n354c4.cloudfront.net/v4/next-gen"
+        default_value = "https://www.netlify.com/v4/next-gen,https://vuejs.org/v4/next-gen,https://www.cdn77.com/next-gen,https://dtnins2n354c4.cloudfront.net/v4/next-gen"
     )]
     /// HTTP(S) address of the binder, FRONTED
     binder_http_fronts: String,
 
     #[structopt(
         long,
-        default_value = "svitania-naidallszei.netlify.app,svitania-naidallszei.netlify.app,1049933718.rsc.cdn77.org,gephbinder-4.azureedge.net,dtnins2n354c4.cloudfront.net"
+        default_value = "svitania-naidallszei.netlify.app,svitania-naidallszei.netlify.app,1049933718.rsc.cdn77.org,dtnins2n354c4.cloudfront.net"
     )]
     /// HTTP(S) actual host of the binder
     binder_http_hosts: String,
@@ -286,10 +295,20 @@ pub async fn get_conninfo_store(
 
     dbpath.push(&user_cache_key);
     std::fs::create_dir_all(&dbpath)?;
-    dbpath.push("conninfo.json");
+    dbpath.push("conninfo.db");
+
+    // TODO: WAL mode
+    let db = SqlitePool::connect_with(
+        SqliteConnectOptions::new()
+            .filename(dbpath)
+            .create_if_missing(true)
+            .synchronous(SqliteSynchronous::Normal)
+            .journal_mode(SqliteJournalMode::Wal),
+    )
+    .await?;
 
     let cbc = ConnInfoStore::connect(
-        &dbpath,
+        db,
         common_opt.get_binder_client(),
         common_opt.binder_mizaru_free.clone(),
         common_opt.binder_mizaru_plus.clone(),

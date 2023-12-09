@@ -1,13 +1,16 @@
 use std::{process::Command, time::Duration};
 
-use crate::connect::tunnel::TunnelStatus;
+use crate::connect::ConnectContext;
+use anyhow::Context;
+use async_signal::{Signal, Signals};
+use clone_macro::clone;
 use dashmap::DashMap;
 use itertools::Itertools;
 use once_cell::sync::Lazy;
-use signal_hook::iterator::Signals;
-use std::net::{IpAddr, Ipv4Addr};
 
-use crate::connect::{CONNECT_CONFIG, TUNNEL, TUNNEL_STATUS_CALLBACK};
+use smol::stream::StreamExt;
+
+use std::net::IpAddr;
 
 struct SingleWhitelister {
     dest: IpAddr,
@@ -43,40 +46,71 @@ impl SingleWhitelister {
 
 static WHITELIST: Lazy<DashMap<IpAddr, SingleWhitelister>> = Lazy::new(DashMap::new);
 
-pub fn setup_routing() {
-    std::thread::spawn(|| {
-        *TUNNEL_STATUS_CALLBACK.write() = Box::new(|status| {
-            if let TunnelStatus::PreConnect { addr, protocol: _ } = status {
-                WHITELIST.entry(addr.ip()).or_insert_with(move || {
-                    log::debug!("making whitelist entry for {}", addr);
-                    SingleWhitelister::new(addr.ip())
-                });
-            }
+static LOCK: smol::lock::Mutex<()> = smol::lock::Mutex::new(());
+
+pub(super) async fn routing_loop(ctx: ConnectContext) -> anyhow::Result<()> {
+    let _lock = LOCK
+        .try_lock()
+        .expect("only one VPN instance can run at the same");
+
+    // first whitelist all
+    log::debug!("whitelisting all");
+    whitelist_once(&ctx).await?;
+
+    // then spawn a background task to continually whitelist
+    let _bg_whitelist = smolscale::spawn(clone!([ctx], async move {
+        loop {
+            let _ = whitelist_once(&ctx).await;
+            smol::Timer::after(Duration::from_secs(1)).await;
+        }
+    }));
+
+    // then wait for connection to become fully functional
+    log::debug!("waiting for tunnel to become fully functional");
+    ctx.tunnel.connect_stream("1.1.1.1:53").await?;
+
+    // setup routing
+    // redirect DNS to 1.1.1.1
+    log::debug!("setting up VPN routing");
+    std::env::set_var("GEPH_DNS", "1.1.1.1:53");
+    let cmd = include_str!("linux_routing_setup.sh");
+    let mut child = smol::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .spawn()
+        .unwrap();
+    child
+        .status()
+        .await
+        .context("iptables was not set up properly")?;
+
+    unsafe {
+        libc::atexit(teardown_routing);
+    }
+
+    scopeguard::defer!(teardown_routing());
+
+    let mut signals = Signals::new([Signal::Term, Signal::Quit, Signal::Int])
+        .context("did not register signal handler properly")?;
+
+    while let Some(_signal) = signals.next().await {
+        teardown_routing();
+        std::process::exit(-1)
+    }
+
+    Ok(())
+}
+
+async fn whitelist_once(ctx: &ConnectContext) -> anyhow::Result<()> {
+    let bridge = ctx.conn_info.bridges().await?;
+    for bridge in bridge {
+        let addr = bridge.endpoint.ip();
+        WHITELIST.entry(addr).or_insert_with(move || {
+            log::debug!("making whitelist entry for {}", addr);
+            SingleWhitelister::new(addr)
         });
-
-        while !TUNNEL.status().connected() {
-            log::debug!("waiting for tunnel to connect...");
-            std::thread::sleep(Duration::from_secs(1));
-        }
-
-        // set the DNS server
-        let mut dns_listen = CONNECT_CONFIG.dns_listen;
-        dns_listen.set_ip(Ipv4Addr::new(127, 0, 0, 1).into());
-        std::env::set_var("GEPH_DNS", dns_listen.to_string());
-        let cmd = include_str!("linux_routing_setup.sh");
-        let mut child = Command::new("sh").arg("-c").arg(cmd).spawn().unwrap();
-        child.wait().expect("iptables was not set up properly");
-        unsafe {
-            libc::atexit(teardown_routing);
-        }
-        // teardown process
-        let mut signals = Signals::new([libc::SIGABRT, libc::SIGTERM, libc::SIGINT])
-            .expect("did not register signal handler properly");
-        for _ in signals.forever() {
-            teardown_routing();
-            std::process::exit(-1)
-        }
-    });
+    }
+    Ok(())
 }
 
 extern "C" fn teardown_routing() {

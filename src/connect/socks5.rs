@@ -11,12 +11,17 @@ use crate::{
     connect::{
         stats::{STATS_RECV_BYTES, STATS_SEND_BYTES},
         tunnel::activity::notify_activity,
-        TUNNEL,
     },
 };
 
+use super::ConnectContext;
+
 /// Handles a socks5 client from localhost
-async fn handle_socks5(s5client: smol::net::TcpStream, exclude_prc: bool) -> anyhow::Result<()> {
+async fn handle_socks5(
+    ctx: ConnectContext,
+    s5client: smol::net::TcpStream,
+    exclude_prc: bool,
+) -> anyhow::Result<()> {
     s5client.set_nodelay(true)?;
     use socksv5::v5::*;
     let _handshake = read_handshake(s5client.clone()).await?;
@@ -73,7 +78,8 @@ async fn handle_socks5(s5client: smol::net::TcpStream, exclude_prc: bool) -> any
         )
         .await?;
     } else {
-        let conn = TUNNEL
+        let conn = ctx
+            .tunnel
             .connect_stream(&addr)
             .timeout(Duration::from_secs(120))
             .await
@@ -100,8 +106,8 @@ async fn handle_socks5(s5client: smol::net::TcpStream, exclude_prc: bool) -> any
     Ok(())
 }
 
-pub async fn socks5_loop(socks5_listen: SocketAddr, exclude_prc: bool) -> anyhow::Result<()> {
-    let socks5_listener = smol::net::TcpListener::bind(socks5_listen)
+pub async fn socks5_loop(ctx: ConnectContext) -> anyhow::Result<()> {
+    let socks5_listener = smol::net::TcpListener::bind(ctx.opt.socks5_listen)
         .await
         .context("cannot bind socks5")?;
     log::debug!("socks5 started");
@@ -112,8 +118,8 @@ pub async fn socks5_loop(socks5_listen: SocketAddr, exclude_prc: bool) -> anyhow
             .context("cannot accept socks5")?;
 
         smolscale::spawn(
-            async move { handle_socks5(s5client, exclude_prc).await }
-                .map_err(|e| log::debug!("socks5 died with: {:?}", e)),
+            handle_socks5(ctx.clone(), s5client, ctx.opt.exclude_prc)
+                .map_err(|e| log::debug!("local socks5 handler died with: {:?}", e)),
         )
         .detach()
     }
