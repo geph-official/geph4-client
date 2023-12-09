@@ -79,6 +79,7 @@ impl StatsControlProtocol for StatsControlProtocolImpl {
     async fn basic_stats(&self) -> BasicStats {
         loop {
             let stats = STATS_GATHERER.all_items().last().cloned();
+
             if let Some(stats) = stats {
                 return BasicStats {
                     address: stats.endpoint,
