@@ -25,8 +25,8 @@ mod main_bridgetest;
 mod metrics;
 mod sync;
 
-#[global_allocator]
-pub static ALLOCATOR: Cap<std::alloc::System> = Cap::new(std::alloc::System, usize::max_value());
+// #[global_allocator]
+// pub static ALLOCATOR: Cap<std::alloc::System> = Cap::new(std::alloc::System, usize::max_value());
 
 pub fn dispatch() -> anyhow::Result<()> {
     std::env::remove_var("http_proxy");
@@ -97,11 +97,4 @@ fn config_logging(logs: Sender<String>) {
     {
         log::debug!("{}", e);
     }
-}
-
-fn log_restart_error<E>(label: &str) -> impl FnOnce(E) + '_
-where
-    E: std::fmt::Debug,
-{
-    move |s| log::warn!("{label} restart, error: {:?}", s)
 }

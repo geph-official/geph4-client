@@ -1,4 +1,7 @@
-use crate::connect::tunnel::{ConnectionStatus, EndpointSource};
+use crate::connect::{
+    stats::{StatItem, STATS_GATHERER, STATS_RECV_BYTES, STATS_SEND_BYTES},
+    tunnel::{ConnectionStatus, EndpointSource},
+};
 
 use super::{
     activity::{notify_activity, wait_activity},
@@ -13,7 +16,7 @@ use geph4_protocol::{
     client_exit::{ClientExitClient, CLIENT_EXIT_PSEUDOHOST},
 };
 use geph_nat::GephNat;
-use std::net::Ipv4Addr;
+use std::{net::Ipv4Addr, sync::atomic::Ordering, time::SystemTime};
 
 use nanorpc::{JrpcRequest, JrpcResponse, RpcTransport};
 
@@ -25,11 +28,7 @@ use smol::{
 use smol_timeout::TimeoutExt;
 use sosistab2::{Pipe, Stream};
 
-use std::{
-    sync::{Arc},
-    time::Duration,
-    time::Instant,
-};
+use std::{sync::Arc, time::Duration, time::Instant};
 
 /// Background task of a TunnelManager
 pub(super) async fn tunnel_actor(ctx: TunnelCtx) -> anyhow::Result<()> {
@@ -244,7 +243,15 @@ async fn watchdog_loop(
         } else {
             let ping = start.elapsed();
             let pipe = tunnel_mux.last_recv_pipe().context("no pipe")?;
-
+            let item = StatItem {
+                time: SystemTime::now(),
+                endpoint: pipe.peer_addr().into(),
+                protocol: pipe.protocol().into(),
+                ping,
+                send_bytes: STATS_SEND_BYTES.load(Ordering::Relaxed),
+                recv_bytes: STATS_RECV_BYTES.load(Ordering::Relaxed),
+            };
+            STATS_GATHERER.push(item.clone());
             log::debug!(
                 "** watchdog completed in {:?} through {}/{} **",
                 ping,
