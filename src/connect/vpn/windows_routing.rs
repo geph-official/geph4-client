@@ -16,10 +16,6 @@ mod windivert;
 static GEPH_OWN_ADDRS: Lazy<DashSet<IpAddr>> = Lazy::new(DashSet::new);
 
 pub async fn start_routing(ctx: ConnectContext) -> anyhow::Result<()> {
-    let handle = Arc::new(windivert::PacketHandle::open(
-        "outbound and not loopback",
-        -100,
-    )?);
     whitelist_once(&ctx).await?;
     let _bg_whitelist = smolscale::spawn(clone!([ctx], async move {
         loop {
@@ -32,6 +28,10 @@ pub async fn start_routing(ctx: ConnectContext) -> anyhow::Result<()> {
     log::debug!("waiting for tunnel to become fully functional");
     ctx.tunnel.connect_stream("1.1.1.1:53").await?;
 
+    let handle = Arc::new(windivert::PacketHandle::open(
+        "outbound and not loopback",
+        -100,
+    )?);
     std::thread::spawn(clone!([ctx, handle], move || upload_loop(ctx, handle)));
     std::thread::spawn(clone!([ctx, handle], move || download_loop(ctx, handle)));
     smol::future::pending().await
