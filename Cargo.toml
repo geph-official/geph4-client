@@ -14,7 +14,7 @@ repository = "https://github.com/geph-official/geph4-client"
 # sosistab2={path="../sosistab2"}
 
 [lib]
-name = "geph4client"
+name = "geph4client" 
 crate-type = ["staticlib", "lib"]
 
 [dependencies]

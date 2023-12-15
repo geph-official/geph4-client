@@ -9,6 +9,7 @@ use itertools::Itertools;
 use once_cell::sync::Lazy;
 
 use smol::stream::StreamExt;
+use tap::Tap;
 
 use std::net::IpAddr;
 
@@ -72,7 +73,13 @@ pub(super) async fn routing_loop(ctx: ConnectContext) -> anyhow::Result<()> {
     // setup routing
     // redirect DNS to 1.1.1.1
     log::debug!("setting up VPN routing");
-    std::env::set_var("GEPH_DNS", "1.1.1.1:53");
+    std::env::set_var(
+        "GEPH_DNS",
+        ctx.opt
+            .dns_listen
+            .tap_mut(|d| d.set_ip("127.0.0.1".parse().unwrap()))
+            .to_string(),
+    );
     let cmd = include_str!("linux_routing_setup.sh");
     let mut child = smol::process::Command::new("sh")
         .arg("-c")
