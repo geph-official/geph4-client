@@ -1,4 +1,6 @@
+use std::ffi::{c_char, c_uchar, CStr};
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::{io::Write, sync::atomic::AtomicUsize};
 
 mod config;
@@ -6,15 +8,24 @@ mod fronts;
 
 mod socks2http;
 
+use bytes::Bytes;
 use cap::Cap;
 
 use colored::Colorize;
 
+use libc::c_int;
+use once_cell::sync::Lazy;
 use pad::{Alignment, PadStr};
 
+use parking_lot::{Mutex, RwLock};
+use sharded_slab::Slab;
 use smol::channel::Sender;
 use structopt::StructOpt;
+use sync::sync_json;
 
+use crate::binderproxy::binderproxy_once;
+use crate::config::{CommonOpt, ConnectOpt};
+use crate::sync::SyncOpt;
 use crate::{config::Opt, connect::ConnectDaemon, debugpack::DebugPack};
 mod binderproxy;
 mod china;
@@ -96,5 +107,104 @@ fn config_logging(logs: Sender<String>) {
     .try_init()
     {
         log::debug!("{}", e);
+    }
+}
+
+static SLAB: Lazy<Slab<ConnectDaemon>> = Lazy::new(|| Slab::new());
+
+pub unsafe extern "C" fn start(opt_json: *const c_char) -> c_int {
+    if let Ok(opt_str) = unsafe { CStr::from_ptr(opt_json) }.to_str() {
+        if let Ok(opt) = serde_json::from_str(opt_str) {
+            let daemon = smolscale::block_on(async { ConnectDaemon::start(opt).await.unwrap() });
+            SLAB.insert(daemon).unwrap() as c_int
+        } else {
+            -2
+        }
+    } else {
+        -1
+    }
+}
+
+pub extern "C" fn stop(daemon_key: c_int) -> c_int {
+    SLAB.remove(daemon_key as usize);
+    0
+}
+
+pub extern "C" fn sync(opt_json: *const c_char, buffer: *mut c_char, buflen: c_int) -> c_int {
+    let opt_str = unsafe { CStr::from_ptr(opt_json) }.to_str().unwrap();
+    let opt: SyncOpt = serde_json::from_str(opt_str).unwrap();
+    let resp = smolscale::block_on(async { sync_json(opt).await.unwrap() });
+    fill_inout(buffer, buflen, resp.as_bytes())
+}
+
+pub extern "C" fn binder_rpc(req: *const c_char, buffer: *mut c_char, buflen: c_int) -> c_int {
+    let req_str = unsafe { CStr::from_ptr(req) }.to_str().unwrap();
+    let binder_client = Arc::new(CommonOpt::from_iter(vec![""]).get_binder_client());
+    if let Ok(resp) = smolscale::block_on(binderproxy_once(binder_client, req_str.to_owned())) {
+        log::debug!("binder resp = {resp}");
+        fill_inout(buffer, buflen, resp.as_bytes());
+        0
+    } else {
+        -1
+    }
+}
+
+pub unsafe extern "C" fn send_vpn(daemon_key: c_int, pkt: *const c_uchar, len: c_int) -> c_int {
+    let daemon = if let Some(daemon) = SLAB.get(daemon_key as _) {
+        daemon
+    } else {
+        return -1;
+    };
+    let slice = std::slice::from_raw_parts(pkt as *mut u8, len as usize);
+    if smol::future::block_on(daemon.send_vpn(slice)).is_err() {
+        return -2;
+    }
+    return 0;
+}
+
+pub extern "C" fn recv_vpn(daemon_key: c_int, buffer: *mut c_char, buflen: c_int) -> c_int {
+    let daemon = if let Some(daemon) = SLAB.get(daemon_key as _) {
+        daemon
+    } else {
+        return -1;
+    };
+    if let Ok(ret) = smol::future::block_on(daemon.recv_vpn()) {
+        return fill_inout(buffer, buflen, &ret);
+    } else {
+        return -2;
+    }
+}
+
+pub unsafe extern "C" fn debugpack(daemon_key: c_int, dest: *const c_char) -> c_int {
+    let dest = CStr::from_ptr(dest).to_str().unwrap();
+    let daemon = if let Some(daemon) = SLAB.get(daemon_key as usize) {
+        daemon
+    } else {
+        return -1;
+    };
+    if let Ok(_) = daemon.debug().backup(dest) {
+        return 0;
+    } else {
+        return -2;
+    }
+}
+
+pub extern "C" fn version(buffer: *mut c_char, buflen: c_int) -> c_int {
+    let version = env!("CARGO_PKG_VERSION");
+    fill_inout(buffer, buflen, version.as_bytes())
+}
+
+fn fill_inout(buffer: *mut c_char, buflen: c_int, output: &[u8]) -> c_int {
+    let mut slice = unsafe { std::slice::from_raw_parts_mut(buffer as *mut u8, buflen as usize) };
+    if output.len() < slice.len() {
+        if slice.write_all(output).is_err() {
+            log::debug!("call_geph failed: writing to buffer failed!");
+            -1
+        } else {
+            output.len() as c_int
+        }
+    } else {
+        log::debug!("call_geph failed: buffer not big enough!");
+        -1
     }
 }

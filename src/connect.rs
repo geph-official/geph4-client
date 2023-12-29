@@ -2,6 +2,7 @@ use std::{sync::Arc, time::Duration};
 
 use anyhow::Context;
 
+use bytes::Bytes;
 use clone_macro::clone;
 use futures_util::{future::select_all, FutureExt, TryFutureExt};
 
@@ -92,6 +93,16 @@ impl ConnectDaemon {
     /// Gets a handle to the debug pack from the outside.
     pub fn debug(&self) -> &DebugPack {
         &self.ctx.debug
+    }
+
+    /// Send a VPN packet.
+    pub async fn send_vpn(&self, bts: &[u8]) -> anyhow::Result<()> {
+        self.ctx.tunnel.send_vpn(bts).await
+    }
+
+    /// Receive a VPN packet.
+    pub async fn recv_vpn(&self) -> anyhow::Result<Bytes> {
+        self.ctx.tunnel.recv_vpn().await
     }
 }
 
