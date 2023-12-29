@@ -8,23 +8,19 @@ mod fronts;
 
 mod socks2http;
 
-use bytes::Bytes;
-use cap::Cap;
-
 use colored::Colorize;
 
 use libc::c_int;
 use once_cell::sync::Lazy;
 use pad::{Alignment, PadStr};
 
-use parking_lot::{Mutex, RwLock};
 use sharded_slab::Slab;
 use smol::channel::Sender;
 use structopt::StructOpt;
 use sync::sync_json;
 
 use crate::binderproxy::binderproxy_once;
-use crate::config::{CommonOpt, ConnectOpt};
+use crate::config::CommonOpt;
 use crate::sync::SyncOpt;
 use crate::{config::Opt, connect::ConnectDaemon, debugpack::DebugPack};
 mod binderproxy;
@@ -130,19 +126,19 @@ pub extern "C" fn stop(daemon_key: c_int) -> c_int {
     0
 }
 
-pub extern "C" fn sync(opt_json: *const c_char, buffer: *mut c_char, buflen: c_int) -> c_int {
+pub extern "C" fn sync(opt_json: *const c_char, inout: *mut c_char, buflen: c_int) -> c_int {
     let opt_str = unsafe { CStr::from_ptr(opt_json) }.to_str().unwrap();
     let opt: SyncOpt = serde_json::from_str(opt_str).unwrap();
     let resp = smolscale::block_on(async { sync_json(opt).await.unwrap() });
-    fill_inout(buffer, buflen, resp.as_bytes())
+    fill_inout(inout, buflen, resp.as_bytes())
 }
 
-pub extern "C" fn binder_rpc(req: *const c_char, buffer: *mut c_char, buflen: c_int) -> c_int {
+pub extern "C" fn binder_rpc(req: *const c_char, inout: *mut c_char, buflen: c_int) -> c_int {
     let req_str = unsafe { CStr::from_ptr(req) }.to_str().unwrap();
     let binder_client = Arc::new(CommonOpt::from_iter(vec![""]).get_binder_client());
     if let Ok(resp) = smolscale::block_on(binderproxy_once(binder_client, req_str.to_owned())) {
         log::debug!("binder resp = {resp}");
-        fill_inout(buffer, buflen, resp.as_bytes());
+        fill_inout(inout, buflen, resp.as_bytes());
         0
     } else {
         -1
@@ -162,14 +158,14 @@ pub unsafe extern "C" fn send_vpn(daemon_key: c_int, pkt: *const c_uchar, len: c
     return 0;
 }
 
-pub extern "C" fn recv_vpn(daemon_key: c_int, buffer: *mut c_char, buflen: c_int) -> c_int {
+pub extern "C" fn recv_vpn(daemon_key: c_int, inout: *mut c_char, buflen: c_int) -> c_int {
     let daemon = if let Some(daemon) = SLAB.get(daemon_key as _) {
         daemon
     } else {
         return -1;
     };
     if let Ok(ret) = smol::future::block_on(daemon.recv_vpn()) {
-        return fill_inout(buffer, buflen, &ret);
+        return fill_inout(inout, buflen, &ret);
     } else {
         return -2;
     }
@@ -189,9 +185,9 @@ pub unsafe extern "C" fn debugpack(daemon_key: c_int, dest: *const c_char) -> c_
     }
 }
 
-pub extern "C" fn version(buffer: *mut c_char, buflen: c_int) -> c_int {
+pub extern "C" fn version(inout: *mut c_char, buflen: c_int) -> c_int {
     let version = env!("CARGO_PKG_VERSION");
-    fill_inout(buffer, buflen, version.as_bytes())
+    fill_inout(inout, buflen, version.as_bytes())
 }
 
 fn fill_inout(buffer: *mut c_char, buflen: c_int, output: &[u8]) -> c_int {
