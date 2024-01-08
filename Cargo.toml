@@ -15,7 +15,7 @@ repository = "https://github.com/geph-official/geph4-client"
 
 [lib]
 name = "geph4client" 
-crate-type = ["staticlib", "lib"]
+crate-type = ["staticlib", "lib", "cdylib"]
 
 [dependencies]
 anyhow = "1.0.75"
