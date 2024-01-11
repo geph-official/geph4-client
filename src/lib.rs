@@ -15,6 +15,7 @@ use libc::c_int;
 use once_cell::sync::Lazy;
 use pad::{Alignment, PadStr};
 
+use parking_lot::Mutex;
 use sharded_slab::Slab;
 use smol::channel::{Receiver, Sender};
 use structopt::StructOpt;
@@ -40,8 +41,7 @@ pub fn dispatch() -> anyhow::Result<()> {
     std::env::remove_var("http_proxy");
     std::env::remove_var("https_proxy");
 
-    let (send_logs, recv_logs) = smol::channel::bounded(1000);
-    config_logging(send_logs);
+    let mut recv_logs = config_logging();
     let version = env!("CARGO_PKG_VERSION");
     log::info!("geph4-client v{} starting...", version);
     std::env::set_var("GEPH_VERSION", version);
@@ -70,7 +70,12 @@ pub fn dispatch() -> anyhow::Result<()> {
 
 static LONGEST_LINE_EVER: AtomicUsize = AtomicUsize::new(0);
 
-fn config_logging(logs: Sender<String>) {
+fn config_logging() -> async_broadcast::Receiver<String> {
+    static LOG_SINK: Lazy<(
+        async_broadcast::Sender<String>,
+        async_broadcast::Receiver<String>,
+    )> = Lazy::new(|| async_broadcast::broadcast(1000));
+
     if let Err(e) = env_logger::Builder::from_env(
         env_logger::Env::default()
             .default_filter_or("geph4client=debug,geph4_protocol=debug,melprot=debug,warn"),
@@ -95,7 +100,7 @@ fn config_logging(logs: Sender<String>) {
             + &preamble;
         let line = format!("{} {}", preamble, record.args());
         writeln!(buf, "{}", line).unwrap();
-        let _ = logs.try_send(
+        let _ = LOG_SINK.0.try_broadcast(
             String::from_utf8_lossy(&strip_ansi_escapes::strip(line).unwrap()).to_string(),
         );
         Ok(())
@@ -105,9 +110,27 @@ fn config_logging(logs: Sender<String>) {
     {
         log::debug!("{}", e);
     }
+
+    LOG_SINK.1.clone()
 }
 
-static SLAB: Lazy<Slab<ConnectDaemon>> = Lazy::new(|| Slab::new());
+static SLAB: Lazy<Slab<ConnectDaemon>> = Lazy::new(Slab::new);
+
+#[no_mangle]
+pub unsafe extern "C" fn geph_save_logs(daemon_key: c_int) {
+    let mut recv_logs = config_logging();
+    let shuffler = smolscale::spawn::<anyhow::Result<()>>(async move {
+        loop {
+            let received = recv_logs.recv_direct().await?;
+            if let Some(daemon) = SLAB.get(daemon_key as usize) {
+                daemon.debug().add_logline(&received);
+            } else {
+                return anyhow::Ok(());
+            }
+        }
+    });
+    shuffler.detach();
+}
 
 #[no_mangle]
 pub unsafe extern "C" fn start(opt: *const c_char, daemon_rpc_secret: *const c_char) -> c_int {
@@ -124,7 +147,7 @@ pub unsafe extern "C" fn start(opt: *const c_char, daemon_rpc_secret: *const c_c
         eprintln!("opt_str = {opt_str}");
         let args: Vec<String> = serde_json::from_str(opt_str)?;
         let opt = ConnectOpt::from_iter_safe(args.into_iter())?;
-        let daemon = smolscale::block_on(async { ConnectDaemon::start(opt).await })?;
+        let daemon = smol::future::block_on(async { ConnectDaemon::start(opt).await })?;
         let ret = SLAB.insert(daemon).unwrap() as c_int;
         anyhow::Ok(ret)
     };
@@ -154,7 +177,7 @@ pub unsafe extern "C" fn geph_sync(
         let opt_str = CStr::from_ptr(opt).to_str()?;
         let args: Vec<String> = serde_json::from_str(opt_str)?;
         let opt = SyncOpt::from_iter_safe(args)?;
-        let resp = smolscale::block_on(async { sync_json(opt).await })?;
+        let resp = smol::future::block_on(async { sync_json(opt).await })?;
         anyhow::Ok(fill_buffer(buffer, buflen, resp.as_bytes()))
     };
     match fallible() {
@@ -182,7 +205,7 @@ pub unsafe extern "C" fn binder_rpc(
             .unwrap()
             .get_binder_client(),
     );
-    if let Ok(resp) = smolscale::block_on(binderproxy_once(binder_client, req_str.to_owned())) {
+    if let Ok(resp) = smol::future::block_on(binderproxy_once(binder_client, req_str.to_owned())) {
         // println!("binder resp = {resp}");
         log::debug!("binder resp = {resp}");
         fill_buffer(buffer, buflen, resp.as_bytes())
@@ -257,32 +280,13 @@ unsafe fn fill_buffer(buffer: *mut c_char, buflen: c_int, output: &[u8]) -> c_in
     }
 }
 
-static LOG_LINES: Lazy<Receiver<String>> = Lazy::new(|| {
-    let (send, recv) = smol::channel::unbounded();
-    env_logger::Builder::from_env(
-        env_logger::Env::default().default_filter_or("geph4client=debug,geph4_protocol=debug,warn"),
-    )
-    .format_timestamp_millis()
-    .format(move |buf, record| {
-        let line = format!(
-            "[{} {}]: {}",
-            record.level(),
-            record.module_path().unwrap_or("none"),
-            record.args()
-        );
-        writeln!(buf, "{}", line).unwrap();
-        let _ = send.send_blocking(line);
-
-        Ok(())
-    })
-    .init();
-    recv
-});
-
 #[no_mangle]
 // returns one line of logs
 pub extern "C" fn get_log_line(buffer: *mut c_char, buflen: c_int) -> c_int {
-    let line = LOG_LINES.recv_blocking().unwrap();
+    static LOG_LINES: Lazy<smol::lock::Mutex<async_broadcast::Receiver<String>>> =
+        Lazy::new(|| config_logging().into());
+    let line =
+        smol::future::block_on(async { LOG_LINES.lock().await.recv_direct().await.unwrap() });
     unsafe {
         let mut slice: &mut [u8] =
             std::slice::from_raw_parts_mut(buffer as *mut u8, buflen as usize);
