@@ -281,7 +281,7 @@ static LOG_LINES: Lazy<Receiver<String>> = Lazy::new(|| {
 
 #[no_mangle]
 // returns one line of logs
-pub extern "C" fn get_log_line(daemon_key: c_int, buffer: *mut c_char, buflen: c_int) -> c_int {
+pub extern "C" fn get_log_line(buffer: *mut c_char, buflen: c_int) -> c_int {
     let line = LOG_LINES.recv_blocking().unwrap();
     unsafe {
         let mut slice: &mut [u8] =
@@ -297,6 +297,9 @@ pub extern "C" fn get_log_line(daemon_key: c_int, buffer: *mut c_char, buflen: c
         }
     }
 }
+
+// #[no_mangle]
+// pub extern "C" fn init_logging(daemon_key: c_int) -> c_int {}
 
 #[cfg(test)]
 mod tests {
