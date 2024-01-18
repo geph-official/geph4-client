@@ -64,19 +64,8 @@ impl ConnInfoStore {
             notify: Event::new(),
         };
 
-        // // only force a refresh here if the *token* is stale, because that is a hard error. other things being stale are totally fine.
-        // let current_unix = SystemTime::now()
-        //     .duration_since(UNIX_EPOCH)
-        //     .unwrap()
-        //     .as_secs();
-        // let must_refresh = (current_unix
-        //     > toret.inner.read().token_refresh_unix + TOKEN_STALE_SECS)
-        //     || toret.inner.read().cached_exit.as_str() != exit_host;
+        toret.refresh(true).await?;
 
-        // if must_refresh {
-        //     log::debug!("blocking on construct because token is stale, or exit host changed");
-        //     toret.refresh().await?;
-        // }
         Ok(toret)
     }
 
@@ -117,7 +106,7 @@ impl ConnInfoStore {
     }
 
     /// Refreshes the whole store. This should generally be called in a background task.
-    pub async fn refresh(&self) -> anyhow::Result<()> {
+    pub async fn refresh(&self, express: bool) -> anyhow::Result<()> {
         log::info!("calling refresh now!");
         let current_unix = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -130,7 +119,7 @@ impl ConnInfoStore {
             .await?
             .unwrap_or_default();
         let summary_fut = async {
-            if current_unix > summary_refresh_unix + SUMMARY_STALE_SECS {
+            if current_unix > summary_refresh_unix + SUMMARY_STALE_SECS && !express {
                 log::debug!("summary stale so refreshing summary");
                 let summary = self
                     .get_verified_summary()
@@ -162,6 +151,7 @@ impl ConnInfoStore {
             );
             if current_unix > token_refresh_unix + TOKEN_STALE_SECS * 2 / 3
                 || current_user_info != Some(remote_user_info)
+                || express
             {
                 log::debug!("token stale so refreshing token");
                 // refresh 2/3 through the period
@@ -195,7 +185,7 @@ impl ConnInfoStore {
                 None => return Ok(()),
                 Some(effective_exit_host) => {
                     // we refresh in two cases: if the bridges are stale, OR if the exit we want bridges for is NOT the exit that the bridges are in the cache for.
-                    if current_unix > bridge_refresh_unix + BRIDGE_STALE_SECS
+                    if (current_unix > bridge_refresh_unix + BRIDGE_STALE_SECS && !express)
                         || cached_exit != Some(effective_exit_host.clone())
                     {
                         log::debug!("bridges stale so refreshing bridges");

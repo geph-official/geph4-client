@@ -35,7 +35,7 @@ pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
     let timeout_duration = Duration::from_secs(15);
     let result = (async {
         let binder_client = get_conninfo_store(&opt.common, &opt.auth, "").await?;
-        binder_client.refresh().await?; // we always refresh for the sync verb
+        binder_client.refresh(false).await?; // we always refresh for the sync verb
 
         let master = binder_client.summary().await?;
         let user = binder_client.user_info().await?;
