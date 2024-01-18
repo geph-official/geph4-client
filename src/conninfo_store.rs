@@ -151,7 +151,6 @@ impl ConnInfoStore {
             );
             if current_unix > token_refresh_unix + TOKEN_STALE_SECS * 2 / 3
                 || current_user_info != Some(remote_user_info)
-                || express
             {
                 log::debug!("token stale so refreshing token");
                 // refresh 2/3 through the period
