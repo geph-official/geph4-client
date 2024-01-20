@@ -147,8 +147,11 @@ pub unsafe extern "C" fn start(opt: *const c_char, daemon_rpc_secret: *const c_c
         eprintln!("opt_str = {opt_str}");
         let args: Vec<String> = serde_json::from_str(opt_str)?;
         let opt = ConnectOpt::from_iter_safe(args.into_iter())?;
-        let daemon = smol::future::block_on(async { ConnectDaemon::start(opt).await })?;
+        let daemon = smolscale::block_on(async { ConnectDaemon::start(opt).await })?;
         let ret = SLAB.insert(daemon).unwrap() as c_int;
+
+        geph_save_logs(ret);
+
         anyhow::Ok(ret)
     };
     match fallible() {
@@ -177,7 +180,7 @@ pub unsafe extern "C" fn geph_sync(
         let opt_str = CStr::from_ptr(opt).to_str()?;
         let args: Vec<String> = serde_json::from_str(opt_str)?;
         let opt = SyncOpt::from_iter_safe(args)?;
-        let resp = smol::future::block_on(async { sync_json(opt).await })?;
+        let resp = smolscale::block_on(async { sync_json(opt).await })?;
         anyhow::Ok(fill_buffer(buffer, buflen, resp.as_bytes()))
     };
     match fallible() {
@@ -205,7 +208,7 @@ pub unsafe extern "C" fn binder_rpc(
             .unwrap()
             .get_binder_client(),
     );
-    if let Ok(resp) = smol::future::block_on(binderproxy_once(binder_client, req_str.to_owned())) {
+    if let Ok(resp) = smolscale::block_on(binderproxy_once(binder_client, req_str.to_owned())) {
         // println!("binder resp = {resp}");
         log::debug!("binder resp = {resp}");
         fill_buffer(buffer, buflen, resp.as_bytes())
@@ -236,9 +239,9 @@ pub unsafe extern "C" fn recv_vpn(daemon_key: c_int, buffer: *mut c_char, buflen
         return -1;
     };
     if let Ok(ret) = smol::future::block_on(daemon.recv_vpn()) {
-        return fill_buffer(buffer, buflen, &ret);
+        fill_buffer(buffer, buflen, &ret)
     } else {
-        return -2;
+        -2
     }
 }
 

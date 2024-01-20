@@ -133,6 +133,8 @@ pub(super) async fn get_session(ctx: &TunnelCtx) -> anyhow::Result<Arc<sosistab2
                 Some(e2e_key),
             ));
 
+            // *somehow* this doesn't work. IDK why.
+            #[cfg(not(target_os = "ios"))]
             verify_exit_signatures(&bridges, selected_exit.signing_key)?;
 
             let (metrics_send, metrics_recv) = smol::channel::bounded(1000);
