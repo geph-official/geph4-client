@@ -2,11 +2,11 @@ use crate::socks2http::address::{host_addr, Address};
 use crate::socks2http::http_client;
 use crate::socks2http::socks5;
 use futures_util::FutureExt;
-use http::{
+use hyper::http::{
     uri::{Authority, Scheme, Uri},
     Method,
 };
-use http::{HeaderMap, HeaderValue, Version};
+use hyper::http::{HeaderMap, HeaderValue, Version};
 use hyper::{
     server::conn::AddrStream,
     service::{make_service_fn, service_fn},

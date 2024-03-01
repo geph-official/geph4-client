@@ -1,6 +1,5 @@
 use bytes::Bytes;
-use ed25519_dalek::ed25519::signature::Signature;
-use ed25519_dalek::{PublicKey, Verifier};
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use futures_intrusive::sync::ManualResetEvent;
 use futures_util::{stream::FuturesUnordered, Future, StreamExt};
 use geph4_protocol::binder::protocol::BridgeDescriptor;
@@ -34,7 +33,7 @@ use std::{
 };
 use std::{net::IpAddr, time::Instant};
 
-use std::{convert::TryFrom, sync::Arc, time::Duration};
+use std::{sync::Arc, time::Duration};
 
 pub fn parse_independent_endpoint(endpoint: &str) -> anyhow::Result<(SocketAddr, [u8; 32])> {
     // parse endpoint addr
@@ -55,14 +54,14 @@ pub fn parse_independent_endpoint(endpoint: &str) -> anyhow::Result<(SocketAddr,
 
 fn verify_exit_signatures(
     bridges: &[BridgeDescriptor],
-    signing_key: PublicKey,
+    signing_key: VerifyingKey,
 ) -> anyhow::Result<()> {
     for b in bridges.iter() {
         // The exit signed this bridge with an empty signature, so we have to verify with an empty signature
         let mut clean_bridge = b.clone();
         clean_bridge.exit_signature = Bytes::new();
 
-        let signature = &Signature::from_bytes(b.exit_signature.as_ref())
+        let signature = &Signature::from_slice(b.exit_signature.as_ref())
             .context("failed to deserialize exit signature")?;
         let bridge_msg = bincode::serialize(&clean_bridge).unwrap();
         let bridge_log_id = format!("[{}] {}/{}", b.protocol, b.exit_hostname, b.endpoint);

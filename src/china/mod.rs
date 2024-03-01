@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
 use anyhow::Context;
-use std::net::{IpAddr, Ipv4Addr};
 use http_types::{Method, Request, Url};
 use once_cell::sync::Lazy;
+use std::net::{IpAddr, Ipv4Addr};
 use treebitmap::IpLookupTable;
 
 /// List of all Chinese domains.
