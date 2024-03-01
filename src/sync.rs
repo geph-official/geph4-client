@@ -44,7 +44,7 @@ pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
             .into_iter()
             .map(|exit| DumbedDownExitDescriptor {
                 hostname: exit.hostname.into(),
-                signing_key: hex::encode(exit.signing_key),
+                signing_key: hex::encode(exit.signing_key.to_bytes()),
                 country_code: exit.country_code.into(),
                 city_code: exit.city_code.into(),
                 allowed_levels: exit

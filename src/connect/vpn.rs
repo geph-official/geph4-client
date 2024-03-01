@@ -1,17 +1,10 @@
-use anyhow::Context;
-use smol::future::FutureExt;
-
 use super::ConnectContext;
-use crate::config::VpnMode;
 
 #[cfg(target_os = "linux")]
 mod linux_routing;
 
 #[cfg(target_os = "windows")]
 mod windows_routing;
-
-#[cfg(unix)]
-use std::os::unix::prelude::{AsRawFd, FromRawFd};
 
 pub(super) async fn vpn_loop(ctx: ConnectContext) -> anyhow::Result<()> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
