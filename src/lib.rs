@@ -15,9 +15,7 @@ use libc::c_int;
 use once_cell::sync::Lazy;
 use pad::{Alignment, PadStr};
 
-use parking_lot::Mutex;
 use sharded_slab::Slab;
-use smol::channel::{Receiver, Sender};
 use structopt::StructOpt;
 use sync::sync_json;
 
@@ -116,8 +114,7 @@ fn config_logging() -> async_broadcast::Receiver<String> {
 
 static SLAB: Lazy<Slab<ConnectDaemon>> = Lazy::new(Slab::new);
 
-#[no_mangle]
-pub unsafe extern "C" fn geph_save_logs(daemon_key: c_int) {
+fn save_logs(daemon_key: c_int) {
     let mut recv_logs = config_logging();
     let shuffler = smolscale::spawn::<anyhow::Result<()>>(async move {
         loop {
@@ -149,6 +146,7 @@ pub unsafe extern "C" fn start(opt: *const c_char, daemon_rpc_secret: *const c_c
         let opt = ConnectOpt::from_iter_safe(args.into_iter())?;
         let daemon = smol::future::block_on(async { ConnectDaemon::start(opt).await })?;
         let ret = SLAB.insert(daemon).unwrap() as c_int;
+        save_logs(ret);
         anyhow::Ok(ret)
     };
     match fallible() {
@@ -280,27 +278,27 @@ unsafe fn fill_buffer(buffer: *mut c_char, buflen: c_int, output: &[u8]) -> c_in
     }
 }
 
-#[no_mangle]
-// returns one line of logs
-pub extern "C" fn get_log_line(buffer: *mut c_char, buflen: c_int) -> c_int {
-    static LOG_LINES: Lazy<smol::lock::Mutex<async_broadcast::Receiver<String>>> =
-        Lazy::new(|| config_logging().into());
-    let line =
-        smol::future::block_on(async { LOG_LINES.lock().await.recv_direct().await.unwrap() });
-    unsafe {
-        let mut slice: &mut [u8] =
-            std::slice::from_raw_parts_mut(buffer as *mut u8, buflen as usize);
-        if line.len() < slice.len() {
-            if slice.write_all(line.as_bytes()).is_err() {
-                -1
-            } else {
-                line.len() as c_int
-            }
-        } else {
-            -1
-        }
-    }
-}
+// #[no_mangle]
+// // returns one line of logs
+// pub extern "C" fn get_log_line(buffer: *mut c_char, buflen: c_int) -> c_int {
+//     static LOG_LINES: Lazy<smol::lock::Mutex<async_broadcast::Receiver<String>>> =
+//         Lazy::new(|| config_logging().into());
+//     let line =
+//         smol::future::block_on(async { LOG_LINES.lock().await.recv_direct().await.unwrap() });
+//     unsafe {
+//         let mut slice: &mut [u8] =
+//             std::slice::from_raw_parts_mut(buffer as *mut u8, buflen as usize);
+//         if line.len() < slice.len() {
+//             if slice.write_all(line.as_bytes()).is_err() {
+//                 -1
+//             } else {
+//                 line.len() as c_int
+//             }
+//         } else {
+//             -1
+//         }
+//     }
+// }
 
 // #[no_mangle]
 // pub extern "C" fn init_logging(daemon_key: c_int) -> c_int {}
