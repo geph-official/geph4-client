@@ -142,7 +142,7 @@ async fn connect_loop(ctx: ConnectContext) -> anyhow::Result<()> {
         if ctx.opt.override_connect.is_none() {
             loop {
                 log::debug!("about to refresh...");
-                if let Err(err) = ctx.conn_info.refresh().await {
+                if let Err(err) = ctx.conn_info.refresh(false).await {
                     log::warn!("error refreshing store: {:?}", err);
                 }
                 smol::Timer::after(Duration::from_secs(120)).await;
