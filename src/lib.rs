@@ -78,16 +78,15 @@ fn config_logging(logs: Sender<String>) {
                 log::Level::Trace => "TRAC".bright_black(),
             },
         );
-        let len = strip_ansi_escapes::strip(&preamble).unwrap().len();
+        let len = strip_ansi_escapes::strip(&preamble).len();
         let longest = LONGEST_LINE_EVER.fetch_max(len, Ordering::SeqCst);
         let preamble = ""
             .pad_to_width_with_alignment(longest.saturating_sub(len), Alignment::Right)
             + &preamble;
         let line = format!("{} {}", preamble, record.args());
         writeln!(buf, "{}", line).unwrap();
-        let _ = logs.try_send(
-            String::from_utf8_lossy(&strip_ansi_escapes::strip(line).unwrap()).to_string(),
-        );
+        let _ =
+            logs.try_send(String::from_utf8_lossy(&strip_ansi_escapes::strip(line)).to_string());
         Ok(())
     })
     .format_target(false)

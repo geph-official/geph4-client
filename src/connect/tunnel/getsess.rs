@@ -7,7 +7,6 @@ use geph4_protocol::binder::protocol::BridgeDescriptor;
 
 use itertools::Itertools;
 use native_tls::TlsConnector;
-use rand::Rng;
 use regex::Regex;
 use smol::channel::Sender;
 use smol_str::SmolStr;
@@ -86,7 +85,7 @@ pub(super) async fn get_session(ctx: &TunnelCtx) -> anyhow::Result<Arc<sosistab2
         EndpointSource::Independent { endpoint } => {
             let (addr, raw_key) = parse_independent_endpoint(&endpoint)?;
             let obfs_pk = ObfsUdpPublic::from_bytes(raw_key);
-            let sessid = rand::thread_rng().gen::<u128>().to_string();
+            let sessid = fastrand::u128(..).to_string();
             let mplex = Multiplex::new(MuxSecret::generate(), None);
             for _ in 0..4 {
                 let pipe = ObfsUdpPipe::connect(addr, obfs_pk, &sessid).await?;
@@ -138,7 +137,7 @@ pub(super) async fn get_session(ctx: &TunnelCtx) -> anyhow::Result<Arc<sosistab2
             let (metrics_send, metrics_recv) = smol::channel::bounded(1000);
 
             // add *all* the bridges!
-            let sess_id = format!("sess-{}", rand::thread_rng().gen::<u128>());
+            let sess_id = format!("sess-{}", fastrand::u128(..));
             {
                 let ctx = ctx.clone();
                 let multiplex = multiplex.clone();
