@@ -6,8 +6,6 @@ mod fronts;
 
 mod socks2http;
 
-use cap::Cap;
-
 use colored::Colorize;
 
 use pad::{Alignment, PadStr};
