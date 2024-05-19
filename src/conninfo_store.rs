@@ -263,7 +263,7 @@ impl ConnInfoStore {
 
             let digest = rsa_fdh::blind::hash_message::<sha2::Sha256, _>(&subkey, &digest).unwrap();
             let (blinded_digest, unblinder) =
-                rsa_fdh::blind::blind(&mut rand::thread_rng(), &subkey, &digest);
+                rsa_fdh::blind::blind(&mut rand::thread_rng(), subkey, &digest);
             let resp: AuthResponseV2 = match self
                 .rpc
                 .authenticate_v2(AuthRequestV2 {
@@ -293,7 +293,7 @@ impl ConnInfoStore {
                 version: std::env::var("GEPH_VERSION").ok().map(|s| s.into()),
             };
             // intentionally sleep between 3 and 8 seconds to increase the anonymity set
-            let duration = Duration::from_secs_f64(rand::thread_rng().gen_range(3.0, 8.0));
+            let duration = Duration::from_secs_f64(rand::thread_rng().gen_range(3.0..8.0));
             smol::Timer::after(duration).await;
             return Ok((resp.user_info, tok));
         }

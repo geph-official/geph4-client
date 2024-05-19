@@ -108,7 +108,7 @@ fn upload_loop(ctx: ConnectContext, handle: Arc<windivert::PacketHandle>) {
                             fix_all_checksums(&mut pkt);
                         }
                         // pass to geph
-                        smol::future::block_on(ctx.tunnel.send_vpn(&pkt));
+                        let _ = smol::future::block_on(ctx.tunnel.send_vpn(&pkt));
                     }
                 }
             }

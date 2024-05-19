@@ -10,6 +10,9 @@ mod linux_routing;
 #[cfg(target_os = "windows")]
 mod windows_routing;
 
+#[cfg(target_os = "macos")]
+mod macos_routing;
+
 #[cfg(unix)]
 use std::os::unix::prelude::{AsRawFd, FromRawFd};
 

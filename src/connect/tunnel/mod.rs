@@ -1,4 +1,3 @@
-
 use bytes::Bytes;
 
 use derivative::Derivative;
@@ -82,6 +81,7 @@ impl ConnectionStatus {
 /// A sosistab Session is *a single end-to-end connection between a client and a server.*
 /// This can be thought of as analogous to TcpStream, except all reads and writes are datagram-based and unreliable.
 pub struct ClientTunnel {
+    #[allow(dead_code)]
     endpoint: EndpointSource,
 
     connect_status: Arc<RwLock<ConnectionStatus>>,
@@ -184,6 +184,7 @@ impl ClientTunnel {
         }
     }
 
+    #[allow(dead_code)]
     pub fn get_endpoint(&self) -> EndpointSource {
         self.endpoint.clone()
     }
