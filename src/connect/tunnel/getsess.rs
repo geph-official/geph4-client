@@ -1,13 +1,12 @@
 use bytes::Bytes;
-use ed25519_dalek::ed25519::signature::Signature;
-use ed25519_dalek::{PublicKey, Verifier};
+use ed25519_dalek::ed25519::Signature;
+use ed25519_dalek::{Verifier, VerifyingKey};
 use futures_intrusive::sync::ManualResetEvent;
 use futures_util::{stream::FuturesUnordered, Future, StreamExt};
 use geph4_protocol::binder::protocol::BridgeDescriptor;
 
 use itertools::Itertools;
 use native_tls::TlsConnector;
-use rand::Rng;
 use regex::Regex;
 use smol::channel::Sender;
 use smol_str::SmolStr;
@@ -55,15 +54,25 @@ pub fn parse_independent_endpoint(endpoint: &str) -> anyhow::Result<(SocketAddr,
 
 fn verify_exit_signatures(
     bridges: &[BridgeDescriptor],
-    signing_key: PublicKey,
+    signing_key: VerifyingKey,
 ) -> anyhow::Result<()> {
     for b in bridges.iter() {
         // The exit signed this bridge with an empty signature, so we have to verify with an empty signature
         let mut clean_bridge = b.clone();
         clean_bridge.exit_signature = Bytes::new();
 
-        let signature = &Signature::from_bytes(b.exit_signature.as_ref())
-            .context("failed to deserialize exit signature")?;
+        // Signature::from_bytes only accepts [u8; 64], so we have to convert Bytes into [u8; 64].
+        // TODO: This could be made more clean
+        let mut exit_sig: [u8; 64] = [0; 64];
+        for (i, v) in exit_sig.iter_mut().enumerate() {
+            let b_val = b.exit_signature.get(i);
+            if b_val.is_some() {
+                *v = *b_val.unwrap();
+            }
+        }
+
+        // TODO: Add anyhow context
+        let signature = &Signature::from_bytes(&exit_sig);
         let bridge_msg = bincode::serialize(&clean_bridge).unwrap();
         let bridge_log_id = format!("[{}] {}/{}", b.protocol, b.exit_hostname, b.endpoint);
         match signing_key.verify(bridge_msg.as_slice(), signature) {
@@ -86,7 +95,7 @@ pub(super) async fn get_session(ctx: &TunnelCtx) -> anyhow::Result<Arc<sosistab2
         EndpointSource::Independent { endpoint } => {
             let (addr, raw_key) = parse_independent_endpoint(&endpoint)?;
             let obfs_pk = ObfsUdpPublic::from_bytes(raw_key);
-            let sessid = rand::thread_rng().gen::<u128>().to_string();
+            let sessid = fastrand::u128(..).to_string();
             let mplex = Multiplex::new(MuxSecret::generate(), None);
             for _ in 0..4 {
                 let pipe = ObfsUdpPipe::connect(addr, obfs_pk, &sessid).await?;
@@ -138,7 +147,7 @@ pub(super) async fn get_session(ctx: &TunnelCtx) -> anyhow::Result<Arc<sosistab2
             let (metrics_send, metrics_recv) = smol::channel::bounded(1000);
 
             // add *all* the bridges!
-            let sess_id = format!("sess-{}", rand::thread_rng().gen::<u128>());
+            let sess_id = format!("sess-{}", fastrand::u128(..));
             {
                 let ctx = ctx.clone();
                 let multiplex = multiplex.clone();

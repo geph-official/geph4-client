@@ -24,9 +24,11 @@ pub struct DebugPackOpt {
 pub struct DebugPack {
     conn: Arc<Mutex<Connection>>,
     send_log: Sender<String>,
+    #[allow(dead_code)]
     send_timeseries: Sender<(String, f64)>,
 }
 
+#[allow(dead_code)]
 pub static START_TIME: Lazy<Instant> = Lazy::new(Instant::now);
 
 impl DebugPack {
@@ -103,6 +105,7 @@ impl DebugPack {
         let _ = self.send_log.try_send(logline.into());
     }
 
+    #[allow(dead_code)]
     pub fn add_timeseries(&self, key: &str, value: f64) {
         let _ = self.send_timeseries.try_send((key.to_string(), value));
     }
