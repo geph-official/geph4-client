@@ -555,7 +555,7 @@ checksum = "c6fa2087f2753a7da8cc1c0dbfcf89579dd57458e36769de5ac750b4671737ca"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -865,7 +865,7 @@ dependencies = [
  "darling 0.20.9",
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -1114,9 +1114,9 @@ checksum = "19d374276b40fb8bbdee95aef7c7fa6b5316ec764510eb64b8dd0e2ed0d7e7f5"
 
 [[package]]
 name = "crossbeam-channel"
-version = "0.5.12"
+version = "0.5.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ab3db02a9c5b5121e1e42fbdb1aeb65f5e02624cc58c43f2884c6ccac0b82f95"
+checksum = "33480d6946193aa8033910124896ca395333cae7e2d1113d1fef6c3272217df2"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -1151,9 +1151,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-utils"
-version = "0.8.19"
+version = "0.8.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "248e3bacc7dc6baa3b21e405ee045c3047101a49145e7e9eca583ab4c2ca5345"
+checksum = "22ec99545bb0ed0ea7bb9b8e1e9122ea386ff8a48c0922e43f36d45ab09e0e80"
 
 [[package]]
 name = "crypto-common"
@@ -1211,7 +1211,7 @@ checksum = "f46882e17999c6cc590af592290432be3bce0428cb0d5f8b6715e4dc7b383eb3"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -1278,7 +1278,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "strsim 0.11.1",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -1300,7 +1300,7 @@ checksum = "733cabb43482b1a1b53eee8583c2b9e8684d592215ea83efd305dd31bc2f0178"
 dependencies = [
  "darling_core 0.20.9",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -1398,7 +1398,7 @@ checksum = "67e77553c4162a157adbf834ebae5b415acbecbeafc7a74b0e886657506a7611"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -1873,7 +1873,7 @@ checksum = "87750cf4b7a4c0625b1529e4c543c2182106e4dedc60a2a6455e00d212c489ac"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -2045,7 +2045,7 @@ dependencies = [
 [[package]]
 name = "geph4-protocol"
 version = "0.18.0"
-source = "git+https://github.com/M220/geph4-protocol?branch=mod#9443bd9d94c7140c953aff29575c5c9424b88f96"
+source = "git+https://github.com/M220/geph4-protocol?branch=mod#2efa8e359f4d12649365910ce45fda02a594acfb"
 dependencies = [
  "anyhow",
  "arrayref",
@@ -2070,7 +2070,7 @@ dependencies = [
  "smol 2.0.0",
  "smol-timeout",
  "smol_str",
- "smolscale 0.4.4 (registry+https://github.com/rust-lang/crates.io-index)",
+ "smolscale 0.4.4 (git+https://github.com/M220/smolscale)",
  "stdcode",
  "thiserror",
  "tmelcrypt",
@@ -2864,7 +2864,7 @@ version = "0.1.5"
 source = "git+https://github.com/M220/nanorpc#ebc0a01eb406d10dceaecebdfe9e7b6eb17305f9"
 dependencies = [
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -3067,7 +3067,7 @@ checksum = "a948666b637a0f465e8564c73e89d4dde00d72d4d473cc972f390fc3dcee7d9c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -3211,7 +3211,7 @@ checksum = "2f38a4412a78282e09a2cf38d195ea5420d15ba0602cb375210efbc877243965"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -3294,7 +3294,7 @@ dependencies = [
  "proc-macro2",
  "quote",
  "regex",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -3436,9 +3436,9 @@ checksum = "dc375e1527247fe1a97d8b7156678dfe7c1af2fc075c9a4db3690ecd2a148068"
 
 [[package]]
 name = "proc-macro2"
-version = "1.0.82"
+version = "1.0.83"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ad3d49ab951a01fbaafe34f2ec74122942fe18a3f9814c3268f1bb72042131b"
+checksum = "0b33eb56c327dec362a9e55b3ad14f9d2f0904fb5a5b03b513ab5465399e9f43"
 dependencies = [
  "unicode-ident",
 ]
@@ -3707,18 +3707,7 @@ checksum = "adad44e29e4c806119491a7f06f03de4d1af22c3a680dd47f1e6e179439d1f56"
 [[package]]
 name = "replay_filter"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e92f12b45df65374163d6bf4327abd0e8c3d2e198bebfbd5f53c13edaeb900ea"
-dependencies = [
- "bitvec",
- "honggfuzz",
- "log",
-]
-
-[[package]]
-name = "replay_filter"
-version = "0.1.2"
-source = "git+https://github.com/M220/sosistab2?branch=mod#f6fdfc7152919712d1e5645de4a2ad444a634503"
+source = "git+https://github.com/M220/replay_filter#91bd3a78f993a1b2ae157ed5c43552ec869add54"
 dependencies = [
  "bitvec",
  "honggfuzz",
@@ -4008,7 +3997,7 @@ checksum = "6048858004bcff69094cd972ed40a32500f153bd3be9f716b2eed2e8217c4838"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -4094,7 +4083,7 @@ dependencies = [
  "darling 0.20.9",
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -4347,7 +4336,7 @@ dependencies = [
 [[package]]
 name = "sosistab2"
 version = "0.10.20"
-source = "git+https://github.com/M220/sosistab2?branch=mod#f6fdfc7152919712d1e5645de4a2ad444a634503"
+source = "git+https://github.com/M220/sosistab2?branch=mod#2e8c6680c8ffdc0f077e01d963b7390a92de56d5"
 dependencies = [
  "ahash 0.8.11",
  "anyhow",
@@ -4368,7 +4357,7 @@ dependencies = [
  "parking_lot 0.12.2",
  "pin-project",
  "recycle-box",
- "replay_filter 0.1.2 (git+https://github.com/M220/sosistab2?branch=mod)",
+ "replay_filter",
  "serde",
  "smol 2.0.0",
  "smol-timeout",
@@ -4403,7 +4392,7 @@ dependencies = [
 [[package]]
 name = "sosistab2-obfsudp"
 version = "0.1.12"
-source = "git+https://github.com/M220/sosistab2-obfsudp?branch=mod#1b0f1e60b1a7b7437ae7c656aca37f35bef7c310"
+source = "git+https://github.com/M220/sosistab2-obfsudp?branch=mod#7a98df9e0778c7779c0394e14cebe5bb238e63bc"
 dependencies = [
  "ahash 0.8.11",
  "anyhow",
@@ -4422,7 +4411,7 @@ dependencies = [
  "probability",
  "rand 0.8.5",
  "reed-solomon-erasure",
- "replay_filter 0.1.2 (registry+https://github.com/rust-lang/crates.io-index)",
+ "replay_filter",
  "scopeguard",
  "serde",
  "smol 2.0.0",
@@ -4744,9 +4733,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "2.0.64"
+version = "2.0.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7ad3dee41f36859875573074334c200d1add8e4a87bb37113ebd31d926b7b11f"
+checksum = "d2863d96a84c6439701d7a38f9de935ec562c8832cc55d1dde0f513b52fad106"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4839,7 +4828,7 @@ checksum = "46c3384250002a6d5af4d114f2845d37b57521033f30d5c3f46c4d70e1197533"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -4992,7 +4981,7 @@ checksum = "5b8a1e28f2deaa14e508979454cb3a223b10b938b45af148bc0986de36f1923b"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -5077,7 +5066,7 @@ checksum = "34704c8d6ebcbc939824180af020566b01a7c01f80641264eba0999f6c2b6be7"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -5346,7 +5335,7 @@ dependencies = [
  "once_cell",
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
  "wasm-bindgen-shared",
 ]
 
@@ -5380,7 +5369,7 @@ checksum = "e94f17b526d0a461a191c78ea52bbce64071ed5c04c9ffe424dcb38f74171bb7"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
  "wasm-bindgen-backend",
  "wasm-bindgen-shared",
 ]
@@ -5683,7 +5672,7 @@ checksum = "15e934569e47891f7d9411f1a451d947a60e000ab3bd24fbb970f000387d1b3b"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
 
 [[package]]
@@ -5703,5 +5692,5 @@ checksum = "ce36e65b0d2999d2aafac989fb249189a141aee1f53c612c1f37d72631959f69"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.64",
+ "syn 2.0.65",
 ]
