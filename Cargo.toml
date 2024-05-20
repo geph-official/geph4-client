@@ -45,7 +45,7 @@ treebitmap = { package = "ip_network_table-deps-treebitmap", version = "0.5.0" }
 async-dup = "1.2.4"
 bytes = { version = "1.6.0", features = ["serde"] }
 tap = "1.0.1"
-smolscale = "0.4.4"
+smolscale = { git = "https://github.com/M220/smolscale" }
 im = "15.1.0"
 tokio = { version = "1.37.0", features = ["rt", "net", "io-util"] }
 hyper = { version = "0.14.28", features = [
@@ -105,7 +105,12 @@ tun = "0.6.1"
 default-net = "0.22.0"
 
 [target.'cfg(windows)'.dependencies]
-winapi = { version = "0.3.9", features = ["std", "minwindef", "mmsystem", "timeapi"] }
+winapi = { version = "0.3.9", features = [
+  "std",
+  "minwindef",
+  "mmsystem",
+  "timeapi",
+] }
 pnet_packet = "0.34.0"
 
 [profile.dev]
