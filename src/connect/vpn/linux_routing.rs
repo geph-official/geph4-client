@@ -100,7 +100,7 @@ pub(super) async fn routing_loop(ctx: ConnectContext) -> anyhow::Result<()> {
     let mut signals = Signals::new([Signal::Term, Signal::Quit, Signal::Int])
         .context("did not register signal handler properly")?;
 
-    while let Some(_signal) = signals.next().await {
+    if let Some(_signal) = signals.next().await {
         teardown_routing();
         std::process::exit(-1)
     }
