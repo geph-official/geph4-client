@@ -1,6 +1,6 @@
 [package]
 name = "geph4-client"
-version = "4.11.0"
+version = "4.99.0-actuallyfive.0"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2021"
 description = "Geph client"
@@ -14,7 +14,7 @@ repository = "https://github.com/geph-official/geph4-client"
 # sosistab2={path="../sosistab2"}
 
 [lib]
-name = "geph4client" 
+name = "geph4client"
 crate-type = ["staticlib", "lib"]
 
 [dependencies]
@@ -26,10 +26,12 @@ flume = "0.10.14"
 
 os_pipe = "1.1.4"
 dirs = "3.0.2"
-ed25519-dalek = { version = "2", features = ["serde"], default-features=false }
+ed25519-dalek = { version = "2", features = [
+    "serde",
+], default-features = false }
 futures-util = "0.3.28"
 hex = "0.4.3"
-http-types = "2.12.0" 
+http-types = "2.12.0"
 log = "0.4.20"
 once_cell = "1.18.0"
 parking_lot = { version = "0.11.2", features = ["serde"] }
@@ -47,7 +49,7 @@ socksv5 = "0.2.0"
 
 strsim = "0.10.0"
 structopt = "0.3.26"
-x25519-dalek = { version = "2", features = ["serde"], default-features=false }
+x25519-dalek = { version = "2", features = ["serde"], default-features = false }
 chrono = "0.4.31"
 
 socket2 = "0.3.19"
@@ -61,7 +63,7 @@ smolscale = "0.4.2"
 async-compat = "0.2.2"
 im = "15.1.0"
 event-listener = "2.5.3"
-cached = "0.23.0" 
+cached = "0.23.0"
 rustls = "0.19.1"
 webpki-roots = "0.21.1"
 strip-ansi-escapes = "0.1.1"
@@ -70,10 +72,18 @@ geph-nat = "0.1.6"
 mizaru = "0.1.3"
 geph4-aioutils = "0.1.5"
 # alloc_geiger = "0.1"
-geph5-client={path="../geph5/binaries/geph5-client"}
+geph5-client = { path = "../geph5/binaries/geph5-client" }
+geph5-broker-protocol = { path = "../geph5/libraries/geph5-broker-protocol" }
+sillad = { path = "../geph5/libraries/sillad" }
 # socks2http
-tokio = { version = "1.33.0", features = ["rt", "net", "io-util"] } 
-hyper = { version = "0.14.27", features = ["http1", "client", "server", "tcp", "stream"] }
+tokio = { version = "1.33.0", features = ["rt", "net", "io-util"] }
+hyper = { version = "0.14.27", features = [
+    "http1",
+    "client",
+    "server",
+    "tcp",
+    "stream",
+] }
 pin-project = "1.1.3"
 http = "0.2.9"
 psl = "2.1.4"
@@ -103,9 +113,9 @@ byteorder = "1.5.0"
 smol_str = "0.1.24"
 
 
-sosistab2="0.10"
-sosistab2-obfsudp="0.1"
-sosistab2-obfstls="0.1"
+sosistab2 = "0.10"
+sosistab2-obfsudp = "0.1"
+sosistab2-obfstls = "0.1"
 
 
 stdcode = "0.1.14"
@@ -125,14 +135,17 @@ geph4-protocol = "0.19.0-alpha.2"
 # geph4-protocol = { git = "https://github.com/geph-official/geph4-protocol", branch = "user-info" }
 
 # melprot = "0.13.7"
-acidjson = "0.1.3" 
+acidjson = "0.1.3"
 # melstructs = "0.3.2"
 # gibbername = "0.1.1"
 # melbootstrap = "0.8.4"
 moka = "0.11.3"
 async-once-cell = "0.5.3"
 clone-macro = "0.1.0"
-sqlx = {version="0.7.3", default-features=false, features=["sqlite", "runtime-tokio"]}
+sqlx = { version = "0.7.3", default-features = false, features = [
+    "sqlite",
+    "runtime-tokio",
+] }
 derivative = "2.2.0"
 async-signal = "0.2.5"
 tmelcrypt = "0.2.7"

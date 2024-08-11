@@ -1,17 +1,14 @@
 use std::{sync::atomic::Ordering, time::Duration};
 
 use anyhow::Context;
-use futures_util::TryFutureExt;
+use futures_util::{AsyncReadExt, TryFutureExt};
 use psl::Psl;
 use smol_timeout::TimeoutExt;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 
 use crate::{
     china,
-    connect::{
-        stats::{STATS_RECV_BYTES, STATS_SEND_BYTES},
-        tunnel::activity::notify_activity,
-    },
+    connect::stats::{STATS_RECV_BYTES, STATS_SEND_BYTES},
 };
 
 use super::ConnectContext;
@@ -91,14 +88,13 @@ async fn handle_socks5(
             port,
         )
         .await?;
+        let (conn_read, conn_write) = conn.split();
         smol::future::race(
-            geph4_aioutils::copy_with_stats(conn.clone(), s5client.clone(), |n| {
+            geph4_aioutils::copy_with_stats(conn_read, s5client.clone(), |n| {
                 STATS_RECV_BYTES.fetch_add(n as u64, Ordering::Relaxed);
-                notify_activity();
             }),
-            geph4_aioutils::copy_with_stats(s5client, conn, |n| {
+            geph4_aioutils::copy_with_stats(s5client, conn_write, |n| {
                 STATS_SEND_BYTES.fetch_add(n as u64, Ordering::Relaxed);
-                notify_activity();
             }),
         )
         .await?;

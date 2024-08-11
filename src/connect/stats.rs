@@ -72,7 +72,7 @@ struct StatsControlProtocolImpl {
 impl StatsControlProtocol for StatsControlProtocolImpl {
     /// Obtains whether or not the daemon is connected.
     async fn is_connected(&self) -> bool {
-        self.ctx.tunnel.status().connected()
+        self.ctx.tunnel.status().await.connected()
     }
 
     /// Obtains statistics.

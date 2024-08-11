@@ -2800,7 +2800,7 @@ dependencies = [
 
 [[package]]
 name = "geph4-client"
-version = "4.11.0"
+version = "4.99.0-actuallyfive.0"
 dependencies = [
  "acidjson",
  "anyhow",
@@ -2836,6 +2836,7 @@ dependencies = [
  "geph-nat",
  "geph4-aioutils",
  "geph4-protocol",
+ "geph5-broker-protocol",
  "geph5-client",
  "governor",
  "hex",
@@ -2874,6 +2875,7 @@ dependencies = [
  "sha2 0.9.9",
  "shutdown_hooks",
  "signal-hook",
+ "sillad",
  "smol 1.3.0",
  "smol-timeout",
  "smol_str 0.1.24",

@@ -14,7 +14,7 @@ use smolscale::immortal::{Immortal, RespawnStrategy};
 
 use crate::{
     config::{get_conninfo_store, ConnectOpt},
-    connect::tunnel::{BinderTunnelParams, ClientTunnel, EndpointSource},
+    connect::tunnel::ClientTunnel,
     conninfo_store::ConnInfoStore,
 };
 
@@ -54,25 +54,7 @@ impl ConnectDaemon {
             .await?,
         );
 
-        let endpoint = {
-            if let Some(override_url) = opt.override_connect.clone() {
-                EndpointSource::Independent {
-                    endpoint: override_url,
-                }
-            } else {
-                EndpointSource::Binder(
-                    conn_info.clone(),
-                    BinderTunnelParams {
-                        exit_server: opt.exit_server.clone(),
-                        use_bridges: opt.use_bridges,
-                        force_bridge: opt.force_bridge,
-                        force_protocol: opt.force_protocol.clone(),
-                    },
-                )
-            }
-        };
-
-        let tunnel = ClientTunnel::new(endpoint, |_| {}).into();
+        let tunnel = ClientTunnel::new(opt.clone()).into();
         let ctx = ConnectContext {
             conn_info,
             tunnel,
