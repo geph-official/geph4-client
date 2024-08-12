@@ -38,12 +38,7 @@ pub async fn start_routing(ctx: ConnectContext) -> anyhow::Result<()> {
 }
 
 async fn whitelist_once(ctx: &ConnectContext) -> anyhow::Result<()> {
-    let bridge = ctx.conn_info.bridges().await?;
-    for bridge in bridge {
-        let addr = bridge.endpoint.ip();
-        GEPH_OWN_ADDRS.insert(addr);
-    }
-    Ok(())
+    todo!()
 }
 
 static FAKE_DNS_SERVER: AtomicU32 = AtomicU32::new(0);
