@@ -53,6 +53,8 @@ jobs:
           toolchain: stable
           profile: minimal
           default: true
+      - name: Enable x86
+        run: rustup target add x86_64-apple-darwin
       - name: Build
         run: cargo build --release --locked --target x86_64-apple-darwin
       - name: Move built files
