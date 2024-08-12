@@ -17,7 +17,7 @@ use crate::{config::Opt, connect::ConnectDaemon, debugpack::DebugPack};
 mod binderproxy;
 mod china;
 mod connect;
-mod conninfo_store;
+
 mod debugpack;
 mod main_bridgetest;
 

@@ -12,7 +12,7 @@ use smol_str::SmolStr;
 use smolscale::reaper::TaskReaper;
 
 use self::gatherer::StatsGatherer;
-pub use gatherer::StatItem;
+
 use nanorpc::nanorpc_derive;
 use nanorpc::RpcService;
 use once_cell::sync::Lazy;

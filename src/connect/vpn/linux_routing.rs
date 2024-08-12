@@ -109,15 +109,7 @@ pub(super) async fn routing_loop(ctx: ConnectContext) -> anyhow::Result<()> {
 }
 
 async fn whitelist_once(ctx: &ConnectContext) -> anyhow::Result<()> {
-    let bridge = ctx.conn_info.bridges().await?;
-    for bridge in bridge {
-        let addr = bridge.endpoint.ip();
-        WHITELIST.entry(addr).or_insert_with(move || {
-            log::debug!("making whitelist entry for {}", addr);
-            SingleWhitelister::new(addr)
-        });
-    }
-    Ok(())
+    todo!()
 }
 
 extern "C" fn teardown_routing() {

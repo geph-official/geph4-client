@@ -16,13 +16,7 @@ use std::sync::Arc;
 
 use std::net::Ipv4Addr;
 
-use crate::{config::ConnectOpt, conninfo_store::ConnInfoStore};
-
-#[derive(Clone)]
-pub enum EndpointSource {
-    Independent { endpoint: String },
-    Binder(Arc<ConnInfoStore>, BinderTunnelParams),
-}
+use crate::config::ConnectOpt;
 
 #[derive(Clone)]
 pub struct BinderTunnelParams {
@@ -34,7 +28,6 @@ pub struct BinderTunnelParams {
 
 #[derive(Clone)]
 struct TunnelCtx {
-    endpoint: EndpointSource,
     recv_socks5_conn: Receiver<(String, Sender<Stream>)>,
 
     connect_status: Arc<RwLock<ConnectionStatus>>,

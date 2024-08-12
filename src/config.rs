@@ -1,10 +1,11 @@
-use std::{path::PathBuf, str::FromStr};
+use std::{path::PathBuf, str::FromStr, sync::LazyLock};
 
-use crate::{conninfo_store::ConnInfoStore, fronts::parse_fronts};
+use crate::fronts::parse_fronts;
 use anyhow::Context;
 
 use geph4_protocol::binder::protocol::{BinderClient, Credentials};
 
+use geph5_client::{BridgeMode, BrokerSource, Config};
 use serde::{Deserialize, Serialize};
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous},
@@ -263,59 +264,21 @@ fn str_to_mizaru_pk(src: &str) -> mizaru::PublicKey {
     mizaru::PublicKey(raw_bts)
 }
 
-/// Given the common and authentication options, produce a binder client.
-pub async fn get_conninfo_store(
-    common_opt: &CommonOpt,
-    auth_opt: &AuthOpt,
-    exit_host: &str,
-) -> anyhow::Result<ConnInfoStore> {
-    let auth_opt = auth_opt.clone();
+pub static GEPH5_CONFIG_TEMPLATE: LazyLock<Config> = LazyLock::new(|| Config {
+    socks5_listen: None,
+    http_proxy_listen: None,
 
-    // create a dbpath based on hashing the username together with the password
-    let mut dbpath = auth_opt.credential_cache.clone();
-
-    let user_cache_key = hex::encode(blake3::hash(&auth_opt.auth_kind.stdcode()).as_bytes());
-
-    let auth_kind = auth_opt.auth_kind;
-
-    let get_creds = move || match auth_kind.clone() {
-        Some(AuthKind::AuthPassword { username, password }) => Credentials::Password {
-            username: username.into(),
-            password: password.into(),
-        },
-        Some(AuthKind::AuthKeypair { sk_path }) => {
-            let sk_raw = hex::decode(std::fs::read(sk_path).unwrap()).unwrap();
-            let sk = Ed25519SK::from_bytes(&sk_raw)
-                .context("cannot decode secret key")
-                .unwrap();
-            Credentials::new_keypair(&sk)
-        }
-        None => panic!("Missing authentication credentials"),
-    };
-
-    dbpath.push(&user_cache_key);
-    std::fs::create_dir_all(&dbpath)?;
-    dbpath.push("conninfo.db");
-
-    // TODO: WAL mode
-    let db = SqlitePool::connect_with(
-        SqliteConnectOptions::new()
-            .filename(dbpath)
-            .create_if_missing(true)
-            .synchronous(SqliteSynchronous::Normal)
-            .journal_mode(SqliteJournalMode::Wal),
-    )
-    .await?;
-
-    let cbc = ConnInfoStore::connect(
-        db,
-        common_opt.get_binder_client(),
-        common_opt.binder_mizaru_free.clone(),
-        common_opt.binder_mizaru_plus.clone(),
-        exit_host,
-        get_creds,
-    )
-    .await?;
-
-    Ok(cbc)
-}
+    control_listen: None,
+    exit_constraint: geph5_client::ExitConstraint::Auto,
+    bridge_mode: BridgeMode::Auto,
+    cache: None,
+    broker: Some(BrokerSource::Fronted {
+        front: "https://vuejs.org".into(),
+        host: "svitania-naidallszei-2.netlify.app".into(),
+    }),
+    vpn: false,
+    spoof_dns: true,
+    passthrough_china: false,
+    dry_run: false,
+    credentials: geph5_broker_protocol::Credential::TestDummy,
+});
