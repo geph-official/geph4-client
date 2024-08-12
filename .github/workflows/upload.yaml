@@ -11,6 +11,8 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -38,6 +40,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -66,6 +70,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
@@ -102,7 +108,9 @@ jobs:
         run: b2 sync ./OUTPUT/ b2://geph-dl/geph4-binaries/
 
   build_cross_linux:
-    runs-on: ubuntu-latest
+      - uses: actions/checkout@v3
+        with: 
+          fetch-depth: 0
     steps:
       - uses: actions/checkout@v3
       - name: Set up Python
