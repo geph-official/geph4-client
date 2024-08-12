@@ -2,9 +2,7 @@
 version: 2.1
 
 orbs:
-  win: circleci/windows@2.2.0 # The Windows orb give you everything you need to start using the Windows executor.
-# Use a package of configuration called an orb.
-# Orchestrate or schedule a set of jobs
+  win: circleci/windows@5.0
 jobs:
   build_windows:
     executor:
