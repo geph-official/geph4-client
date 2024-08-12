@@ -72,8 +72,8 @@ geph-nat = "0.1.6"
 mizaru = "0.1.3"
 geph4-aioutils = "0.1.5"
 # alloc_geiger = "0.1"
-geph5-client = "0.2.0-alpha.8"
-geph5-broker-protocol = "0.2.0-alpha.8"
+geph5-client = "0.2.0-alpha.9"
+geph5-broker-protocol = "0.2.0-alpha.9"
 sillad = "0.2.1"
 # socks2http
 tokio = { version = "1.33.0", features = ["rt", "net", "io-util"] }
