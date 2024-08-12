@@ -246,9 +246,9 @@ checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
 
 [[package]]
 name = "arc-writer"
-version = "0.2.0-alpha.9"
+version = "0.2.0-alpha.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f6af5600382742c14dedc924e4fd2cc63dfaa84c47d0574dc31ba1e4e9fe7539"
+checksum = "9365402e81fda1d1d7fbb3033d7055de0abe2d36422c7730fc22b869a24fccfb"
 
 [[package]]
 name = "arrayref"
@@ -2959,9 +2959,9 @@ dependencies = [
 
 [[package]]
 name = "geph5-broker-protocol"
-version = "0.2.0-alpha.9"
+version = "0.2.0-alpha.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "25db6e5c62267d2ee24a68d488587c55eab94d277e97d3d9e24f6dbb0e8eb2e1"
+checksum = "288515eb1926d32c3aa05b399448e5d7bb86d3340c56563ff1e87a1870bbde08"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2982,9 +2982,9 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.2.0-alpha.9"
+version = "0.2.0-alpha.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0644f16e2fd4dcfbc7f1d4e507cba16e2fd2ec625e968925f49e644f3dd5871a"
+checksum = "6e12ab946fac93f95625e586cbddada33cdb5826b6c89eee9ddbd3d17dc2dfac"
 dependencies = [
  "anyctx",
  "anyhow",
@@ -3064,9 +3064,9 @@ dependencies = [
 
 [[package]]
 name = "geph5-misc-rpc"
-version = "0.2.0-alpha.9"
+version = "0.2.0-alpha.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c08d4ae77858787e454626f11904e873a874454ea071f8ccb038cd10d0e6c0e"
+checksum = "2844a8ab0b24a4977adc7992ff36483e56c0b430ca7314237fc2be3b1e687f71"
 dependencies = [
  "anyhow",
  "async-task",
@@ -4102,9 +4102,9 @@ dependencies = [
 
 [[package]]
 name = "mizaru2"
-version = "0.2.0-alpha.9"
+version = "0.2.0-alpha.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a5425079a15c38f861989d96f62292360edf568f8ac835e2c4cea7495876969"
+checksum = "97571fee9e2e85f244ad5a058bc20a76506dd6ead164a0b9f9dfe92aed7cfe04"
 dependencies = [
  "anyhow",
  "blake3",
@@ -6119,9 +6119,9 @@ dependencies = [
 
 [[package]]
 name = "sillad-sosistab3"
-version = "0.2.0-alpha.9"
+version = "0.2.0-alpha.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "986f401ffcdaa15d171e1596294104556908b37e7827503eff30c646ac21095a"
+checksum = "63f13e314cd39308507f36703c4e8508dacfcf493a46258447d53e9f6a27a2d5"
 dependencies = [
  "anyhow",
  "arrayref",
