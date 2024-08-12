@@ -62,7 +62,7 @@ jobs:
       - name: Sync to B2
         run: b2 sync ./OUTPUT/ b2://geph-dl/geph4-binaries/
 
-  build_cross_android:
+  build_android:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
@@ -80,14 +80,22 @@ jobs:
           toolchain: stable
           profile: minimal
           default: true
-      - name: Setup cross-compilation
-        run: sh cross-setup.sh
-      - name: Install cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+      - name: Add Android targets
+        run: |
+          rustup target add armv7-linux-androideabi
+          rustup target add aarch64-linux-android
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r25b
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
       - name: Build for armv7-linux-androideabi
-        run: cross build --release --locked --target armv7-linux-androideabi
+        run: |
+          cargo ndk -t armeabi-v7a -p 21 build --release
       - name: Build for aarch64-linux-android
-        run: cross build --release --locked --target aarch64-linux-android
+        run: |
+          cargo ndk -t arm64-v8a -p 21 build --release
       - name: Move built files
         run: sh move_built.sh
       - name: Sync to B2
