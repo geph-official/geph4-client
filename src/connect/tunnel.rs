@@ -7,9 +7,15 @@ use geph_nat::GephNat;
 use parking_lot::RwLock;
 
 use sillad::Pipe;
-use smol::channel::{Receiver, Sender};
+use smol::{
+    channel::{Receiver, Sender},
+    Task,
+};
 use smol_str::SmolStr;
-use std::net::SocketAddr;
+use std::{
+    net::SocketAddr,
+    time::{Duration, SystemTime},
+};
 
 use sosistab2::Stream;
 use std::sync::Arc;
@@ -17,6 +23,8 @@ use std::sync::Arc;
 use std::net::Ipv4Addr;
 
 use crate::config::ConnectOpt;
+
+use super::stats::{gatherer::StatItem, STATS_GATHERER};
 
 #[derive(Clone)]
 pub struct BinderTunnelParams {
@@ -54,6 +62,7 @@ impl ConnectionStatus {
 /// This can be thought of as analogous to TcpStream, except all reads and writes are datagram-based and unreliable.
 pub struct ClientTunnel {
     client: geph5_client::Client,
+    _stat_reporter: Task<()>,
 }
 
 impl ClientTunnel {
@@ -87,7 +96,30 @@ impl ClientTunnel {
             dry_run: false,
             credentials: Credential::LegacyUsernamePassword { username, password },
         });
-        Self { client }
+        let handle = client.control_client();
+        let stat_reporter = smolscale::spawn(async move {
+            loop {
+                smol::Timer::after(Duration::from_secs(1)).await;
+                let info = handle.conn_info().await.unwrap();
+                let recv_bytes = handle.stat_num("total_rx_bytes".into()).await.unwrap();
+                let send_bytes = handle.stat_num("total_tx_bytes".into()).await.unwrap();
+                match info {
+                    geph5_client::ConnInfo::Connecting => {}
+                    geph5_client::ConnInfo::Connected(conn) => STATS_GATHERER.push(StatItem {
+                        time: SystemTime::now(),
+                        endpoint: conn.bridge.into(),
+                        protocol: conn.protocol.into(),
+                        ping: Duration::from_millis(100),
+                        send_bytes: send_bytes as u64,
+                        recv_bytes: recv_bytes as u64,
+                    }),
+                }
+            }
+        });
+        Self {
+            client,
+            _stat_reporter: stat_reporter,
+        }
     }
 
     /// Returns the current connection status.

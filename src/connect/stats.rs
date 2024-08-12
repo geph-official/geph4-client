@@ -1,4 +1,4 @@
-mod gatherer;
+pub mod gatherer;
 
 use std::{
     sync::atomic::{AtomicU64, Ordering},
