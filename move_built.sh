@@ -1,4 +1,5 @@
-#!/bin/sh
+#!/bin/bash
+git fetch --tags
 VERSION=$(git describe)
 mkdir -p ./OUTPUT/$VERSION/
 mv ./target/x86_64-unknown-linux-musl/release/geph4-client ./OUTPUT/$VERSION/geph4-client-linux-amd64

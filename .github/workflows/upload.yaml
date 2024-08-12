@@ -97,7 +97,7 @@ jobs:
         run: |
           cargo ndk -t arm64-v8a -p 21 build --release
       - name: Move built files
-        run: sh move_built.sh
+        run: bash move_built.sh
       - name: Sync to B2
         run: b2 sync ./OUTPUT/ b2://geph-dl/geph4-binaries/
 
