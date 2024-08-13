@@ -64,7 +64,7 @@ pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
                 signing_key: hex::encode(exit.0.as_bytes()),
                 country_code: exit.1.country.alpha2().into(),
                 city_code: exit.1.city.clone(),
-                allowed_levels: if free_exits.all_exits.contains(&exit) {
+                allowed_levels: if free_exits.all_exits.iter().map(|fe| fe.0).any(|fe| fe == exit.0) {
                     vec!["free".to_string(), "plus".to_string()]
                 } else {
                     vec!["plus".to_string()]
