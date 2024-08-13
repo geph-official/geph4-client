@@ -16,6 +16,8 @@ use std::{
     net::SocketAddr,
     time::{Duration, SystemTime},
 };
+use stdcode::StdcodeSerializeExt;
+use tmelcrypt::Hashable;
 
 use sosistab2::Stream;
 use std::sync::Arc;
@@ -68,9 +70,9 @@ pub struct ClientTunnel {
 impl ClientTunnel {
     /// Creates a new ClientTunnel.
     pub fn new(opt: ConnectOpt) -> Self {
-        let (username, password) = match opt.auth.auth_kind {
+        let (username, password) = match &opt.auth.auth_kind {
             Some(crate::config::AuthKind::AuthPassword { username, password }) => {
-                (username, password)
+                (username.clone(), password.clone())
             }
             _ => todo!(),
         };
@@ -81,7 +83,12 @@ impl ClientTunnel {
         } else {
             BridgeMode::Auto
         };
-        config.cache = Some(opt.auth.credential_cache.clone());
+        config.cache = Some(
+            opt.auth
+                .credential_cache
+                .clone()
+                .join(format!("cache-{}.db", opt.auth.stdcode().hash())),
+        );
         let client = geph5_client::Client::start(config);
         let handle = client.control_client();
         let stat_reporter = smolscale::spawn(async move {
