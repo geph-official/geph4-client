@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use std::net::Ipv4Addr;
 
-use crate::config::ConnectOpt;
+use crate::config::{ConnectOpt, GEPH5_CONFIG_TEMPLATE};
 
 use super::stats::{gatherer::StatItem, STATS_GATHERER};
 
@@ -74,28 +74,15 @@ impl ClientTunnel {
             }
             _ => todo!(),
         };
-        let client = geph5_client::Client::start(Config {
-            socks5_listen: None,
-            http_proxy_listen: None,
-
-            control_listen: None,
-            exit_constraint: geph5_client::ExitConstraint::Auto,
-            bridge_mode: if opt.use_bridges {
-                BridgeMode::ForceBridges
-            } else {
-                BridgeMode::Auto
-            },
-            cache: None,
-            broker: Some(BrokerSource::Fronted {
-                front: "https://vuejs.org".into(),
-                host: "svitania-naidallszei-2.netlify.app".into(),
-            }),
-            vpn: false,
-            spoof_dns: true,
-            passthrough_china: false,
-            dry_run: false,
-            credentials: Credential::LegacyUsernamePassword { username, password },
-        });
+        let mut config = GEPH5_CONFIG_TEMPLATE.clone();
+        config.credentials = Credential::LegacyUsernamePassword { username, password };
+        config.bridge_mode = if opt.use_bridges {
+            BridgeMode::ForceBridges
+        } else {
+            BridgeMode::Auto
+        };
+        config.cache = Some(opt.auth.credential_cache.clone());
+        let client = geph5_client::Client::start(config);
         let handle = client.control_client();
         let stat_reporter = smolscale::spawn(async move {
             loop {
