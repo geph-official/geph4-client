@@ -246,9 +246,9 @@ checksum = "69f7f8c3906b62b754cd5326047894316021dcfe5a194c8ea52bdd94934a3457"
 
 [[package]]
 name = "arc-writer"
-version = "0.2.0-alpha.10"
+version = "0.2.0-alpha.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9365402e81fda1d1d7fbb3033d7055de0abe2d36422c7730fc22b869a24fccfb"
+checksum = "89aa3bf2e11ad3d1d7df0f741c1cf67cc66910df975341a3ba6d9084e6d4d8d5"
 
 [[package]]
 name = "arrayref"
@@ -273,6 +273,18 @@ name = "ascii"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d92bec98840b8f03a5ff5413de5293bfcd8bf96467cf5452609f939ec6f5de16"
+
+[[package]]
+name = "async-broadcast"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20cd0e2e25ea8e5f7e9df04578dc6cf5c83577fd09b1a46aaf5c85e1c33f2a7e"
+dependencies = [
+ "event-listener 5.3.1",
+ "event-listener-strategy",
+ "futures-core",
+ "pin-project-lite 0.2.14",
+]
 
 [[package]]
 name = "async-channel"
@@ -2848,6 +2860,7 @@ dependencies = [
  "im",
  "io-lifetimes",
  "ip_network_table-deps-treebitmap",
+ "isocountry",
  "itertools 0.10.5",
  "libc",
  "log",
@@ -2959,9 +2972,9 @@ dependencies = [
 
 [[package]]
 name = "geph5-broker-protocol"
-version = "0.2.0-alpha.10"
+version = "0.2.0-alpha.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "288515eb1926d32c3aa05b399448e5d7bb86d3340c56563ff1e87a1870bbde08"
+checksum = "47698b1637b6af13906720c0163a16049a33ad650837f0953f418473653446eb"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2982,13 +2995,14 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.2.0-alpha.10"
+version = "0.2.0-alpha.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e12ab946fac93f95625e586cbddada33cdb5826b6c89eee9ddbd3d17dc2dfac"
+checksum = "5ac38c55225d39067b6bf582a1e6b8b670c0369fb2366f0b94dd577ed236aa9b"
 dependencies = [
  "anyctx",
  "anyhow",
  "arc-writer",
+ "async-broadcast",
  "async-compat",
  "async-dup",
  "async-trait",
@@ -3002,6 +3016,7 @@ dependencies = [
  "chrono",
  "clap 4.5.15",
  "clone-macro",
+ "crossbeam-queue",
  "dashmap 6.0.1",
  "dirs 5.0.1",
  "ed25519-dalek",
@@ -3064,9 +3079,9 @@ dependencies = [
 
 [[package]]
 name = "geph5-misc-rpc"
-version = "0.2.0-alpha.10"
+version = "0.2.0-alpha.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2844a8ab0b24a4977adc7992ff36483e56c0b430ca7314237fc2be3b1e687f71"
+checksum = "26ac375e4ef3f003fc18717f13291aaf52fd675e6c0c6638ec27769175c24913"
 dependencies = [
  "anyhow",
  "async-task",
@@ -4102,9 +4117,9 @@ dependencies = [
 
 [[package]]
 name = "mizaru2"
-version = "0.2.0-alpha.10"
+version = "0.2.0-alpha.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97571fee9e2e85f244ad5a058bc20a76506dd6ead164a0b9f9dfe92aed7cfe04"
+checksum = "6d192b1b9b4753648e1c54c0c5a20b035f05b165f98e48d714b3bcbceb8c91e6"
 dependencies = [
  "anyhow",
  "blake3",
@@ -6119,9 +6134,9 @@ dependencies = [
 
 [[package]]
 name = "sillad-sosistab3"
-version = "0.2.0-alpha.10"
+version = "0.2.0-alpha.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "63f13e314cd39308507f36703c4e8508dacfcf493a46258447d53e9f6a27a2d5"
+checksum = "4548549b1a4520f33e21278fc1a93dfb4738cbc6202a0d0afb68eb505ef17dbf"
 dependencies = [
  "anyhow",
  "arrayref",

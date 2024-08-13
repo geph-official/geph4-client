@@ -2,8 +2,10 @@ use bytes::Bytes;
 
 use derivative::Derivative;
 use geph5_broker_protocol::Credential;
-use geph5_client::{BridgeMode, BrokerSource, Config};
+use geph5_client::{BridgeMode, BrokerSource, Config, ExitConstraint};
 use geph_nat::GephNat;
+use isocountry::CountryCode;
+use itertools::Itertools;
 use parking_lot::RwLock;
 
 use sillad::Pipe;
@@ -14,6 +16,7 @@ use smol::{
 use smol_str::SmolStr;
 use std::{
     net::SocketAddr,
+    sync::atomic::Ordering,
     time::{Duration, SystemTime},
 };
 use stdcode::StdcodeSerializeExt;
@@ -24,7 +27,10 @@ use std::sync::Arc;
 
 use std::net::Ipv4Addr;
 
-use crate::config::{ConnectOpt, GEPH5_CONFIG_TEMPLATE};
+use crate::{
+    config::{ConnectOpt, GEPH5_CONFIG_TEMPLATE},
+    connect::stats::{STATS_RECV_BYTES, STATS_SEND_BYTES},
+};
 
 use super::stats::{gatherer::StatItem, STATS_GATHERER};
 
@@ -89,6 +95,12 @@ impl ClientTunnel {
                 .clone()
                 .join(format!("cache-{}.db", opt.auth.stdcode().hash())),
         );
+        if let Some(exit) = opt.exit_server {
+            let vec = exit.split(['.', '-']).collect_vec();
+            let country = CountryCode::for_alpha2_caseless(vec[0]).unwrap();
+            let city = vec[1].to_string();
+            config.exit_constraint = ExitConstraint::CountryCity(country, city);
+        }
         log::debug!("cache path: {:?}", config.cache);
         let client = geph5_client::Client::start(config);
         let handle = client.control_client();
@@ -98,6 +110,8 @@ impl ClientTunnel {
                 let info = handle.conn_info().await.unwrap();
                 let recv_bytes = handle.stat_num("total_rx_bytes".into()).await.unwrap();
                 let send_bytes = handle.stat_num("total_tx_bytes".into()).await.unwrap();
+                STATS_RECV_BYTES.store(recv_bytes as _, Ordering::Relaxed);
+                STATS_SEND_BYTES.store(send_bytes as _, Ordering::Relaxed);
                 match info {
                     geph5_client::ConnInfo::Connecting => {}
                     geph5_client::ConnInfo::Connected(conn) => STATS_GATHERER.push(StatItem {

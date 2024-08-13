@@ -1,14 +1,10 @@
 use std::{sync::Arc, time::Duration};
 
-use anyhow::Context;
-
 use clone_macro::clone;
 use futures_util::{future::select_all, FutureExt, TryFutureExt};
 
 use itertools::Itertools;
-use once_cell::sync::Lazy;
 
-use rand::Rng;
 use smol::prelude::*;
 use smolscale::immortal::{Immortal, RespawnStrategy};
 
@@ -68,11 +64,6 @@ pub struct ConnectContext {
     tunnel: Arc<ClientTunnel>,
     debug: Arc<DebugPack>,
 }
-
-static METRIC_SESSION_ID: Lazy<i64> = Lazy::new(|| {
-    let mut rng = rand::thread_rng();
-    rng.gen()
-});
 
 async fn connect_loop(ctx: ConnectContext) -> anyhow::Result<()> {
     let socks2http = smolscale::spawn(crate::socks2http::run_tokio(ctx.opt.http_listen, {
