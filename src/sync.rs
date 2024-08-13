@@ -89,6 +89,7 @@ pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
             _ => todo!(),
         };
         let user_cache_key = hex::encode(blake3::hash(&opt.auth.stdcode()).as_bytes());
+        std::fs::create_dir_all(&opt.auth.credential_cache)?;
         let token_path = opt.auth.credential_cache.join(format!("{user_cache_key}-sync_auth_token"));
         let auth_token = if let Ok(val) = smol::fs::read_to_string(&token_path).await {
             val
