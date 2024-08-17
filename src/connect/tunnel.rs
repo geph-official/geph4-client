@@ -22,7 +22,6 @@ use std::{
 use stdcode::StdcodeSerializeExt;
 use tmelcrypt::Hashable;
 
-use sosistab2::Stream;
 use std::sync::Arc;
 
 use std::net::Ipv4Addr;
@@ -33,23 +32,6 @@ use crate::{
 };
 
 use super::stats::{gatherer::StatItem, STATS_GATHERER};
-
-#[derive(Clone)]
-pub struct BinderTunnelParams {
-    pub exit_server: Option<String>,
-    pub use_bridges: bool,
-    pub force_bridge: Option<Ipv4Addr>,
-    pub force_protocol: Option<String>,
-}
-
-#[derive(Clone)]
-struct TunnelCtx {
-    recv_socks5_conn: Receiver<(String, Sender<Stream>)>,
-
-    connect_status: Arc<RwLock<ConnectionStatus>>,
-    recv_vpn_outgoing: Receiver<Bytes>,
-    send_vpn_incoming: Sender<Bytes>,
-}
 
 /// A ConnectionStatus shows the status of the tunnel.
 #[derive(Clone, Derivative)]

@@ -272,12 +272,34 @@ pub static GEPH5_CONFIG_TEMPLATE: LazyLock<Config> = LazyLock::new(|| Config {
     exit_constraint: geph5_client::ExitConstraint::Auto,
     bridge_mode: BridgeMode::Auto,
     cache: None,
-    broker: Some(BrokerSource::Fronted {
-        front: "https://vuejs.org".into(),
-        host: "svitania-naidallszei-2.netlify.app".into(),
-    }),
+    broker: Some(BrokerSource::Race(vec![
+        BrokerSource::Fronted {
+            front: "https://vuejs.org".into(),
+            host: "svitania-naidallszei-2.netlify.app".into(),
+        },
+        BrokerSource::AwsLambda {
+            function_name: "geph-lambda-bouncer".into(),
+            region: "us-east-1".into(),
+            access_key_id: String::from_utf8_lossy(
+                &base32::decode(
+                    base32::Alphabet::Crockford,
+                    "855MJGAMB58MCPJBB97K4P2C6NC36DT8",
+                )
+                .unwrap(),
+            )
+            .to_string(),
+            secret_access_key: String::from_utf8_lossy(
+                &base32::decode(
+                    base32::Alphabet::Crockford,
+                    "8SQ7ECABES132WT4B9GQEN356XQ6GRT36NS64GBK9HP42EAGD8W6JRA39DTKAP2J",
+                )
+                .unwrap(),
+            )
+            .to_string(),
+        },
+    ])),
     vpn: false,
-    spoof_dns: true,
+    spoof_dns: false,
     passthrough_china: false,
     dry_run: false,
     credentials: geph5_broker_protocol::Credential::TestDummy,
