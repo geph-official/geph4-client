@@ -69,10 +69,7 @@ impl ClientTunnel {
                 .join(format!("cache-{}.db", opt.auth.stdcode().hash())),
         );
         if let Some(exit) = opt.exit_server {
-            let vec = exit.split(['.', '-']).collect_vec();
-            let country = CountryCode::for_alpha2_caseless(vec[0]).unwrap();
-            let city = vec[1].to_string();
-            config.exit_constraint = ExitConstraint::CountryCity(country, city);
+            config.exit_constraint = ExitConstraint::Hostname(exit);
         }
         log::debug!("cache path: {:?}", config.cache);
         let client = geph5_client::Client::start(config);

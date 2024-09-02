@@ -60,7 +60,7 @@ pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
             .all_exits
             .into_iter()
             .map(|exit| DumbedDownExitDescriptor {
-                hostname: format!("{}.{}-0", exit.1.country.alpha2(), exit.1.city),
+                hostname: exit.1.b2e_listen.ip().to_string(),
                 signing_key: hex::encode(exit.0.as_bytes()),
                 country_code: exit.1.country.alpha2().into(),
                 city_code: exit.1.city.clone(),
@@ -71,15 +71,6 @@ pub async fn sync_json(opt: SyncOpt) -> anyhow::Result<String> {
                 },
                 load: exit.1.load as _,
             })
-            .collect_vec();
-        
-        let exits = exits
-            .into_iter()
-            .sorted_unstable_by_key(|s| s.city_code.clone())
-            .group_by(|exit| exit.city_code.clone())
-            .into_iter()
-            .filter_map(|(_, group)| group.min_by(|a, b| a.load.partial_cmp(&b.load).unwrap_or(std::cmp::Ordering::Equal)))
-            .sorted_by_key(|s| s.hostname.clone())
             .collect_vec();
 
         let credentials = match &opt.auth.auth_kind {
