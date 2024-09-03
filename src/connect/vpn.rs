@@ -11,7 +11,7 @@ mod linux_routing;
 mod windows_routing;
 
 #[cfg(unix)]
-use std::os::unix::prelude::{AsRawFd, FromRawFd};
+use std::os::unix::prelude::FromRawFd;
 
 pub(super) async fn vpn_loop(ctx: ConnectContext) -> anyhow::Result<()> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -23,43 +23,12 @@ pub(super) async fn vpn_loop(ctx: ConnectContext) -> anyhow::Result<()> {
         return unsafe { fd_vpn_loop(ctx, fd_num).await };
     }
 
-    #[cfg(target_os = "linux")]
-    if ctx.opt.vpn_mode == Some(VpnMode::TunNoRoute) {
-        let device = configure_tun_device();
-        return unsafe { fd_vpn_loop(ctx, device.as_raw_fd()).await };
-    }
-
-    #[cfg(target_os = "linux")]
-    if ctx.opt.vpn_mode == Some(VpnMode::TunRoute) {
-        let device = configure_tun_device();
-        return unsafe {
-            fd_vpn_loop(ctx.clone(), device.as_raw_fd())
-                .race(linux_routing::routing_loop(ctx.clone()))
-                .await
-        };
-    }
-
     #[cfg(target_os = "windows")]
     if ctx.opt.vpn_mode == Some(VpnMode::WinDivert) {
         return windows_routing::start_routing(ctx).await;
     }
 
     smol::future::pending().await
-}
-
-#[cfg(target_os = "linux")]
-fn configure_tun_device() -> tun::platform::Device {
-    let device = tun::platform::Device::new(
-        tun::Configuration::default()
-            .name("tun-geph")
-            .address("100.64.89.64")
-            .netmask("255.255.255.0")
-            .destination("100.64.0.1")
-            .mtu(16384)
-            .up(),
-    )
-    .expect("could not initialize TUN device");
-    device
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]

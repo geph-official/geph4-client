@@ -4,9 +4,6 @@ use derivative::Derivative;
 use geph5_broker_protocol::Credential;
 use geph5_client::{BridgeMode, ExitConstraint};
 
-use isocountry::CountryCode;
-use itertools::Itertools;
-
 use sillad::Pipe;
 use smol::Task;
 use smol_str::SmolStr;
@@ -71,6 +68,14 @@ impl ClientTunnel {
         if let Some(exit) = opt.exit_server {
             config.exit_constraint = ExitConstraint::Hostname(exit);
         }
+
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        {
+            if opt.vpn_mode.is_some() {
+                config.vpn = true;
+            }
+        }
+
         log::debug!("cache path: {:?}", config.cache);
         let client = geph5_client::Client::start(config);
         let handle = client.control_client();
