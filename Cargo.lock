@@ -2739,7 +2739,7 @@ dependencies = [
 
 [[package]]
 name = "geph4-client"
-version = "4.99.0-actuallyfive.11"
+version = "4.99.0-actuallyfive.12"
 dependencies = [
  "acidjson",
  "anyhow",
@@ -2895,9 +2895,9 @@ dependencies = [
 
 [[package]]
 name = "geph5-broker-protocol"
-version = "0.2.0-alpha.14"
+version = "0.2.0-alpha.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e6594dfa46e95359f1b85c63474c296cd5b676e2ead57ed08a41e5b603d66b50"
+checksum = "c0ffa31a8f8e59dad2205185029247e4343fae5747692c476db1d12fba7c849e"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2918,9 +2918,9 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.2.0-alpha.14"
+version = "0.2.0-alpha.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b2d9633f30c91d49c5b713e3b97bfaa639faa54d303d8fae9f43ed19d33b142b"
+checksum = "c2d4b69d66daaa621369b55120227eb35ded8f3bea6a05d1631478f40552dce9"
 dependencies = [
  "anyctx",
  "anyhow",
