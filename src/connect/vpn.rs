@@ -4,11 +4,6 @@ use smol::future::FutureExt;
 use super::ConnectContext;
 use crate::config::VpnMode;
 
-#[cfg(target_os = "linux")]
-mod linux_routing;
-
-#[cfg(target_os = "windows")]
-mod windows_routing;
 
 #[cfg(unix)]
 use std::os::unix::prelude::FromRawFd;
@@ -23,10 +18,6 @@ pub(super) async fn vpn_loop(ctx: ConnectContext) -> anyhow::Result<()> {
         return unsafe { fd_vpn_loop(ctx, fd_num).await };
     }
 
-    #[cfg(target_os = "windows")]
-    if ctx.opt.vpn_mode == Some(VpnMode::WinDivert) {
-        return windows_routing::start_routing(ctx).await;
-    }
 
     smol::future::pending().await
 }
