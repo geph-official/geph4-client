@@ -265,8 +265,8 @@ fn str_to_mizaru_pk(src: &str) -> mizaru::PublicKey {
 }
 
 pub static GEPH5_CONFIG_TEMPLATE: LazyLock<Config> = LazyLock::new(|| Config {
-    socks5_listen: None,
-    http_proxy_listen: None,
+    socks5_listen: Some("127.0.0.1:9909".parse().unwrap()),
+    http_proxy_listen: Some("127.0.0.1:9910".parse().unwrap()),
 
     control_listen: None,
     exit_constraint: geph5_client::ExitConstraint::Auto,
