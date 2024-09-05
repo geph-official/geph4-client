@@ -1,23 +1,15 @@
 use std::{sync::Arc, time::Duration};
 
-use anyhow::Context;
-
 use bytes::Bytes;
 use clone_macro::clone;
 use futures_util::{future::select_all, FutureExt, TryFutureExt};
 
 use itertools::Itertools;
-use once_cell::sync::Lazy;
 
-use rand::Rng;
 use smol::prelude::*;
 use smolscale::immortal::{Immortal, RespawnStrategy};
 
-use crate::{
-    config::{get_conninfo_store, ConnectOpt},
-    connect::tunnel::{BinderTunnelParams, ClientTunnel, EndpointSource},
-    conninfo_store::ConnInfoStore,
-};
+use crate::{config::ConnectOpt, connect::tunnel::ClientTunnel};
 
 use crate::debugpack::DebugPack;
 mod dns;
@@ -44,38 +36,8 @@ impl ConnectDaemon {
             opt.use_bridges
         );
 
-        let conn_info = Arc::new(
-            get_conninfo_store(
-                &opt.common,
-                &opt.auth,
-                opt.exit_server
-                    .as_ref()
-                    .context("no exit server provided")?,
-            )
-            .await?,
-        );
-
-        let endpoint = {
-            if let Some(override_url) = opt.override_connect.clone() {
-                EndpointSource::Independent {
-                    endpoint: override_url,
-                }
-            } else {
-                EndpointSource::Binder(
-                    conn_info.clone(),
-                    BinderTunnelParams {
-                        exit_server: opt.exit_server.clone(),
-                        use_bridges: opt.use_bridges,
-                        force_bridge: opt.force_bridge,
-                        force_protocol: opt.force_protocol.clone(),
-                    },
-                )
-            }
-        };
-
-        let tunnel = ClientTunnel::new(endpoint, |_| {}).into();
+        let tunnel = ClientTunnel::new(opt.clone()).into();
         let ctx = ConnectContext {
-            conn_info,
             tunnel,
             opt: opt.clone(),
             debug: Arc::new(DebugPack::new(&opt.common.debugpack_path)?),
@@ -109,15 +71,10 @@ impl ConnectDaemon {
 #[derive(Clone)]
 pub struct ConnectContext {
     opt: ConnectOpt,
-    conn_info: Arc<ConnInfoStore>,
+
     tunnel: Arc<ClientTunnel>,
     debug: Arc<DebugPack>,
 }
-
-static METRIC_SESSION_ID: Lazy<i64> = Lazy::new(|| {
-    let mut rng = rand::thread_rng();
-    rng.gen()
-});
 
 async fn connect_loop(ctx: ConnectContext) -> anyhow::Result<()> {
     let socks2http = smolscale::spawn(crate::socks2http::run_tokio(ctx.opt.http_listen, {
@@ -138,20 +95,6 @@ async fn connect_loop(ctx: ConnectContext) -> anyhow::Result<()> {
         .chain(std::iter::once(smolscale::spawn(smol::future::pending()))) // ensures there's at least one
         .collect_vec();
 
-    let refresh = smolscale::spawn(clone!([ctx], async move {
-        if ctx.opt.override_connect.is_none() {
-            loop {
-                log::debug!("about to refresh...");
-                if let Err(err) = ctx.conn_info.refresh(false).await {
-                    log::warn!("error refreshing store: {:?}", err);
-                }
-                smol::Timer::after(Duration::from_secs(120)).await;
-            }
-        } else {
-            smol::future::pending().await
-        }
-    }));
-
     let vpn = smolscale::spawn(vpn::vpn_loop(ctx.clone()));
 
     let stats = smolscale::spawn(stats::serve_stats_loop(ctx.clone()));
@@ -159,7 +102,6 @@ async fn connect_loop(ctx: ConnectContext) -> anyhow::Result<()> {
     socks2http
         .race(socks5)
         .race(dns)
-        .race(refresh)
         .race(select_all(forward_ports).map(|s| s.0))
         .race(vpn)
         .race(stats)

@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+    branches: "*"
+  pull_request:
+    branches: "*"
+
+jobs:
+  build_windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+      - name: Install b2
+        run: pip install --upgrade b2
+      - name: Authorize b2
+        run: b2 authorize-account ${{ secrets.B2_KEYID }} ${{ secrets.B2_APPKEY }}
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable-i686-pc-windows-msvc
+          profile: minimal
+          default: true
+      - name: Build
+        run: cargo build --release
+        env:
+          CARGO_NET_GIT_FETCH_WITH_CLI: true
+      - name: Move built files
+        run: bash move_built.sh
+      - name: Sync to B2
+        run: b2 sync ./OUTPUT/ b2://geph-dl/geph4-binaries/
+
+  build_osx:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+      - name: Install b2
+        run: |
+          pip3 install --upgrade b2
+      - name: Authorize b2
+        run: b2 authorize-account ${{ secrets.B2_KEYID }} ${{ secrets.B2_APPKEY }}
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          default: true
+      - name: Enable x86
+        run: rustup target add x86_64-apple-darwin
+      - name: Build
+        run: cargo build --release --locked --target x86_64-apple-darwin
+      - name: Move built files
+        run: sh move_built.sh
+      - name: Sync to B2
+        run: b2 sync ./OUTPUT/ b2://geph-dl/geph4-binaries/
+
+  build_android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+      - name: Install b2
+        run: pip3 install --upgrade b2
+      - name: Authorize b2
+        run: b2 authorize-account ${{ secrets.B2_KEYID }} ${{ secrets.B2_APPKEY }}
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          default: true
+      - name: Add Android targets
+        run: |
+          rustup target add armv7-linux-androideabi
+          rustup target add aarch64-linux-android
+      - name: Setup Android NDK
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r25b
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk
+      - name: Build for armv7-linux-androideabi
+        run: |
+          cargo ndk -t armeabi-v7a -p 21 build --release
+      - name: Build for aarch64-linux-android
+        run: |
+          cargo ndk -t arm64-v8a -p 21 build --release
+      - name: Move built files
+        run: bash move_built.sh
+      - name: Sync to B2
+        run: b2 sync ./OUTPUT/ b2://geph-dl/geph4-binaries/
+
+  build_cross_linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.x"
+      - name: Install b2
+        run: pip3 install --upgrade b2
+      - name: Authorize b2
+        run: b2 authorize-account ${{ secrets.B2_KEYID }} ${{ secrets.B2_APPKEY }}
+      - name: Install Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          default: true
+      - name: Install cross
+        run: cargo install cross --locked
+      - name: Build for armv7-unknown-linux-musleabihf
+        run: cross build --release --locked --target armv7-unknown-linux-musleabihf
+      - name: Build for x86_64-unknown-linux-musl
+        run: cross build --release --locked --target x86_64-unknown-linux-musl
+      - name: Move built files
+        run: sh move_built.sh
+      - name: Sync to B2
+        run: b2 sync ./OUTPUT/ b2://geph-dl/geph4-binaries/

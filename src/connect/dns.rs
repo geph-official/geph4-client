@@ -1,9 +1,10 @@
+use sillad::Pipe;
 use smol::{
     channel::{Receiver, Sender},
     prelude::*,
 };
 use smol_timeout::TimeoutExt;
-use sosistab2::Stream;
+
 use std::net::SocketAddr;
 
 use std::time::Duration;
@@ -43,8 +44,8 @@ pub async fn dns_loop(ctx: ConnectContext, addr: SocketAddr) -> anyhow::Result<(
 /// A DNS connection pool
 struct DnsPool {
     ctx: ConnectContext,
-    send_conn: Sender<(Stream, Instant)>,
-    recv_conn: Receiver<(Stream, Instant)>,
+    send_conn: Sender<(Box<dyn Pipe>, Instant)>,
+    recv_conn: Receiver<(Box<dyn Pipe>, Instant)>,
 }
 
 impl DnsPool {

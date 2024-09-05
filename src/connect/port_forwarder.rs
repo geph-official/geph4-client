@@ -1,5 +1,7 @@
 use std::net::SocketAddr;
 
+use futures_util::AsyncReadExt;
+
 use super::ConnectContext;
 
 /// Forwards ports using a particular description.
@@ -16,9 +18,10 @@ pub async fn port_forwarder(ctx: ConnectContext, desc: String) -> anyhow::Result
         let ctx = ctx.clone();
         smolscale::spawn(async move {
             let remote = ctx.tunnel.connect_stream(&remote_addr).await.ok()?;
+            let (read_remote, write_remote) = remote.split();
             smol::future::race(
-                smol::io::copy(remote.clone(), conn.clone()),
-                smol::io::copy(conn, remote),
+                smol::io::copy(read_remote, conn.clone()),
+                smol::io::copy(conn, write_remote),
             )
             .await
             .ok()
