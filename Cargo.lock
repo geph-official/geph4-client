@@ -239,9 +239,9 @@ dependencies = [
 
 [[package]]
 name = "arc-writer"
-version = "0.2.0-alpha.14"
+version = "0.2.1-alpha.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c045eaff37a6d0cb7f7552ccb1d77a93622455944b9261f55e53a683f0438c5a"
+checksum = "e15dd4b662a8ee95155b5f897c9302805c7df12f6ae63b29310697f47e2bf98b"
 
 [[package]]
 name = "arrayref"
@@ -1386,12 +1386,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "castaway"
-version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2698f953def977c68f935bb0dfa959375ad4638570e969e2f1e9f433cbf1af6"
-
-[[package]]
 name = "cc"
 version = "1.1.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1783,37 +1777,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fb4a30d54f7443bf3d6191dcd486aca19e67cb3c49fa7a06a319966346707e7f"
 dependencies = [
  "cipher 0.2.5",
-]
-
-[[package]]
-name = "curl"
-version = "0.4.46"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1e2161dd6eba090ff1594084e95fd67aeccf04382ffea77999ea94ed42ec67b6"
-dependencies = [
- "curl-sys",
- "libc",
- "openssl-probe",
- "openssl-sys",
- "schannel",
- "socket2 0.5.7",
- "windows-sys 0.52.0",
-]
-
-[[package]]
-name = "curl-sys"
-version = "0.4.74+curl-8.9.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8af10b986114528fcdc4b63b6f5f021b7057618411046a4de2ba0f0149a097bf"
-dependencies = [
- "cc",
- "libc",
- "libnghttp2-sys",
- "libz-sys",
- "openssl-sys",
- "pkg-config",
- "vcpkg",
- "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2895,9 +2858,9 @@ dependencies = [
 
 [[package]]
 name = "geph5-broker-protocol"
-version = "0.2.0-alpha.15"
+version = "0.2.0-alpha.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c0ffa31a8f8e59dad2205185029247e4343fae5747692c476db1d12fba7c849e"
+checksum = "03e4fea7931d1e9bd6a3f7550d9955f3e1b790dc12e6fd6472480f6fafdbd608"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2918,9 +2881,9 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.2.0-alpha.15"
+version = "0.2.0-alpha.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2d4b69d66daaa621369b55120227eb35ded8f3bea6a05d1631478f40552dce9"
+checksum = "481db239519ceed8617379aff97e18899b211f34b2c32e1bab3d465f3e517580"
 dependencies = [
  "anyctx",
  "anyhow",
@@ -2956,7 +2919,6 @@ dependencies = [
  "hyper-rustls 0.24.2",
  "hyper-util",
  "ipstack-geph",
- "isahc",
  "isocountry",
  "itertools 0.13.0",
  "libc",
@@ -3002,9 +2964,9 @@ dependencies = [
 
 [[package]]
 name = "geph5-misc-rpc"
-version = "0.2.0-alpha.14"
+version = "0.2.0-alpha.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ce3d673061e5bde6f7df03d3409095256be7b77d40be5b9facb79bb17c1f9b5"
+checksum = "28a44fc6c21f9864d656d51b77777565a5bc47015f481e931aaebe9771d555fc"
 dependencies = [
  "anyhow",
  "async-task",
@@ -3657,33 +3619,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7943c866cc5cd64cbc25b2e01621d07fa8eb2a1a23160ee81ce38704e97b8ecf"
 
 [[package]]
-name = "isahc"
-version = "1.7.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "334e04b4d781f436dc315cb1e7515bd96826426345d498149e4bde36b67f8ee9"
-dependencies = [
- "async-channel 1.9.0",
- "castaway",
- "crossbeam-utils",
- "curl",
- "curl-sys",
- "encoding_rs",
- "event-listener 2.5.3",
- "futures-lite 1.13.0",
- "http 0.2.12",
- "log",
- "mime",
- "once_cell",
- "polling 2.8.0",
- "slab",
- "sluice",
- "tracing",
- "tracing-futures",
- "url",
- "waker-fn",
-]
-
-[[package]]
 name = "isocountry"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3786,16 +3721,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ec2a862134d2a7d32d7983ddcdd1c4923530833c9f2ea1a44fc5fa473989058"
 
 [[package]]
-name = "libnghttp2-sys"
-version = "0.1.10+1.61.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "959c25552127d2e1fa72f0e52548ec04fc386e827ba71a7bd01db46a447dc135"
-dependencies = [
- "cc",
- "libc",
-]
-
-[[package]]
 name = "libredox"
 version = "0.1.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3812,18 +3737,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf4e226dcd58b4be396f7bd3c20da8fdee2911400705297ba7d2d7cc2c30f716"
 dependencies = [
  "cc",
- "pkg-config",
- "vcpkg",
-]
-
-[[package]]
-name = "libz-sys"
-version = "1.1.20"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d2d16453e800a8cf6dd2fc3eb4bc99b786a9b90c663b8559a5b1a041bf89e472"
-dependencies = [
- "cc",
- "libc",
  "pkg-config",
  "vcpkg",
 ]
@@ -3995,9 +3908,9 @@ dependencies = [
 
 [[package]]
 name = "mizaru2"
-version = "0.2.0-alpha.14"
+version = "0.2.0-alpha.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ded4dfb4a4d287b9d8098789ff4346880f6bdbfea4be48292b25f4a4acc5cd00"
+checksum = "f166eaaf47cc58bedfe148cd1bcccd106e6049937e4462fd0fa16fe1c6cae8ab"
 dependencies = [
  "anyhow",
  "blake3",
@@ -5971,9 +5884,9 @@ dependencies = [
 
 [[package]]
 name = "sillad-sosistab3"
-version = "0.2.0-alpha.14"
+version = "0.2.0-alpha.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "537e16309a2041f3cf78119e330a30392cf111172c8fa2d9e530f96e7a6b3b7a"
+checksum = "dec1eb72fadec7e2c15fd6aa9906d4a0aa1660e2530ac120d8843a6197549234"
 dependencies = [
  "anyhow",
  "arrayref",
@@ -6051,17 +5964,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8f92a496fb766b417c996b9c5e57daf2f7ad3b0bebe1ccfca4856390e3d3bb67"
 dependencies = [
  "autocfg 1.3.0",
-]
-
-[[package]]
-name = "sluice"
-version = "0.5.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d7400c0eff44aa2fcb5e31a5f24ba9716ed90138769e4977a2ba6014ae63eb5"
-dependencies = [
- "async-channel 1.9.0",
- "futures-core",
- "futures-io",
 ]
 
 [[package]]
@@ -7078,16 +6980,6 @@ checksum = "c06d3da6113f116aaee68e4d601191614c9053067f9ab7f6edbcb161237daa54"
 dependencies = [
  "once_cell",
  "valuable",
-]
-
-[[package]]
-name = "tracing-futures"
-version = "0.2.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "97d095ae15e245a057c8e8451bab9b3ee1e1f68e9ba2b4fbc18d0ac5237835f2"
-dependencies = [
- "pin-project",
- "tracing",
 ]
 
 [[package]]
