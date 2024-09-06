@@ -75,9 +75,9 @@ geph-nat = "0.1.6"
 mizaru = "0.1.3"
 geph4-aioutils = "0.1.5"
 # alloc_geiger = "0.1"
-geph5-client = {version="0.2.0-alpha.17", features=["windivert"]}
-geph5-broker-protocol = "0.2.0-alpha.17"
-sillad = "0.2.1"
+geph5-client = {path="../geph5/binaries/geph5-client", features=["windivert"]}
+geph5-broker-protocol = {path="../geph5/libraries/geph5-broker-protocol"}
+sillad = {path="../geph5/libraries/sillad"}
 # socks2http
 tokio = { version = "1.33.0", features = ["rt", "net", "io-util"] }
 hyper = { version = "0.14.27", features = [
