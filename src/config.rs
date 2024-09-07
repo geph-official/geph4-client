@@ -299,7 +299,13 @@ pub static GEPH5_CONFIG_TEMPLATE: LazyLock<Config> = LazyLock::new(|| Config {
         mizaru_plus: "cf6f58868c6d9459b3a63bc2bd86165631b3e916bad7f62b578cd9614e0bcb3b".into(),
     }),
     vpn: false,
+
+    #[cfg(not(target_os = "windows"))]
     spoof_dns: true,
+
+    #[cfg(target_os = "windows")]
+    spoof_dns: false,
+
     passthrough_china: false,
     dry_run: false,
     credentials: geph5_broker_protocol::Credential::TestDummy,
