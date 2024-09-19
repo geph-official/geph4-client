@@ -1,6 +1,6 @@
 [package]
 name = "geph4-client"
-version = "4.99.6"
+version = "4.99.7"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2021"
 description = "Geph client"
@@ -15,6 +15,7 @@ repository = "https://github.com/geph-official/geph4-client"
 
 #geph5-client={path="../geph5/binaries/geph5-client"}
 #sillad={path="../geph5/libraries/sillad"}
+#geph5-broker-protocol={path="../geph5/libraries/geph5-broker-protocol"}
 
 [lib]
 name = "geph4client"
