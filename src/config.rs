@@ -273,7 +273,7 @@ pub static GEPH5_CONFIG_TEMPLATE: LazyLock<Config> = LazyLock::new(|| Config {
             host: "1826209743.rsc.cdn77.org".into(),
         },
         BrokerSource::Fronted {
-            front: "https://1826209743.rsc.cdn77.org/".into(),
+            front: "https://vuejs.org/".into(),
             host: "svitania-naidallszei-2.netlify.app".into(),
         },
         BrokerSource::AwsLambda {
