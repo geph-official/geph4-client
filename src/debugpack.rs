@@ -57,7 +57,7 @@ impl DebugPack {
         )?;
 
         conn.execute(
-            "delete from loglines where datetime(timestamp, '+1 day') < datetime()",
+            "DELETE FROM loglines WHERE rowid NOT IN (SELECT rowid FROM loglines ORDER BY timestamp DESC LIMIT 2000) OR datetime(timestamp, '+1 day') < datetime()",
             params![],
         )?;
         conn.execute(
