@@ -59,6 +59,7 @@ impl ClientTunnel {
         } else {
             BridgeMode::Auto
         };
+
         config.cache = Some(
             opt.auth
                 .credential_cache

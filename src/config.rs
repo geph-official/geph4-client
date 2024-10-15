@@ -242,6 +242,7 @@ fn str_to_path(src: &str) -> PathBuf {
     if src == "auto" {
         let mut config_dir = dirs::config_dir().unwrap();
         config_dir.push("geph4-credentials");
+        let _ = std::fs::create_dir_all(&config_dir);
         config_dir
     } else {
         PathBuf::from(src)
