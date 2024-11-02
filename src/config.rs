@@ -7,7 +7,7 @@ use geph4_protocol::binder::protocol::BinderClient;
 use geph5_client::{BridgeMode, BrokerKeys, BrokerSource, Config};
 use serde::{Deserialize, Serialize};
 
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::SocketAddr;
 
 use structopt::StructOpt;
 
@@ -33,30 +33,6 @@ pub struct ConnectOpt {
     /// Whether or not to use bridges
     pub use_bridges: bool,
 
-    #[structopt(long)]
-    /// Overrides everything else, forcing connection to a particular sosistab URL (of the form pk@host:port). This also disables any form of authentication.
-    pub override_connect: Option<String>,
-
-    #[structopt(long)]
-    /// Force a particular bridge
-    pub force_bridge: Option<Ipv4Addr>,
-
-    #[structopt(long, default_value = "1")]
-    /// Number of local UDP ports to use per session. This works around situations where unlucky ECMP routing sends flows down a congested path even when other paths exist, by "averaging out" all the possible routes.
-    pub udp_shard_count: usize,
-
-    #[structopt(long, default_value = "30")]
-    /// Lifetime of a single UDP port. Geph will switch to a different port within this many seconds.
-    pub udp_shard_lifetime: u64,
-
-    #[structopt(long, default_value = "2")]
-    /// Number of TCP connections to use per session. This works around lossy links, per-connection rate limiting, etc.
-    pub tcp_shard_count: usize,
-
-    #[structopt(long, default_value = "10")]
-    /// Lifetime of a single TCP connection. Geph will switch to a different TCP connection within this many seconds.
-    pub tcp_shard_lifetime: u64,
-
     #[structopt(long, default_value = "127.0.0.1:9910")]
     /// Where to listen for HTTP proxy connections
     pub http_listen: SocketAddr,
@@ -80,14 +56,6 @@ pub struct ConnectOpt {
     pub exclude_prc: bool,
 
     #[structopt(long)]
-    /// Whether or not to wait for VPN commands on stdio
-    pub stdio_vpn: bool,
-
-    #[structopt(long)]
-    /// Whether or not to stick to the same set of bridges
-    pub sticky_bridges: bool,
-
-    #[structopt(long)]
     /// Specify whether and how to create a L3 VPN tunnel. Possible options are:
     /// - nothing (no VPN)
     /// - "inherited-fd" (reads a TUN device file descriptor number, inherited from the parent process, from the GEPH_VPN_FD environment variable)
@@ -95,10 +63,6 @@ pub struct ConnectOpt {
     /// - "tun-route" (Unix only; creates and configures a TUN device, as well as executing platform-specific actions to force all non-Geph traffic through the tunnel)
     /// - "windivert" (Windows only; uses WinDivert to capture non-Geph traffic to feed into the VPN)
     pub vpn_mode: Option<VpnMode>,
-
-    #[structopt(long)]
-    /// Forces the protocol selected to match the given regex.
-    pub force_protocol: Option<String>,
 
     #[structopt(long)]
     /// SSH-style local-remote port forwarding. For example, "0.0.0.0:8888:::example.com:22" will forward local port 8888 to example.com:22. Must be in form host:port:::host:port! May have multiple ones.
