@@ -2907,9 +2907,9 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.2.11"
+version = "0.2.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fb15d770645238898ff4f880aa542b517d6d89f499abe0f2320fe0cd01d82f4d"
+checksum = "d915dad363e4add962ce1b5ae84d42f046237ae4aa2fc18062866d50ce081de5"
 dependencies = [
  "anyctx",
  "anyhow",
@@ -4448,9 +4448,9 @@ checksum = "e3148f5046208a5d56bcfc03053e3ca6334e51da8dfb19b6cdc8b306fae3283e"
 
 [[package]]
 name = "picomux"
-version = "0.1.6"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a051942d6f9a43e0214cc67e6f6ab032fbd31f6d3599221953d8eefe13c5188e"
+checksum = "905fe8977f8b315ec38d38134d24a492d727367db66a50f848100956f09b49d4"
 dependencies = [
  "ahash 0.8.11",
  "anyhow",
