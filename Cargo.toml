@@ -173,5 +173,5 @@ opt-level = 3
 panic = "abort"
 opt-level = 3
 debug = 0
-strip = true
+strip = false
 lto="thin"
