@@ -172,6 +172,7 @@ opt-level = 3
 [profile.release]
 panic = "abort"
 opt-level = 's'
-debug = 0
+debug = 1
 strip = false
 lto=true
+codegen-units=1
