@@ -2918,9 +2918,9 @@ dependencies = [
 
 [[package]]
 name = "geph5-client"
-version = "0.2.16"
+version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ff2a5ca27f28b1cc61631b4dd9b1ed4c813e1a146c97ae6e59565e050ac23f4"
+checksum = "32a3fe9d1dab0c999d5e8a6da4ab60cde98a7b5db8b54b23d0e840c716f9132a"
 dependencies = [
  "anyctx",
  "anyhow",
