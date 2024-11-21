@@ -27,8 +27,9 @@ jobs:
           toolchain: stable-i686-pc-windows-msvc
           profile: minimal
           default: true
+      - uses: Swatinem/rust-cache@v2
       - name: Build
-        run: cargo build --release
+        run: cargo build --release --locked
         env:
           CARGO_NET_GIT_FETCH_WITH_CLI: true
       - name: Move built files

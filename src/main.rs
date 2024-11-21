@@ -9,6 +9,8 @@ static ALLOCATOR: Cap<alloc::System> = Cap::new(alloc::System, usize::max_value(
 
 fn main() -> anyhow::Result<()> {
     ALLOCATOR.set_limit(45 * 1024 * 1024).unwrap();
+
+    #[cfg(any(target_os = "android", target_os = "ios"))]
     smolscale::permanently_single_threaded();
 
     smolscale::spawn(async {

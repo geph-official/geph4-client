@@ -1,6 +1,6 @@
 [package]
 name = "geph4-client"
-version = "4.99.0-actuallyfive.14"
+version = "4.99.17"
 authors = ["nullchinchilla <nullchinchilla@pm.me>"]
 edition = "2021"
 description = "Geph client"
@@ -15,6 +15,7 @@ repository = "https://github.com/geph-official/geph4-client"
 
 #geph5-client={path="../geph5/binaries/geph5-client"}
 #sillad={path="../geph5/libraries/sillad"}
+#geph5-broker-protocol={path="../geph5/libraries/geph5-broker-protocol"}
 
 [lib]
 name = "geph4client" 
@@ -75,13 +76,13 @@ geph-nat = "0.1.6"
 mizaru = "0.1.3"
 geph4-aioutils = "0.1.5"
 # alloc_geiger = "0.1"
-geph5-client = {path="../geph5/binaries/geph5-client", features=["windivert"]}
-geph5-broker-protocol = {path="../geph5/libraries/geph5-broker-protocol"}
-sillad = {path="../geph5/libraries/sillad"}
+geph5-client = {version="0.2.17", features=["windivert"]}
+geph5-broker-protocol = "0.2.7"
+sillad = "0.2.1"
 # socks2http
 tokio = { version = "1.33.0", features = ["rt", "net", "io-util"] }
 hyper = { version = "0.14.27", features = [
-    "http1",
+    "http1", 
     "client",
     "server",
     "tcp",
@@ -152,6 +153,7 @@ async-broadcast = "0.6.0"
 tmelcrypt = "0.2.7"
 isocountry = "0.3.2"
 base32 = "0.5.1"
+async-event = "0.2.1"
 # tracing-subscriber = "0.2.15"
 
 [target.'cfg(unix)'.dependencies]
@@ -172,7 +174,8 @@ opt-level = 3
 
 [profile.release]
 panic = "abort"
-opt-level = 3
-debug = 0
-strip = true
-lto="thin"
+opt-level = 's'
+debug = 1
+strip = false
+lto=true
+codegen-units=1

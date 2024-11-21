@@ -1,4 +1,3 @@
-use crate::config::CommonOpt;
 use geph4_protocol::binder::protocol::BinderClient;
 use nanorpc::{DynRpcTransport, RpcTransport};
 use nanorpc::{JrpcError, JrpcRequest, JrpcResponse};
@@ -6,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use smol::io::AsyncBufReadExt;
 use std::sync::Arc;
 use structopt::StructOpt;
+
+use crate::config::CommonOpt;
 
 #[derive(Debug, StructOpt, Deserialize, Serialize, Clone)]
 pub struct BinderProxyOpt {

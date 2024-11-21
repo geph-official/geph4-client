@@ -30,9 +30,8 @@ impl ConnectDaemon {
     /// Starts a new ConnectClient. If initialization fails, returns an error.
     pub async fn start(opt: ConnectOpt) -> anyhow::Result<Self> {
         log::info!(
-            "connect mode starting: exit = {:?}, force_protocol = {:?}, use_bridges = {}",
+            "connect mode starting: exit = {:?}, use_bridges = {}",
             opt.exit_server,
-            opt.force_protocol,
             opt.use_bridges
         );
 

@@ -1,9 +1,9 @@
 use std::collections::HashSet;
 
 use anyhow::Context;
-use std::net::{IpAddr, Ipv4Addr};
 use http_types::{Method, Request, Url};
 use once_cell::sync::Lazy;
+use std::net::{IpAddr, Ipv4Addr};
 use treebitmap::IpLookupTable;
 
 /// List of all Chinese domains.
@@ -57,7 +57,7 @@ pub async fn test_china() -> http_types::Result<bool> {
 
     let response = {
         let connection =
-            smol::net::TcpStream::connect(connect_to.get(0).context("no addrs for checkip")?)
+            smol::net::TcpStream::connect(connect_to.first().context("no addrs for checkip")?)
                 .await?;
         async_h1::connect(connection, req)
             .await?

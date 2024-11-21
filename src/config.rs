@@ -1,20 +1,15 @@
 use std::{path::PathBuf, str::FromStr, sync::LazyLock};
 
 use crate::fronts::parse_fronts;
-use anyhow::Context;
 
-use geph4_protocol::binder::protocol::{BinderClient, Credentials};
+use geph4_protocol::binder::protocol::BinderClient;
 
-use geph5_client::{BridgeMode, BrokerSource, Config};
+use geph5_client::{BridgeMode, BrokerKeys, BrokerSource, Config};
 use serde::{Deserialize, Serialize};
-use sqlx::{
-    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqliteSynchronous},
-    SqlitePool,
-};
-use std::net::{Ipv4Addr, SocketAddr};
-use stdcode::StdcodeSerializeExt;
+
+use std::net::SocketAddr;
+
 use structopt::StructOpt;
-use tmelcrypt::Ed25519SK;
 
 #[derive(Debug, StructOpt, Deserialize, Serialize, Clone)]
 #[allow(clippy::large_enum_variant)]
@@ -37,30 +32,6 @@ pub struct ConnectOpt {
     #[structopt(long)]
     /// Whether or not to use bridges
     pub use_bridges: bool,
-
-    #[structopt(long)]
-    /// Overrides everything else, forcing connection to a particular sosistab URL (of the form pk@host:port). This also disables any form of authentication.
-    pub override_connect: Option<String>,
-
-    #[structopt(long)]
-    /// Force a particular bridge
-    pub force_bridge: Option<Ipv4Addr>,
-
-    #[structopt(long, default_value = "1")]
-    /// Number of local UDP ports to use per session. This works around situations where unlucky ECMP routing sends flows down a congested path even when other paths exist, by "averaging out" all the possible routes.
-    pub udp_shard_count: usize,
-
-    #[structopt(long, default_value = "30")]
-    /// Lifetime of a single UDP port. Geph will switch to a different port within this many seconds.
-    pub udp_shard_lifetime: u64,
-
-    #[structopt(long, default_value = "2")]
-    /// Number of TCP connections to use per session. This works around lossy links, per-connection rate limiting, etc.
-    pub tcp_shard_count: usize,
-
-    #[structopt(long, default_value = "10")]
-    /// Lifetime of a single TCP connection. Geph will switch to a different TCP connection within this many seconds.
-    pub tcp_shard_lifetime: u64,
 
     #[structopt(long, default_value = "127.0.0.1:9910")]
     /// Where to listen for HTTP proxy connections
@@ -85,14 +56,6 @@ pub struct ConnectOpt {
     pub exclude_prc: bool,
 
     #[structopt(long)]
-    /// Whether or not to wait for VPN commands on stdio
-    pub stdio_vpn: bool,
-
-    #[structopt(long)]
-    /// Whether or not to stick to the same set of bridges
-    pub sticky_bridges: bool,
-
-    #[structopt(long)]
     /// Specify whether and how to create a L3 VPN tunnel. Possible options are:
     /// - nothing (no VPN)
     /// - "inherited-fd" (reads a TUN device file descriptor number, inherited from the parent process, from the GEPH_VPN_FD environment variable)
@@ -100,10 +63,6 @@ pub struct ConnectOpt {
     /// - "tun-route" (Unix only; creates and configures a TUN device, as well as executing platform-specific actions to force all non-Geph traffic through the tunnel)
     /// - "windivert" (Windows only; uses WinDivert to capture non-Geph traffic to feed into the VPN)
     pub vpn_mode: Option<VpnMode>,
-
-    #[structopt(long)]
-    /// Forces the protocol selected to match the given regex.
-    pub force_protocol: Option<String>,
 
     #[structopt(long)]
     /// SSH-style local-remote port forwarding. For example, "0.0.0.0:8888:::example.com:22" will forward local port 8888 to example.com:22. Must be in form host:port:::host:port! May have multiple ones.
@@ -247,6 +206,7 @@ fn str_to_path(src: &str) -> PathBuf {
     if src == "auto" {
         let mut config_dir = dirs::config_dir().unwrap();
         config_dir.push("geph4-credentials");
+        let _ = std::fs::create_dir_all(&config_dir);
         config_dir
     } else {
         PathBuf::from(src)
@@ -274,7 +234,11 @@ pub static GEPH5_CONFIG_TEMPLATE: LazyLock<Config> = LazyLock::new(|| Config {
     cache: None,
     broker: Some(BrokerSource::Race(vec![
         BrokerSource::Fronted {
-            front: "https://vuejs.org".into(),
+            front: "https://www.cdn77.com/".into(),
+            host: "1826209743.rsc.cdn77.org".into(),
+        },
+        BrokerSource::Fronted {
+            front: "https://vuejs.org/".into(),
             host: "svitania-naidallszei-2.netlify.app".into(),
         },
         BrokerSource::AwsLambda {
@@ -298,10 +262,16 @@ pub static GEPH5_CONFIG_TEMPLATE: LazyLock<Config> = LazyLock::new(|| Config {
             .to_string(),
         },
     ])),
+    broker_keys: Some(BrokerKeys {
+        master: "88c1d2d4197bed815b01a22cadfc6c35aa246dddb553682037a118aebfaa3954".into(),
+        mizaru_free: "0558216cbab7a9c46f298f4c26e171add9af87d0694988b8a8fe52ee932aa754".into(),
+        mizaru_plus: "cf6f58868c6d9459b3a63bc2bd86165631b3e916bad7f62b578cd9614e0bcb3b".into(),
+    }),
     vpn: false,
+
     spoof_dns: false,
+
     passthrough_china: false,
     dry_run: false,
     credentials: geph5_broker_protocol::Credential::TestDummy,
-    broker_keys: None,
 });

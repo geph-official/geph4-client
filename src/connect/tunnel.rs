@@ -59,6 +59,7 @@ impl ClientTunnel {
         } else {
             BridgeMode::Auto
         };
+
         config.cache = Some(
             opt.auth
                 .credential_cache
@@ -93,7 +94,9 @@ impl ClientTunnel {
                         time: SystemTime::now(),
                         endpoint: conn.bridge.into(),
                         protocol: conn.protocol.into(),
-                        ping: Duration::from_millis(100),
+                        ping: Duration::from_secs_f64(
+                            handle.stat_num("ping".into()).await.unwrap(),
+                        ),
                         send_bytes: send_bytes as u64,
                         recv_bytes: recv_bytes as u64,
                     }),
