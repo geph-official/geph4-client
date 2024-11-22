@@ -73,6 +73,8 @@ jobs:
             target/x86_64-apple-darwin/release/geph4-client \
             target/aarch64-apple-darwin/release/geph4-client \
             -output universal_binary/geph4-client
+      - name: Move built files
+        run: bash move_built.sh
       - name: Sync to B2
         run: b2 sync ./OUTPUT/ b2://geph-dl/geph4-binaries/
 
