@@ -12,4 +12,5 @@ mv ./target/i686-linux-android/release/geph4-client ./OUTPUT/$VERSION/geph4-clie
 mv ./target/i686-pc-windows-msvc/release/geph4-client.exe ./OUTPUT/$VERSION/geph4-client-windows-i386.exe
 mv ./target/release/geph4-client.exe ./OUTPUT/$VERSION/geph4-client-windows-i386.exe
 mv ./target/x86_64-apple-darwin/release/geph4-client ./OUTPUT/$VERSION/geph4-client-macos-amd64
+mv ./universal-binary/geph4-client ./OUTPUT/$VERSION/geph4-client-macos-universal
 exit 0
