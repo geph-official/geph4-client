@@ -2,7 +2,6 @@ use binary_search::Direction;
 use geph4client::dispatch;
 
 fn main() -> anyhow::Result<()> {
-    #[cfg(target_os = "android")]
     smolscale::permanently_single_threaded();
     let ((largest_low, _), _) = binary_search::binary_search((1, ()), (65536, ()), |lim| {
         if rlimit::utils::increase_nofile_limit(lim).unwrap_or_default() >= lim {
