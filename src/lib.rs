@@ -127,24 +127,25 @@ fn save_logs(daemon_key: c_int) {
     shuffler.detach();
 }
 
-#[global_allocator]
-static ALLOCATOR: Cap<alloc::System> = Cap::new(alloc::System, usize::max_value());
+// #[global_allocator]
+// static ALLOCATOR: Cap<alloc::System> = Cap::new(alloc::System, usize::max_value());
 
 #[no_mangle]
 pub unsafe extern "C" fn start(opt: *const c_char, daemon_rpc_secret: *const c_char) -> c_int {
+    // ALLOCATOR.set_limit(usize::max_value()).unwrap();
     // ALLOCATOR.set_limit(25 * 1024 * 1024).unwrap();
     smolscale::permanently_single_threaded();
 
-    smolscale::spawn(async {
-        loop {
-            eprintln!(
-                "Currently allocated: {} MB",
-                ALLOCATOR.allocated() as f64 / 1_000_000.0
-            );
-            smol::Timer::after(std::time::Duration::from_secs(1)).await;
-        }
-    })
-    .detach();
+    // smolscale::spawn(async {
+    //     loop {
+    //         log::debug!(
+    //             "Currently allocated: {} MB",
+    //             ALLOCATOR.allocated() as f64 / 1_000_000.0
+    //         );
+    //         smol::Timer::after(std::time::Duration::from_secs(1)).await;
+    //     }
+    // })
+    // .detach();
 
     // maybe i32 will be a problem
     let fallible = || {
