@@ -58,12 +58,23 @@ jobs:
           toolchain: stable
           profile: minimal
           default: true
-      - name: Enable x86
-        run: rustup target add x86_64-apple-darwin
-      - name: Build
+      - name: Add macOS targets
+        run: |
+          rustup target add x86_64-apple-darwin
+          rustup target add aarch64-apple-darwin
+      - name: Build x86_64 binary
         run: cargo build --release --locked --target x86_64-apple-darwin
+      - name: Build arm64 binary
+        run: cargo build --release --locked --target aarch64-apple-darwin
+      - name: Combine binaries into a universal binary
+        run: |
+          mkdir -p universal_binary
+          lipo -create \
+            target/x86_64-apple-darwin/release/geph4-client \
+            target/aarch64-apple-darwin/release/geph4-client \
+            -output universal_binary/geph4-client
       - name: Move built files
-        run: sh move_built.sh
+        run: bash move_built.sh
       - name: Sync to B2
         run: b2 sync ./OUTPUT/ b2://geph-dl/geph4-binaries/
 
