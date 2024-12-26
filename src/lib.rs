@@ -132,7 +132,7 @@ static ALLOCATOR: Cap<alloc::System> = Cap::new(alloc::System, usize::max_value(
 
 #[no_mangle]
 pub unsafe extern "C" fn start(opt: *const c_char, daemon_rpc_secret: *const c_char) -> c_int {
-    ALLOCATOR.set_limit(15 * 1024 * 1024).unwrap();
+    ALLOCATOR.set_limit(25 * 1024 * 1024).unwrap();
     smolscale::permanently_single_threaded();
 
     smolscale::spawn(async {
