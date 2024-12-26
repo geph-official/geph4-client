@@ -275,4 +275,5 @@ pub static GEPH5_CONFIG_TEMPLATE: LazyLock<Config> = LazyLock::new(|| Config {
     dry_run: false,
     credentials: geph5_broker_protocol::Credential::TestDummy,
     sess_metadata: Default::default(),
+    task_limit: None,
 });
