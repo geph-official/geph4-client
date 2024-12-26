@@ -13,9 +13,9 @@ repository = "https://github.com/geph-official/geph4-client"
 # sosistab2-obfsudp={path="../sosistab2-obfsudp"}
 # sosistab2={path="../sosistab2"}
 
-#geph5-client={path="../geph5/binaries/geph5-client"}
-#sillad={path="../geph5/libraries/sillad"}
-#geph5-broker-protocol={path="../geph5/libraries/geph5-broker-protocol"}
+geph5-client={path="../geph5/binaries/geph5-client"}
+sillad={path="../geph5/libraries/sillad"}
+geph5-broker-protocol={path="../geph5/libraries/geph5-broker-protocol"}
 
 [lib]
 name = "geph4client" 
