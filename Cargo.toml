@@ -76,7 +76,7 @@ geph-nat = "0.1.6"
 mizaru = "0.1.3"
 geph4-aioutils = "0.1.5"
 # alloc_geiger = "0.1"
-geph5-client = {version="0.2.28", features=["windivert"]}
+geph5-client = {version="0.2.29", features=["windivert"]}
 geph5-broker-protocol = "0.2"
 sillad = "0.2.1"
 # socks2http
