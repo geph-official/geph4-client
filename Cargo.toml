@@ -15,7 +15,7 @@ repository = "https://github.com/geph-official/geph4-client"
 
 #geph5-client={path="../geph5/binaries/geph5-client"}
 #sillad={path="../geph5/libraries/sillad"}
-#geph5-broker-protocol={path="../geph5/libraries/geph5-broker-protocol"}
+#geph4-protocol={path="../geph4-protocol"}
 
 [lib]
 name = "geph4client"
@@ -130,7 +130,7 @@ io-lifetimes = "1.0.5"
 rustix = "0.36.9"
 # tmelcrypt = "0.2.7"
 
-geph4-protocol = "0.19.0-alpha.2"
+geph4-protocol = "0.19.0-alpha.4"
 # geph4-protocol = { git = "https://github.com/geph-official/geph4-protocol", branch = "user-info" }
 
 # melprot = "0.13.7"
@@ -171,8 +171,8 @@ opt-level = 3
 
 [profile.release]
 panic = "abort"
-opt-level = 's'
-debug = 1
-strip = false
-lto=true
-codegen-units=1
+opt-level = 3
+#debug = 1
+#strip = false
+#lto=true
+#codegen-units=1
