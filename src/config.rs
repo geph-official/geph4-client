@@ -269,7 +269,7 @@ pub static GEPH5_CONFIG_TEMPLATE: LazyLock<Config> = LazyLock::new(|| Config {
     }),
     vpn: false,
 
-    spoof_dns: true,
+    spoof_dns: false,
 
     passthrough_china: false,
     dry_run: false,

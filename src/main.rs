@@ -9,16 +9,16 @@ static ALLOCATOR: Cap<alloc::System> = Cap::new(alloc::System, usize::max_value(
 
 fn main() -> anyhow::Result<()> {
     smolscale::permanently_single_threaded();
-    smolscale::spawn(async {
-        loop {
-            eprintln!(
-                "Currently allocated: {} MB",
-                ALLOCATOR.allocated() as f64 / 1_000_000.0
-            );
-            smol::Timer::after(std::time::Duration::from_secs(1)).await;
-        }
-    })
-    .detach();
+    // smolscale::spawn(async {
+    //     loop {
+    //         eprintln!(
+    //             "Currently allocated: {} MB",
+    //             ALLOCATOR.allocated() as f64 / 1_000_000.0
+    //         );
+    //         smol::Timer::after(std::time::Duration::from_secs(1)).await;
+    //     }
+    // })
+    // .detach();
 
     let ((largest_low, _), _) = binary_search::binary_search((1, ()), (65536, ()), |lim| {
         if rlimit::utils::increase_nofile_limit(lim).unwrap_or_default() >= lim {
