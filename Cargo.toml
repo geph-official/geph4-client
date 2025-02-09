@@ -18,8 +18,8 @@ repository = "https://github.com/geph-official/geph4-client"
 #geph4-protocol={path="../geph4-protocol"}
 
 [lib]
-name = "geph4client"
-crate-type = ["staticlib", "lib"]
+name = "geph4client" 
+crate-type = ["staticlib", "lib", "cdylib"]
 
 [dependencies]
 anyhow = "1.0.75"
@@ -147,6 +147,9 @@ sqlx = { version = "0.7.3", default-features = false, features = [
 ] }
 derivative = "2.2.0"
 async-signal = "0.2.5"
+slab = "0.4.9"
+sharded-slab = "0.1.7"
+async-broadcast = "0.6.0"
 tmelcrypt = "0.2.7"
 isocountry = "0.3.2"
 base32 = "0.5.1"
