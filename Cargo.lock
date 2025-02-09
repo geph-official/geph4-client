@@ -285,10 +285,8 @@ version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "435a87a52755b8f27fcf321ac4f04b2802e337c8c4872923137471ec39c37532"
 dependencies = [
- "event-listener 5.3.1",
- "event-listener-strategy 0.5.3",
  "event-listener 5.4.0",
- "event-listener-strategy",
+ "event-listener-strategy 0.5.3",
  "futures-core",
  "pin-project-lite 0.2.16",
 ]
@@ -482,11 +480,8 @@ version = "3.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff6e472cdea888a4bd64f342f09b3f50e1886d32afe8df3d663c01140b811b18"
 dependencies = [
- "event-listener 5.3.1",
- "event-listener-strategy 0.5.3",
- "pin-project-lite 0.2.15",
  "event-listener 5.4.0",
- "event-listener-strategy",
+ "event-listener-strategy 0.5.3",
  "pin-project-lite 0.2.16",
 ]
 
@@ -2396,7 +2391,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "15c97b4e30ea7e4b7e7b429d6e2d8510433ba8cee4e70dfb3243794e539d29fd"
 dependencies = [
  "event-listener 3.1.0",
- "pin-project-lite 0.2.15",
+ "pin-project-lite 0.2.16",
 ]
 
 [[package]]
@@ -5008,10 +5003,8 @@ dependencies = [
 
 [[package]]
 name = "psl"
-version = "2.1.73"
 version = "2.1.82"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a62360a10ed773da9a36aa1b5817c5f505b1f35728e5ea6e4e524a13fc10778c"
 checksum = "2d460333b9d744945e0b9abd5469056aa925d526d48a458d6afc06eea9cbe206"
 dependencies = [
  "psl-types",
@@ -8279,17 +8272,6 @@ name = "zerocopy-derive"
 version = "0.7.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fa4f8080344d4671fb4e831a13ad1e68092748387dfc4f55e356242fae12ce3e"
-dependencies = [
- "proc-macro2",
- "quote",
- "syn 2.0.91",
-]
-
-[[package]]
-name = "zerocopy-derive"
-version = "0.8.17"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06718a168365cad3d5ff0bb133aad346959a2074bd4a85c121255a11304a8626"
 dependencies = [
  "proc-macro2",
  "quote",
