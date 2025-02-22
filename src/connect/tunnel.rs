@@ -77,6 +77,11 @@ impl ClientTunnel {
             }
         }
 
+        #[cfg(target_os = "ios")]
+        {
+            config.task_limit = Some(100);
+        }
+
         log::debug!("cache path: {:?}", config.cache);
         let client = geph5_client::Client::start(config);
         let handle = client.control_client();
