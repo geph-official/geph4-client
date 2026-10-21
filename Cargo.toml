@@ -69,7 +69,7 @@ im = "15.1.0"
 event-listener = "2.5.3"
 cached = "0.23.0"
 rustls = "0.19.1"
-webpki-roots = "0.21.1"
+webpki-roots = "1.0.10"
 strip-ansi-escapes = "0.1.1"
  
 geph-nat = "0.1.6"
